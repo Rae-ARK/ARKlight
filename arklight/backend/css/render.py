@@ -144,8 +144,19 @@ div {
   color: var(--ark-accent);
 }
 
+.nav a.is-active {
+  color: var(--ark-accent);
+}
+
 .page {
   padding: 0;
+}
+
+/* Pairs with the "toggle" behavior (see arklight.backend.js): start an
+   element hidden with class_name="hidden", then toggle_class="hidden"
+   on the button that reveals it. */
+.hidden {
+  display: none;
 }
 
 .muted {

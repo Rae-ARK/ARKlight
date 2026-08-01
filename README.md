@@ -27,16 +27,17 @@ produces `dist/index.html` -- plain, dependency-free HTML.
 
 ## Status
 
-**v0.002 — CSS.** The compiler now runs both an HTML backend and a CSS
-backend over the same Website IR, so every generated site ships with a
-sensible default look (typography, spacing, buttons, nav, cards) with
-zero CSS written by hand. `arklight build` also opens the result in
-your browser automatically, and internal links (`Link(..., href="/about")`)
-are compiled to real relative file paths, so pages actually link to
-each other correctly whether you open the file directly or deploy it
-to a subdirectory. See [`PROGRESS.md`](./PROGRESS.md) for what's
-implemented and what's next, and [`CHANGELOG.md`](./CHANGELOG.md) for
-version history.
+**v0.003 — JavaScript helpers.** The compiler now runs three backends
+(HTML, CSS, JS) over the same Website IR. Any component can opt into a
+small, closed set of built-in client-side behaviors --
+`on_click="toggle"` and `on_click="scroll-to"` -- via a tiny, fixed
+vanilla-JS runtime ARKlight ships automatically; no JavaScript is ever
+written by hand, and no arbitrary JS strings are accepted (see
+[`docs/DESIGN-NOTES.md`](./docs/DESIGN-NOTES.md) for why that boundary
+is deliberate). The nav bar in the example site also gets its current
+page highlighted automatically, with zero wiring. See
+[`PROGRESS.md`](./PROGRESS.md) for what's implemented and what's next,
+and [`CHANGELOG.md`](./CHANGELOG.md) for version history.
 
 ## Install
 
@@ -103,20 +104,23 @@ Backend Interface     arklight/backend/base.py
 HTML Backend          arklight/backend/html/render.py
     |                  (maps IR node types to HTML tags, rewrites internal
     |                   Link/Image hrefs to relative file paths, links the
-    |                   generated stylesheet)
+    |                   generated stylesheet and behavior runtime)
     v
 CSS Backend           arklight/backend/css/render.py
-    |                  (v0.002: generates a global default stylesheet;
-    |                   both backends run over the same IR and their
+    |                  (v0.002: generates a global default stylesheet)
+    v
+JS Backend            arklight/backend/js/render.py
+    |                  (v0.003: generates a tiny fixed behavior runtime;
+    |                   all three backends run over the same IR and their
     |                   outputs are merged)
     v
-index.html, about.html, styles.css, ...
+index.html, about.html, styles.css, arklight.js, ...
 ```
 
 `arklight/compiler/pipeline.py` orchestrates all of the above into a
 single `build(entry_path, output_dir)` call, which is what the CLI
-uses. By default it runs `[HTMLBackend(), CSSBackend()]` -- pass your
-own `backends=[...]` list to customize which backends run.
+uses. By default it runs `[HTMLBackend(), CSSBackend(), JSBackend()]`
+-- pass your own `backends=[...]` list to customize which backends run.
 
 ### Internal links are relative, not root-absolute
 
@@ -141,9 +145,43 @@ Container(..., style={"background": "#f5f5ff", "padding": "1rem"})
 `class_name` renders as the HTML `class` attribute (avoiding the
 `class` keyword clash); `style` accepts a dict of CSS properties and
 is rendered as an inline `style` attribute. Built-in utility classes
-from the default stylesheet: `.nav`, `.card`, `.muted`, `.page`.
+from the default stylesheet: `.nav`, `.card`, `.muted`, `.page`,
+`.hidden` (pairs with the `toggle` behavior below).
 
-## Public API (v0.001)
+### Behaviors (client-side interactivity, no JS written by hand)
+
+Any component accepts `on_click` + `behavior_target` (a CSS selector)
+to opt into a small, closed set of built-in behaviors, implemented by
+the tiny runtime the JS backend generates:
+
+```python
+Button(
+    "Show details",
+    on_click="toggle",              # or "scroll-to"
+    behavior_target="#more-details",
+    toggle_class="hidden",          # optional, default "is-open"
+)
+Container(Text("..."), id="more-details", class_name="hidden")
+```
+
+| Behavior     | What it does                                                   |
+|--------------|-------------------------------------------------------------------|
+| `toggle`     | Toggles a CSS class (`toggle_class`, default `is-open`) on every element matching `behavior_target` |
+| `scroll-to`  | Smooth-scrolls the element matching `behavior_target` into view    |
+
+`on_click` is validated against this fixed vocabulary at the
+Validation stage -- an unknown behavior name (or a missing
+`behavior_target`) fails the build with a clear message rather than
+silently doing nothing in the browser. There is deliberately no way to
+pass arbitrary JavaScript: see
+[`docs/DESIGN-NOTES.md`](./docs/DESIGN-NOTES.md) for why that boundary
+is a design choice, not a gap.
+
+The current page's nav link is also highlighted automatically (an
+`is-active` class added to any `<a>` inside `.nav` whose target matches
+the current page) -- no props needed for that one.
+
+## Public API (v0.003)
 
 Components -- every one of these is a plain Python function that
 returns an `ARKNode`:
@@ -217,8 +255,13 @@ pytest
 
 - [x] v0.001 -- Python → HTML
 - [x] v0.002 -- CSS
-- [ ] v0.003 -- JavaScript helpers
+- [x] v0.003 -- JavaScript helpers
 - [ ] v0.010 -- Components (user-defined, reusable)
-- [ ] v0.100 -- Alternate backends (Vue, Svelte)
+- [ ] v0.100 -- Alternate backends (Vue, Svelte) -- **note:** the
+      Backend interface is ready for this today; the IR isn't yet.
+      See [`docs/DESIGN-NOTES.md`](./docs/DESIGN-NOTES.md) for why a
+      state/event-semantics milestone likely needs to land before this
+      one means more than static HTML wearing a different file
+      extension.
 - [ ] v1.0 -- Stable compiler
 # ARKlight

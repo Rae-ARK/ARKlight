@@ -56,8 +56,9 @@ def test_build_writes_html_files(tmp_path):
     assert "<h1>ARKlight</h1>" in index_html
     assert "<button>Get Started</button>" in index_html
     assert "<h1>About</h1>" in about_html
-    assert len(result.written_paths) == 3  # index.html, about.html, styles.css
+    assert len(result.written_paths) == 4  # index.html, about.html, styles.css, arklight.js
     assert (out_dir / "styles.css").exists()
+    assert (out_dir / "arklight.js").exists()
 
     # Nav links must be relative file paths, not root-absolute routes --
     # otherwise opening the file directly (file://) or serving from a

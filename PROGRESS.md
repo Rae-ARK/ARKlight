@@ -4,7 +4,126 @@ Living document tracking what's implemented, key decisions made along
 the way, and what's queued up next. Update this file at the end of
 every work session, not just at milestone boundaries.
 
-## Current milestone: v0.002 -- CSS
+## Current milestone: v0.003 -- JavaScript helpers
+
+**Status: DONE.** Also folded in a round of research (Alpine.js/htmx,
+Reflex, Mitosis) and a written positioning/design-notes doc, per
+request, before committing to the JS design.
+
+### Research performed
+
+- Compared Alpine.js/htmx's "attributes describe behavior, a small
+  shipped runtime does the rest, no build step" model against Reflex's
+  "Python state class + live WebSocket backend" model. Reflex requires
+  a running Python server and compiles the *frontend* to React while
+  keeping state/logic server-side -- fundamentally incompatible with
+  ARKlight being a static, backend-independent compiler with no runtime
+  Python anywhere. Alpine/htmx's model -- ship a tiny fixed runtime,
+  describe behavior via HTML attributes -- is the correct fit and is
+  what v0.003 follows.
+- Looked at Mitosis (Builder.io) as prior art for "one authoring layer,
+  many framework backends" (the v0.100 vision). Confirmed the Backend
+  interface is already shaped correctly for this, but that ARKlight's
+  IR (`type/props/children`, no state or event semantics) isn't yet --
+  see `docs/DESIGN-NOTES.md` for the full reasoning. This is now an
+  explicit, named gap in the roadmap rather than an implicit one.
+- Wrote up honest positioning against htpy/FastHTML (mature Python
+  "no template language" tools; FastHTML already has an HTMX-based JS
+  story) and against the Svelte comparison (structurally similar small
+  beginning, but Svelte's breakout came from a genuinely new technical
+  insight solving an acutely-felt problem, not just "started small").
+  Captured in `docs/DESIGN-NOTES.md`.
+
+### What's implemented
+
+- [x] `KNOWN_BEHAVIORS` added to the shared schema
+      (`arklight/ir/schema.py`) -- a closed, documented set of
+      client-side behavior names (`toggle`, `scroll-to`). Closed
+      deliberately: components accept a fixed behavior *name*, never
+      an arbitrary JS string, keeping "the browser never executes
+      Python" true in spirit (nothing runs that ARKlight didn't ship)
+      and "one obvious way" true in practice.
+- [x] Validation stage extended: any node with `on_click` must name a
+      known behavior and must carry a `behavior_target` (CSS selector)
+      prop, or the build fails with a specific message -- same
+      "catch it at compile time, not silently in the browser"
+      guarantee the rest of Validation already provides.
+- [x] `JSBackend` (`arklight/backend/js/render.py`) -- generates a
+      single static `arklight.js`: a `behaviors` dispatch object
+      (`toggle`, `scroll-to`), a `DOMContentLoaded` wiring pass over
+      `[data-ark-on-click]` elements, and automatic current-page nav
+      link highlighting (`is-active` on any `.nav a` matching the
+      current URL) with zero props required.
+- [x] HTML backend updated: `on_click`/`behavior_target`/`toggle_class`
+      props render as `data-ark-on-click` / `data-ark-target` /
+      `data-ark-toggle-class` (not real HTML attributes), and every
+      page now includes `<script src="...arklight.js" defer></script>`
+      with the same relative-path resolution styles.css already gets.
+- [x] **Renamed the behavior-selector prop to `behavior_target`,
+      not `target`**, specifically because `target` is already a real
+      HTML attribute (`<a target="_blank">`) and reusing it would have
+      been a silent footgun the moment someone wanted both on one
+      element. Caught and fixed before shipping, not after.
+- [x] CSS backend: added `.nav a.is-active` styling and a `.hidden`
+      utility class (`display: none`) that pairs with `toggle_class`
+      for the common "hidden by default, revealed by a button" pattern.
+- [x] `default_backends()` now returns `[HTMLBackend(), CSSBackend(),
+      JSBackend()]`.
+- [x] Example site updated: the shared `nav()` gets automatic active-
+      link highlighting for free, and the home page gained a real
+      "Show details" button using `on_click="toggle"` -- a working
+      interactive element with no hand-written JavaScript anywhere in
+      the example.
+- [x] `docs/DESIGN-NOTES.md` added: styling ceiling (`style=`'s real ceiling
+      is no pseudo-classes/`@media`/`@keyframes`/custom fonts, all of
+      which need a `<head>` hook `Page` doesn't expose yet), audience
+      positioning, the Svelte-comparison writeup, the Mitosis-reframe
+      writeup (state/event semantics as the real blocker for v0.100),
+      and why compile-time validation is a sharper AI-assisted-coding
+      advantage than "Python is popular" alone.
+- [x] 9 new tests (66 total, all passing): JS backend output content,
+      behavior-prop validation (valid/unknown/missing target), HTML
+      rendering of `data-ark-*` attributes and the script tag.
+- [x] **Verified interactively with Playwright**, not just by reading
+      generated HTML: served the built example over a local HTTP
+      server, loaded it in real headless Chromium, confirmed the nav
+      link for the current page gets `is-active`, confirmed
+      `#more-details` starts hidden, clicked the "Show details" button,
+      and confirmed it becomes visible. Screenshotted the result.
+
+### Verification performed
+
+```bash
+arklight build examples/hello_site/site.py -o /tmp/dist_v3 --no-open
+python3 -m http.server 8934 --directory /tmp/dist_v3 &
+python3 -c "<playwright script: goto, check .is-active, click 'Show details', assert #more-details visible>"
+# -> home link class: 'is-active' / about link class: '' (on index.html)
+# -> details visible before click: False / after click: True
+python3 -m pytest -q
+# -> 66 passed
+```
+
+### Deliberate design choices worth remembering later
+
+- **Closed behavior vocabulary, not arbitrary JS.** The obvious
+  "easier" path would have been an `on_click="alert(1)"`-style raw JS
+  string prop. Rejected because it reopens exactly the door "the
+  browser never executes Python" is meant to keep shut (arbitrary
+  code, just JS instead of Python), breaks Validation's ability to
+  catch mistakes at compile time (a typo in a JS string isn't
+  checkable), and turns every site into a slightly different JS
+  dialect -- the opposite of "one obvious way."
+- **`behavior_target` instead of `target`** to avoid colliding with the
+  real HTML anchor `target` attribute. Small, but exactly the kind of
+  naming collision that's cheap to avoid now and expensive once sites
+  depend on it.
+- **Static, constant `arklight.js` for v0.003**, mirroring the CSS
+  backend's v0.002 scope cut: `JSBackend.render(ir)` doesn't yet
+  inspect which behaviors a given site actually uses. A future pass
+  emitting only the referenced behaviors is a natural, non-breaking
+  follow-up.
+
+## Previous milestone: v0.002 -- CSS
 
 **Status: DONE.** Along with real CSS support, this pass also fixed
 three "wrinkles" reported after v0.001 landed: the CLI didn't open
@@ -223,29 +342,35 @@ python3 -m pytest -q
   output (`/x/index.html`) was considered but deferred -- easy to add
   as a backend option later without touching earlier stages.
 
-## Next up: v0.003 -- JavaScript helpers
+## Next up: v0.010 -- Components (user-defined, reusable)
 
-Not started. Rough shape to evaluate first:
+Not started. Per `docs/DESIGN-NOTES.md`, this is where "write a plain
+Python function" (today's `nav()` pattern) becomes a real, first-class
+reusable unit -- likely with its own default styling bundled in, which
+would be a genuine differentiator versus htpy/FastHTML (neither ships
+opinionated per-component CSS). Rough questions to resolve first:
 
-- What's the smallest useful JS surface that doesn't violate "the
-  browser never executes Python"? Likely candidates: a `JSBackend`
-  emitting a small `site.js` for things like nav-toggle/interactivity
-  helpers, plus a way for a component to declare "attach this behavior"
-  without hand-writing inline `onclick` strings.
-- Should JS behaviors be named, reusable helpers (`Button("Go",
-  on_click="toggle_menu")`) resolved against a small built-in behavior
-  library, rather than letting users embed arbitrary JS strings? Leaning
-  towards yes, to keep the "AI-friendly", "one obvious way" principles
-  intact and avoid quietly becoming a JS templating engine.
-- This is also a good time to revisit "per-node style generation" noted
-  as deferred in the v0.002 section above, since JS behaviors and CSS
-  classes often want to be declared together (e.g. a collapsible nav).
+- What distinguishes a "component" from a plain helper function like
+  `nav()` today? If the answer is "nothing, syntactically" the
+  milestone may be more about a registration/discovery mechanism (so
+  the compiler *knows* about reusable components, e.g. for future
+  tooling) than a new runtime concept.
+- Should components be able to carry their own default `style=`/CSS
+  rules, shipped alongside the component definition rather than
+  relying entirely on the global stylesheet?
+- Note from the design-notes doc: this milestone does **not** by
+  itself move ARKlight toward "Svelte-like." The next real fork in the
+  road is whether a future milestone introduces state/event semantics
+  into the IR (a prerequisite this doc names for v0.100 to mean
+  anything beyond static output) -- worth deciding explicitly before
+  v0.100, not assuming it falls out of v0.010 or v0.100 automatically.
 
 ## Milestone checklist (from ARCHITECTURE.md)
 
 - [x] v0.001 Python → HTML
 - [x] v0.002 CSS
-- [ ] v0.003 JavaScript helpers
+- [x] v0.003 JavaScript helpers
 - [ ] v0.010 Components
-- [ ] v0.100 Alternate backends
+- [ ] v0.100 Alternate backends -- Backend interface ready; IR needs a
+      state/event-semantics milestone first (see `docs/DESIGN-NOTES.md`)
 - [ ] v1.0 Stable compiler

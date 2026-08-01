@@ -29,6 +29,7 @@ from pathlib import Path
 from arklight.backend.base import Backend
 from arklight.backend.css.render import CSSBackend
 from arklight.backend.html.render import HTMLBackend
+from arklight.backend.js.render import JSBackend
 from arklight.ir.build import WebsiteIR, build_website_ir
 from arklight.ir.normalize import normalize_ark_ast
 from arklight.ir.validate import ValidationError, validate_ark_ast
@@ -36,8 +37,8 @@ from arklight.parser.loader import SiteLoadError, load_site
 
 
 def default_backends() -> list[Backend]:
-    """The backends a normal `arklight build` runs: HTML + CSS."""
-    return [HTMLBackend(), CSSBackend()]
+    """The backends a normal `arklight build` runs: HTML + CSS + JS."""
+    return [HTMLBackend(), CSSBackend(), JSBackend()]
 
 
 @dataclass

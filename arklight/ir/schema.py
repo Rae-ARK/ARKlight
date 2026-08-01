@@ -41,3 +41,24 @@ SCHEMA: dict[str, NodeSpec] = {
 TEXT_ONLY_TYPES = frozenset(
     type_name for type_name, spec in SCHEMA.items() if spec.text_only_children
 )
+
+# v0.003: named client-side behaviors any component may opt into via
+# `on_click="<name>"` (plus `behavior_target="<css selector>"` and, for
+# `toggle`, an optional `toggle_class`). Named `behavior_target` rather
+# than `target` on purpose: `target` is already a real HTML attribute
+# (`<a target="_blank">`), and reusing it for a CSS selector would be a
+# silent footgun the moment someone wanted both on the same element.
+#
+# This is a closed set on purpose -- ARKlight ships a tiny vanilla-JS
+# runtime that implements exactly these behaviors (see
+# arklight.backend.js), rather than letting users embed arbitrary JS
+# strings. That keeps "the browser never executes Python" true in
+# spirit (it never executes anything ARKlight didn't ship) and keeps to
+# "one obvious way": there's a fixed, discoverable vocabulary instead
+# of a new ad-hoc DSL per site.
+#
+# This lives here (not in arklight.backend.js) so the Validation stage
+# can check `on_click` values against it without importing a backend --
+# ir/ stays backend-agnostic; arklight.backend.js imports FROM here to
+# stay in sync instead of the other way around.
+KNOWN_BEHAVIORS = frozenset({"toggle", "scroll-to"})

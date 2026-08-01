@@ -113,6 +113,31 @@ def test_style_dict_prop_renders_as_inline_css():
     assert "font-weight: bold" in html
 
 
+def test_script_tag_present_and_relative_for_nested_pages():
+    output = render(
+        {
+            "/": Page(Text("home")),
+            "/blog/post": Page(Text("post")),
+        }
+    )
+    assert '<script src="arklight.js" defer></script>' in output["index.html"]
+    assert '<script src="../arklight.js" defer></script>' in output["blog/post.html"]
+
+
+def test_behavior_props_render_as_data_ark_attributes():
+    output = render(
+        {"/": Page(Button("Show", on_click="toggle", behavior_target="#panel", toggle_class="hidden"))}
+    )
+    html = output["index.html"]
+    assert 'data-ark-on-click="toggle"' in html
+    assert 'data-ark-target="#panel"' in html
+    assert 'data-ark-toggle-class="hidden"' in html
+    # And NOT emitted as a real "target" HTML attribute, which would be wrong
+    # (must check for a standalone " target=", not the substring inside
+    # "data-ark-target"):
+    assert ' target="#panel"' not in html
+
+
 def test_external_and_fragment_hrefs_are_not_rewritten():
     output = render(
         {

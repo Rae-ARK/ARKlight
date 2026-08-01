@@ -5,6 +5,35 @@ follows [Keep a Changelog](https://keepachangelog.com/); versions
 follow the milestone scheme from ARCHITECTURE.md rather than strict
 SemVer.
 
+## [0.003] -- JavaScript helpers
+
+### Added
+
+- `JSBackend` (`arklight.backend.js`) generating a static
+  `arklight.js`: a fixed, closed vocabulary of client-side behaviors
+  (`toggle`, `scroll-to`) plus automatic current-page nav-link
+  highlighting. No arbitrary JavaScript is ever accepted from user
+  code.
+- `on_click` / `behavior_target` / `toggle_class` props on any
+  component, validated against `arklight.ir.schema.KNOWN_BEHAVIORS` at
+  build time and rendered as `data-ark-*` attributes.
+- `default_backends()` now returns `[HTMLBackend(), CSSBackend(),
+  JSBackend()]`.
+- `.nav a.is-active` and `.hidden` added to the default stylesheet.
+- `docs/DESIGN-NOTES.md`: styling ceiling, audience positioning,
+  Svelte-comparison, and Mitosis-reframe (state/event semantics as the
+  real prerequisite for v0.100) writeups.
+- 9 new tests (66 total): JS backend content, behavior validation, and
+  HTML attribute/script-tag rendering. Also verified interactively with
+  Playwright against a real headless browser (nav highlighting + toggle
+  click), not just by inspecting generated HTML.
+- Example site: home page gained a working "Show details" toggle using
+  `on_click="toggle"`, with no hand-written JavaScript.
+
+### Changed
+
+- CLI/package version bumped to 0.003.
+
 ## [0.002] -- CSS
 
 ### Added

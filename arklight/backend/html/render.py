@@ -6,8 +6,7 @@ only HTML-producing backend in ARKlight; it knows nothing about
 ARKlight's Python API -- it only understands IRNode trees (type /
 props / children), which is exactly the point of the Backend Interface.
 
-Two things beyond basic tag rendering are handled here, both fixes for
-real "it doesn't work when I actually open it" bugs:
+Three things beyond basic tag rendering are handled here:
 
 1. **Internal links are rewritten to relative file paths.** A user
    writes `Link("About", href="/about")` -- a *route*, matching how
@@ -21,8 +20,15 @@ real "it doesn't work when I actually open it" bugs:
    *current* page's output location. External URLs, `#fragments`,
    `mailto:`, and unrecognized paths are left untouched.
 
-2. **A stylesheet link is always included**, pointing (relatively) at
-   the CSS backend's output -- see `arklight.backend.css`.
+2. **A stylesheet link and behavior-runtime script are always
+   included**, pointing (relatively) at the CSS/JS backends' output --
+   see `arklight.backend.css` and `arklight.backend.js`.
+
+3. **`on_click` / `behavior_target` / `toggle_class` props become
+   `data-ark-*` attributes**, not real HTML attributes -- the JS
+   runtime reads these to wire up behaviors. See
+   `arklight.ir.schema.KNOWN_BEHAVIORS` for the full set and
+   `arklight.backend.js` for what actually runs.
 """
 
 from __future__ import annotations
@@ -32,6 +38,7 @@ from html import escape
 
 from arklight.backend.base import Backend
 from arklight.backend.css.render import STYLESHEET_PATH
+from arklight.backend.js.render import SCRIPT_PATH
 from arklight.ir.build import IRNode, IRPage, WebsiteIR
 
 # Maps an IR node type to an HTML tag name.
@@ -51,9 +58,19 @@ TAG_MAP: dict[str, str] = {
 PASSTHROUGH_ATTRS = {"id", "class", "style", "href", "src", "alt", "title", "target", "name", "type"}
 
 # Props whose HTML attribute name differs from the prop's Python name
-# (needed because `class` and `for` are Python keywords/reserved-ish
-# and awkward as kwargs).
+# (needed because `class` is a Python keyword and awkward as a kwarg).
 PROP_ALIASES = {"class_name": "class"}
+
+# v0.003 behavior props (arklight.ir.schema.KNOWN_BEHAVIORS) -> the
+# data-ark-* attribute the JS runtime actually reads. Kept separate
+# from PROP_ALIASES/the generic data-* fallback so the attribute names
+# are exact and documented in one place, matching what
+# arklight/backend/js/render.py's RUNTIME_JS expects.
+BEHAVIOR_PROP_ATTRS = {
+    "on_click": "data-ark-on-click",
+    "behavior_target": "data-ark-target",
+    "toggle_class": "data-ark-toggle-class",
+}
 
 # Attribute names whose value may be resolved relative to the current
 # page ("/", "/about", ...) instead of emitted verbatim.
@@ -129,18 +146,21 @@ def _attr_string(props: dict, *, current_route: str, route_to_path: dict[str, st
         if value is None or value is False:
             continue
 
-        attr_name = PROP_ALIASES.get(key, key)
+        if key in BEHAVIOR_PROP_ATTRS:
+            attr_name = BEHAVIOR_PROP_ATTRS[key]
+        else:
+            attr_name = PROP_ALIASES.get(key, key)
 
-        if attr_name == "style" and isinstance(value, dict):
-            value = _style_dict_to_css(value)
+            if attr_name == "style" and isinstance(value, dict):
+                value = _style_dict_to_css(value)
 
-        if attr_name in ROUTE_AWARE_ATTRS and isinstance(value, str) and _is_internal_route_ref(value):
-            value = _resolve_route_ref(value, current_route=current_route, route_to_path=route_to_path)
+            if attr_name in ROUTE_AWARE_ATTRS and isinstance(value, str) and _is_internal_route_ref(value):
+                value = _resolve_route_ref(value, current_route=current_route, route_to_path=route_to_path)
 
-        if attr_name not in PASSTHROUGH_ATTRS and not attr_name.startswith("data-"):
-            # Unknown props are still emitted as data-* attributes rather
-            # than silently dropped, so nothing a user writes disappears.
-            attr_name = f"data-{attr_name}"
+            if attr_name not in PASSTHROUGH_ATTRS and not attr_name.startswith("data-"):
+                # Unknown props are still emitted as data-* attributes rather
+                # than silently dropped, so nothing a user writes disappears.
+                attr_name = f"data-{attr_name}"
 
         if value is True:
             parts.append(f" {attr_name}")
@@ -185,6 +205,7 @@ def _render_page(page: IRPage, site_name: str, route_to_path: dict[str, str]) ->
     stylesheet_href = _relative_asset_path(
         STYLESHEET_PATH, current_route=page.route, route_to_path=route_to_path
     )
+    script_src = _relative_asset_path(SCRIPT_PATH, current_route=page.route, route_to_path=route_to_path)
     return (
         "<!DOCTYPE html>\n"
         '<html lang="en">\n'
@@ -194,7 +215,9 @@ def _render_page(page: IRPage, site_name: str, route_to_path: dict[str, str]) ->
         f"  <title>{escape(str(title))}</title>\n"
         f'  <link rel="stylesheet" href="{escape(stylesheet_href, quote=True)}">\n'
         "</head>\n"
-        f"<body>\n{body_inner}\n</body>\n"
+        f"<body>\n{body_inner}\n"
+        f'<script src="{escape(script_src, quote=True)}" defer></script>\n'
+        "</body>\n"
         "</html>\n"
     )
 

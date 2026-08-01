@@ -7,25 +7,45 @@ This is the main guardrail that keeps ARKlight "beginner friendly": bad
 trees fail loudly and specifically, at build time, in Python -- never
 silently in the browser.
 
-Checks performed (v0.001):
+Checks performed:
 
 1. The node `type` is a recognized built-in (arklight.ir.schema.SCHEMA).
 2. Required props for that type are present (e.g. `Link` needs `href`,
    `Image` needs `src`).
 3. Node types that require plain-text-only children (e.g. `Text`,
    `Button`) don't contain nested component nodes.
-4. The tree's root is a `Page` node.
-5. Recurses into every child.
+4. `on_click`, if present, names a known behavior and is paired with a
+   `target` selector (arklight.ir.schema.KNOWN_BEHAVIORS).
+5. The tree's root is a `Page` node.
+6. Recurses into every child.
 """
 
 from __future__ import annotations
 
 from arklight.ast.nodes import ARKNode
-from arklight.ir.schema import SCHEMA
+from arklight.ir.schema import KNOWN_BEHAVIORS, SCHEMA
 
 
 class ValidationError(Exception):
     """Raised when an ARK AST tree fails validation."""
+
+
+def _validate_behavior_props(node: ARKNode, *, path: str) -> None:
+    on_click = node.props.get("on_click")
+    if on_click is None:
+        return
+    if on_click not in KNOWN_BEHAVIORS:
+        known = ", ".join(sorted(KNOWN_BEHAVIORS))
+        raise ValidationError(
+            f"{node.type!r} at {path} has on_click={on_click!r}, which isn't a "
+            f"recognized behavior. Known behaviors are: {known}."
+        )
+    if "behavior_target" not in node.props:
+        raise ValidationError(
+            f"{node.type!r} at {path} has on_click={on_click!r} but no "
+            f"`behavior_target` prop (a CSS selector for the element(s) it "
+            f"should act on)."
+        )
 
 
 def validate_node(node: ARKNode, *, path: str = "root") -> None:
@@ -42,6 +62,8 @@ def validate_node(node: ARKNode, *, path: str = "root") -> None:
             raise ValidationError(
                 f"{node.type!r} at {path} is missing required prop {prop_name!r}."
             )
+
+    _validate_behavior_props(node, path=path)
 
     if not spec.allow_children and node.children:
         raise ValidationError(f"{node.type!r} at {path} must not have children.")
