@@ -287,6 +287,12 @@ pytest
 - [x] v0.001 -- Python → HTML
 - [x] v0.002 -- CSS
 - [x] v0.003 -- JavaScript helpers
+- [ ] v0.0035 -- Stateful JS (registry-driven behaviors + actions;
+      design complete, see `docs/DESIGN-NOTES.md`, implementation not
+      started)
+- [ ] v0.004 -- `arklight new` CLI scaffolding (simple + production
+      templates), CSS `@media` support, structured `<head>` extension
+      (design complete, implementation not started)
 - [ ] v0.010 -- Components (user-defined, reusable)
 - [ ] v0.100 -- Alternate backends (Vue, Svelte) -- **note:** the
       Backend interface is ready for this today; the IR isn't yet.

@@ -239,6 +239,172 @@ The missing piece for that vision isn't component reuse, it's
 reactivity, and that deserves its own named milestone rather than being
 assumed inside v0.100.
 
+## v0.0035 / v0.004 design: stateful JS, CLI scaffolding, responsive + head extension (PLANNING -- not yet implemented)
+
+This section is a design doc, written before any of it is built, so the
+shape gets agreed on before code exists (same discipline as the
+Alpine/htmx-vs-Reflex research that preceded v0.003). Nothing below is
+implemented yet -- see PROGRESS.md for what's actually landed.
+
+Three initiatives, staged as two named milestones so this doesn't land
+as one undifferentiated grab-bag:
+
+- **v0.0035 -- Stateful JS.** The breadcrumb for this already exists in
+  the v0.003 commit history ("Next is adding states in V0.0035"). This
+  is the reactivity/IR-state milestone this document has been calling
+  the real prerequisite for v0.100 (alternate backends) to mean
+  anything.
+- **v0.004 -- CLI scaffolding + responsive/head extension.** Two
+  independent, smaller features that don't depend on state landing
+  first.
+
+### v0.0035: stateful JS -- capability, not vocabulary
+
+Explicit constraint from the person requesting this: don't add new
+*named* behaviors (no `increment`, no `fetch-submit`, etc. yet) --
+make the **compiler** capable of arbitrary future client-side behavior,
+so new vocabulary later is additive data, not a compiler rewrite. Two
+separate refactors accomplish this:
+
+**1. Behaviors become a registry, not a hardcoded dispatch table.**
+Today `KNOWN_BEHAVIORS` (`arklight/ir/schema.py`) is a flat
+`frozenset`, and `RUNTIME_JS` (`arklight/backend/js/render.py`) is one
+hand-written JS string with an if/else-shaped `behaviors` object
+inside it. Both become data:
+
+- `KNOWN_BEHAVIORS: frozenset[str]` -> `BEHAVIOR_REGISTRY: dict[str,
+  BehaviorSpec]`, where `BehaviorSpec` names optional extra props
+  (e.g. `toggle_class`) the same way `NodeSpec` already documents
+  required props for HTML components. `KNOWN_BEHAVIORS` stays as a
+  derived `frozenset(BEHAVIOR_REGISTRY)` so Validation's existing
+  check doesn't need to change shape.
+- The JS runtime is assembled from small per-behavior fragments
+  (`arklight/backend/js/behaviors/*.py`, one dict entry each: name ->
+  JS function body as a string) instead of one monolithic
+  hand-maintained string. `JSBackend.render()` concatenates only the
+  fragments actually referenced by the site's IR (a real, if small,
+  step towards the "future pass emitting only used behaviors" already
+  flagged as a follow-up in PROGRESS.md).
+- This alone adds zero user-facing vocabulary. It's the refactor that
+  makes "add one more behavior later" a one-file, additive change
+  instead of touching a hand-maintained JS string and its Python
+  dispatch in lockstep.
+
+**2. A real `State` primitive in the IR, with a closed *action*
+vocabulary instead of a closed *behavior name* vocabulary.**
+
+- New API: `State("count", 0)` -- declared inside `Page(...)`, becomes
+  a `state: dict[str, Any]` field on the IR's `Page` node (not a prop
+  on some other node; state belongs to the page, same way `title`
+  does today).
+- New API: `Bind("count")` -- usable anywhere a literal prop value is
+  accepted today (`Text(Bind("count"))`, later `class_name=Bind(...)`
+  for conditional classes). Marks "this value tracks state `count`" in
+  the IR instead of being a static string. Validation checks every
+  `Bind(...)` references a `State(...)` actually declared on that
+  page, same "catch it at compile time" guarantee the rest of
+  Validation already provides.
+- New API: `Action.set(name, value)`, `Action.increment(name,
+  delta=1)`, `Action.toggle_bool(name)` -- structured objects, not
+  strings, passed to `on_click=` (or a future `on_change=`, etc.)
+  alongside or instead of today's behavior names. Still a **closed,
+  described vocabulary** -- never an arbitrary JS/Python string, so
+  "the browser never executes anything ARKlight didn't ship" stays
+  true. What's different from today's `KNOWN_BEHAVIORS` is that
+  actions are driven from `ACTION_REGISTRY` (same registry pattern as
+  behaviors above), so *this* project can add `Action.append_to_list`,
+  `Action.set_from_input`, etc. later as pure data, without whoever
+  writes those later needing to touch `JSBackend`'s generation logic.
+- `JSBackend` emits, only for pages that declare `state`, one small
+  fixed reactive core: a `createState(initial)` closure, a
+  `data-ark-bind="count"` -> re-render wiring pass, and an action
+  dispatcher that walks `ACTION_REGISTRY` the same way the existing
+  behavior dispatcher walks `BEHAVIOR_REGISTRY`. Still one static,
+  fully-readable runtime file. Still no `eval`, no `new Function`, no
+  string ever executed as code -- the extensibility is in the
+  registries being open to new *data*, not in the runtime becoming a
+  general-purpose interpreter.
+- Net result, matching the actual ask: "any kind of JS API which can
+  be built in the future" becomes possible by adding registry entries
+  (new `BehaviorSpec` / `ActionSpec` + a JS fragment), not by changing
+  `normalize.py`/`validate.py`/`build.py`/the `Backend` interface --
+  exactly the same "grow as data" discipline the two vocabulary
+  addenda already established for HTML components, applied to JS for
+  the first time.
+
+### v0.004: CLI scaffolding (`arklight new`)
+
+```
+arklight new <name> [--template simple|production] [--dir PATH]
+```
+
+- **`simple` (default).** Beginner-shaped: a single `site.py` with one
+  or two inline pages, mirroring `examples/hello_site/` almost
+  exactly. Goal: zero-thinking path from `arklight new my-site` to a
+  working `arklight build` with nothing to wire up.
+- **`production`.** Mirrors Product-Showcase's proven layout --
+  `site.py` + `components/` + `pages/` + `content/` + `assets/` -- and
+  bakes in fixes for the real gotchas that project's `architecture.md`
+  documented from actually building a six-page site, rather than
+  re-documenting them in a README for the next person to hit:
+  - `site.py` is generated with every page wrapped in a real
+    `@site.page("/route")` decorator (never the equivalent call form),
+    since static discovery only recognizes the decorator.
+  - Scaffolded `components/__init__.py` / `pages/__init__.py` /
+    `content/__init__.py` exist up front so the package-shaped layout
+    imports cleanly from line one.
+  - The generated README documents the `cp -r assets dist/assets` step
+    -- *and*, as a companion fix independent of scaffolding (this is a
+    real gap, not a template-only concern): `arklight build` itself
+    should auto-copy a top-level `assets/` folder into `dist/assets`
+    when one exists, so the 404-images gotcha stops being possible by
+    default instead of merely being documented.
+  - Fold in the other real bug Product-Showcase's `architecture.md`
+    found: `arklight/__init__.py` is missing the second vocabulary
+    addendum from its `from arklight import *` surface (`Picture`,
+    `OrderedList`, `Dialog`, etc. importable only via
+    `arklight.api`). This is a pre-existing correctness bug, not new
+    scope -- worth fixing alongside scaffolding since a fresh
+    `production`-template project would hit it immediately.
+- No templating dependency -- an in-package dict of relative path ->
+  file contents (f-strings), consistent with "no runtime dependencies
+  beyond the build backend."
+
+### v0.004: CSS media queries + `<head>` extension
+
+- `Page(...)` gains optional, *structured* extension points --
+  deliberately not a raw HTML-injection escape hatch, to avoid
+  reopening the "no arbitrary strings" boundary the rest of the
+  project holds: `meta: dict[str, str] | None` (name/content pairs)
+  and `links: list[dict] | None` (for `<link rel="preconnect">`,
+  webfonts, icons -- each dict is attribute name -> value, rendered as
+  a `<link ...>` tag). `head_html`-as-raw-string is explicitly
+  rejected for the same reason arbitrary `on_click` JS strings were
+  rejected in v0.003.
+- Responsive styling extends the existing `style={...}` convention
+  instead of a new component type: an optional `responsive_style:
+  dict[str, dict[str, str]]` prop, where each key is a raw media
+  condition (e.g. `"(max-width: 600px)"`) and each value is a normal
+  CSS-property dict. `CSSBackend` compiles each into a real `@media
+  (...) { .arkgen-N { ... } }` rule, auto-generating a scoped class
+  per node the same way today's inline `style=` handling already
+  needs a per-node identity. This finally allows a real breakpoint
+  ("hide entirely on mobile"), which `docs/DESIGN-NOTES.md` has
+  flagged since v0.003 as something the intrinsic-layout utilities
+  cannot substitute for.
+- Explicitly deferred, not silently dropped: `@keyframes` animations
+  and `@font-face` custom fonts. Both are bigger design questions
+  (asset handling for font files, keyframe-name collision rules) with
+  no concrete ask yet -- noted here so they don't get assumed-in-scope
+  later.
+
+### Staging
+
+Land as two tagged milestones, not one commit: **v0.0035** (state +
+behavior/action registries) lands first and independently; **v0.004**
+(scaffolding + responsive/head) does not depend on it and could
+technically land first if that's preferred once implementation starts.
+
 ## Why Python specifically, independent of popularity
 
 Python's raw proficiency advantage for LLM-assisted coding is well

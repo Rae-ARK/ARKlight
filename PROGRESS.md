@@ -342,7 +342,38 @@ python3 -m pytest -q
   output (`/x/index.html`) was considered but deferred -- easy to add
   as a backend option later without touching earlier stages.
 
-## Next up: v0.010 -- Components (user-defined, reusable)
+## Next up: v0.0035 -- Stateful JS (PLANNING)
+
+Not started -- design only so far. Full writeup in
+`docs/DESIGN-NOTES.md` ("v0.0035 / v0.004 design"). Short version:
+this is the reactivity/IR-state milestone `docs/DESIGN-NOTES.md` has
+been naming as the real prerequisite for v0.100 to mean anything, and
+matches the breadcrumb already in the v0.003 commit history ("Next is
+adding states in V0.0035").
+
+Explicit scope boundary for this milestone: **capability, not
+vocabulary.** Two registry-driven refactors (behaviors, and a new
+closed *action* vocabulary for state mutation), not a pile of new
+named behaviors -- new vocabulary is meant to be added later, as data,
+once the mechanism exists. No implementation yet; waiting on go-ahead
+before writing code.
+
+## Then: v0.004 -- CLI scaffolding + responsive/head extension (PLANNING)
+
+Also design-only so far, same doc. Three pieces, independent of
+v0.0035:
+
+- `arklight new <name> --template simple|production` -- two
+  scaffolds, the second mirroring Product-Showcase's layout and fixing
+  (not just documenting) the gotchas its `architecture.md` found,
+  including the `__init__.py` vocabulary-addendum-2 export gap and an
+  `arklight build` auto-copy of a top-level `assets/` folder.
+- `responsive_style={...}` prop -> real `@media` blocks in the CSS
+  backend.
+- `Page(meta=..., links=...)` -- a structured, non-arbitrary `<head>`
+  extension point (no raw HTML injection).
+
+## Later: v0.010 -- Components (user-defined, reusable)
 
 Not started. Per `docs/DESIGN-NOTES.md`, this is where "write a plain
 Python function" (today's `nav()` pattern) becomes a real, first-class
