@@ -216,7 +216,7 @@ pytest
 ## Roadmap
 
 - [x] v0.001 -- Python → HTML
-- [ ] v0.002 -- CSS
+- [x] v0.002 -- CSS
 - [ ] v0.003 -- JavaScript helpers
 - [ ] v0.010 -- Components (user-defined, reusable)
 - [ ] v0.100 -- Alternate backends (Vue, Svelte)
