@@ -52,14 +52,81 @@ TAG_MAP: dict[str, str] = {
     "Image": "img",
     "List": "ul",
     "Item": "li",
+    # v0.003: semantic layout.
+    "Header": "header",
+    "Footer": "footer",
+    "Main": "main",
+    "Nav": "nav",
+    "Section": "section",
+    "Article": "article",
+    "Aside": "aside",
+    "Figure": "figure",
+    "FigCaption": "figcaption",
+    "Details": "details",
+    "Summary": "summary",
+    # v0.003: text-level semantics.
+    "Strong": "strong",
+    "Em": "em",
+    "Small": "small",
+    "Mark": "mark",
+    "Code": "code",
+    "Cite": "cite",
+    "Abbr": "abbr",
+    "Sub": "sub",
+    "Sup": "sup",
+    "Span": "span",
+    "Time": "time",
+    "HorizontalRule": "hr",
+    "LineBreak": "br",
+    "Pre": "pre",
+    "Blockquote": "blockquote",
+    # v0.003: forms.
+    "Form": "form",
+    "Input": "input",
+    "Textarea": "textarea",
+    "Select": "select",
+    "Option": "option",
+    "OptGroup": "optgroup",
+    "Label": "label",
+    "FieldSet": "fieldset",
+    "Legend": "legend",
+    # v0.003: tables.
+    "Table": "table",
+    "TableHead": "thead",
+    "TableBody": "tbody",
+    "TableFoot": "tfoot",
+    "TableRow": "tr",
+    "TableHeaderCell": "th",
+    "TableCell": "td",
+    "Caption": "caption",
+    # v0.003: media.
+    "Video": "video",
+    "Audio": "audio",
+    "Source": "source",
 }
 
 # Prop names that map straight through to HTML attributes.
-PASSTHROUGH_ATTRS = {"id", "class", "style", "href", "src", "alt", "title", "target", "name", "type"}
+PASSTHROUGH_ATTRS = {
+    "id", "class", "style", "href", "src", "alt", "title", "target", "name", "type",
+    # v0.003: forms.
+    "value", "placeholder", "required", "disabled", "checked", "readonly",
+    "min", "max", "step", "pattern", "rows", "cols", "for", "multiple",
+    "selected", "maxlength", "minlength", "autocomplete", "accept", "action",
+    "method", "enctype", "novalidate", "label", "size", "autofocus", "form",
+    # v0.003: tables.
+    "colspan", "rowspan", "scope", "headers",
+    # v0.003: media.
+    "controls", "autoplay", "loop", "muted", "poster", "preload",
+    # v0.003: <details>, <blockquote>/<q>, <time>.
+    "open", "cite", "datetime", "download",
+    # v0.003: accessibility (beyond the generic aria_* -> aria-* mapping
+    # below, `role` is common enough to spell out explicitly).
+    "role", "tabindex",
+}
 
 # Props whose HTML attribute name differs from the prop's Python name
-# (needed because `class` is a Python keyword and awkward as a kwarg).
-PROP_ALIASES = {"class_name": "class"}
+# (needed because `class` and `for` are Python keywords/awkward as kwargs).
+PROP_ALIASES = {"class_name": "class", "for_": "for", "html_for": "for"}
 
 # v0.003 behavior props (arklight.ir.schema.KNOWN_BEHAVIORS) -> the
 # data-ark-* attribute the JS runtime actually reads. Kept separate
@@ -77,7 +144,7 @@ BEHAVIOR_PROP_ATTRS = {
 ROUTE_AWARE_ATTRS = {"href", "src"}
 
 # Tags that never have a closing tag / children.
-VOID_TAGS = {"img"}
+VOID_TAGS = {"img", "hr", "br", "input", "source"}
 
 
 def _style_dict_to_css(style: dict) -> str:
@@ -148,6 +215,12 @@ def _attr_string(props: dict, *, current_route: str, route_to_path: dict[str, st
 
         if key in BEHAVIOR_PROP_ATTRS:
             attr_name = BEHAVIOR_PROP_ATTRS[key]
+        elif key.startswith("aria_"):
+            # v0.003: generic accessibility convention -- `aria_label`,
+            # `aria_hidden`, `aria_expanded`, etc. all map straight to
+            # their real `aria-*` attribute without needing an entry
+            # per attribute name (there are dozens in the ARIA spec).
+            attr_name = "aria-" + key[len("aria_"):].replace("_", "-")
         else:
             attr_name = PROP_ALIASES.get(key, key)
 

@@ -60,6 +60,45 @@ def about():
             Text("Components are functions. Children are positional. Props are keyword."),
             class_name="card",
         ),
+
+        # v0.003 vocabulary addendum: a short showcase of the extended
+        # component set -- semantic layout, a native disclosure widget,
+        # a form, and a table, none of which existed before this
+        # addendum (still v0.003, not a new version).
+        Section(
+            Heading("Extended vocabulary", level=3),
+            Details(
+                Summary("Semantic layout, forms, tables, and media"),
+                # Container (not Text) here because it needs to mix
+                # plain strings with `Code` nodes -- Text is text-only
+                # and can't hold a nested component.
+                Container(
+                    "This page's ", Code("Section"), " and the ", Code("Details"),
+                    "/", Code("Summary"), " pair you're reading right now are both ",
+                    "part of the extended vocabulary, styled with zero extra CSS.",
+                ),
+                Pre(Code("Details(Summary('More'), Text('...'))")),
+            ),
+            Form(
+                Label("Your name", for_="name"),
+                Input(type="text", id="name", name="name", placeholder="Ada Lovelace"),
+                Button("Subscribe", type="submit"),
+                class_name="stack",
+            ),
+            Table(
+                Caption("New component groups"),
+                TableHead(
+                    TableRow(TableHeaderCell("Group"), TableHeaderCell("Examples")),
+                ),
+                TableBody(
+                    TableRow(TableCell("Layout"), TableCell("Header, Nav, Section, Aside")),
+                    TableRow(TableCell("Forms"), TableCell("Form, Input, Select, Label")),
+                    TableRow(TableCell("Tables"), TableCell("Table, TableRow, TableCell")),
+                ),
+            ),
+            class_name="stack",
+        ),
+
         Link("Back home", href="/"),
         title="About - ARKlight",
     )

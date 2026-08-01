@@ -40,6 +40,61 @@ Custom fonts and responsive breakpoints in particular would need a real
 `<head>` extension point on `Page` -- a plausible, scoped addition, not
 yet on the roadmap.
 
+## Vocabulary extension addendum: closing the vocabulary gap, not the structural ceiling
+
+This addendum (folded into v0.003, not a new version) added ~46 component types (semantic layout, text-level
+semantics, forms, tables, media) and two more closed JS behaviors
+(`copy`, `dismiss`). It's worth being precise about what that does and
+doesn't change against the ceiling described above, since it would be
+easy to overstate:
+
+**What it closes:** the earlier schema (`Page`, `Container`, `Heading`,
+`Text`, `Button`, `Link`, `Image`, `List`, `Item`) couldn't express a
+form, a table, a `<nav>`/`<header>`/`<footer>` landmark, an accordion,
+or a code block without abusing `Container`/`Text`. That's a real gap
+for "production grade" static sites -- a landing page with a contact
+form or a docs page with a table couldn't be built at all. It's closed
+now, and it's closed the way everything in this schema is: data added
+to `arklight.ir.schema.SCHEMA`, not new compiler logic. Normalize,
+validate, and build didn't change.
+
+**What it doesn't close, confirmed against the v0.003 source, not
+guessing:**
+
+- **Still no `@media`/`@container` queries.** The new `.stack`,
+  `.cluster`, `.sidebar`, `.switcher`, `.grid`, `.center`, `.reel`
+  utility classes in the CSS backend are all *intrinsic* -- built from
+  `minmax()`, `auto-fit`, `clamp()`, and `flex-basis` arithmetic that
+  reads the container's own available width, never the viewport's.
+  That's a genuine, well-established answer to "no breakpoints" (the
+  pattern predates ARKlight -- see Every Layout's Stack/Cluster/
+  Sidebar/Switcher/Grid primitives), but it is not the same feature as
+  an explicit `@media (max-width: 600px) { ... }` rule, and there are
+  real layouts (e.g. "hide this entirely on mobile," not just "let it
+  reflow") that only an actual media query can express. `Page` still
+  renders nothing into `<head>` beyond title + the one fixed
+  stylesheet, so there's still no place to put one even if a user
+  hand-wrote the CSS.
+- **`copy`/`dismiss` are still closed-vocabulary, not "more state."**
+  They extend the same fixed dispatch table `toggle`/`scroll-to`
+  already used (`arklight.backend.js`'s `behaviors` object) -- no
+  `eval`, no `new Function`, nothing user-authored ever executes. This
+  is more surface area on the existing non-goal boundary, not a
+  loosening of it.
+- **`<details>`/`<summary>` sidesteps the JS ceiling rather than
+  raising it.** It's a genuine, valuable addition (an accordion needs
+  zero `on_click` wiring now), but it works because the *browser*
+  ships the interactivity natively, not because ARKlight's runtime
+  grew a new capability.
+
+Net effect: v0.003 makes ARKlight capable of authoring the kind of page
+a small business site or docs section actually needs (nav, forms,
+tables, disclosure widgets, code samples), and gives it an honest,
+non-hacky story for "responsive" within the no-breakpoints constraint.
+It does not move the needle on the "who needs this" section below, and
+it does not touch the reactivity/IR-state gap discussed later in this
+document -- those remain the real forks in the road for v0.010/v0.100.
+
 ## Who actually needs this
 
 A narrow but real slice of people, worth stating plainly rather than
@@ -60,12 +115,20 @@ overselling:
 
 **Not a fit today:**
 - Anyone who needs interactivity beyond a closed, small behavior
-  vocabulary (menus, toggles, scroll-to -- not forms, not client-side
-  validation, not anything stateful across more than one class flip).
+  vocabulary (menus, toggles, scroll-to, copy-to-clipboard, dismiss --
+  as of v0.003, `<form>`/`<input>` etc. can be *authored*, but there is
+  still no client-side validation or submit handling; a `Form` posts
+  like a plain HTML form always has, or goes nowhere without a real
+  backend to receive it).
 - Anyone who needs more than one page layout shape -- everything is
-  capped at a fixed-width column with no override hook yet.
-- Anyone who needs real responsive design -- no `@media` hook (see
-  above).
+  still capped at a fixed-width column by default (the v0.003 `.stack`/
+  `.cluster`/`.sidebar`/`.grid`/etc. utilities are opt-in per
+  `class_name`, not a different default `Page` shape).
+- Anyone who needs an explicit `@media` breakpoint rule (e.g. "hide
+  entirely on mobile," not "reflow based on width") -- v0.003's
+  intrinsic layout utilities cover a lot of the same ground without
+  one, but they're not a substitute for every use of a real media
+  query (see the v0.003 section above).
 - Teams -- there's no component reuse mechanism yet beyond "write a
   Python function" (v0.010 on the roadmap), which is fine solo and gets
   messy with more than one contributor.

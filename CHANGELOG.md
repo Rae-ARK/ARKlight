@@ -5,7 +5,72 @@ follows [Keep a Changelog](https://keepachangelog.com/); versions
 follow the milestone scheme from ARCHITECTURE.md rather than strict
 SemVer.
 
-## [0.003] -- JavaScript helpers
+## [0.003] -- JavaScript helpers (+ vocabulary extension addendum)
+
+### Addendum: vocabulary extension
+
+Not a version bump and not a new pipeline stage -- this stays v0.003.
+Every addition below is data, not new compiler logic:
+`arklight.ir.schema.SCHEMA` is the single source of truth every stage
+(normalize/validate/build/backends) already reads from, so extending
+it is how this addendum adds ~46 new component types without touching
+normalize.py, validate.py, or build.py at all.
+
+#### Added
+
+- **46 new built-in components**, grouped the same way HTML groups
+  them:
+  - Semantic layout: `Header`, `Footer`, `Main`, `Nav`, `Section`,
+    `Article`, `Aside`, `Figure`, `FigCaption`, `Details`, `Summary`
+    (the last two are a *native* browser disclosure widget -- an
+    accordion/expand-collapse that needs zero JS, not even the
+    `toggle` behavior).
+  - Text-level semantics: `Strong`, `Em`, `Small`, `Mark`, `Code`,
+    `Cite`, `Abbr`, `Sub`, `Sup`, `Span`, `Time`, `HorizontalRule`,
+    `LineBreak`, `Pre`, `Blockquote`.
+  - Forms: `Form`, `Input`, `Textarea`, `Select`, `Option`,
+    `OptGroup`, `Label`, `FieldSet`, `Legend`.
+  - Tables: `Table`, `TableHead`, `TableBody`, `TableFoot`,
+    `TableRow`, `TableHeaderCell`, `TableCell`, `Caption`.
+  - Media: `Video`, `Audio`, `Source`.
+- **Two new closed JS behaviors**, alongside `toggle`/`scroll-to`:
+  `copy` (clipboard copy with button-text feedback) and `dismiss`
+  (one-way hide, e.g. closing a banner/alert for good). Both are
+  stateless in the same sense the original two are -- a pure reaction
+  to one click, nothing retained in JS across events.
+- **A generic `aria_*` prop convention** (`aria_label`, `aria_hidden`,
+  `aria_expanded`, ...) mapping straight to the real `aria-*`
+  attribute, plus `role`/`tabindex` and a `for_`/`html_for` alias for
+  `<label for>` (since `for` is a Python keyword).
+- **Intrinsic responsive layout utility classes** in the default
+  stylesheet -- `.stack`, `.cluster`, `.sidebar`, `.switcher`, `.grid`,
+  `.center`, `.reel`, `.fluid-heading` -- built entirely from flexbox/
+  grid sizing keywords (`minmax`, `auto-fit`, `clamp`, `flex-basis`
+  math), with **no `@media`/`@container` query anywhere**, addressing
+  the structural ceiling recorded in `docs/DESIGN-NOTES.md`: `Page`
+  still has no `<head>` hook for a breakpoint-based rule, so
+  responsiveness has to come from the browser reflowing content from
+  available width alone.
+- Default styling for every new tag (forms, tables, `<details>`,
+  `<code>`/`<pre>`, media, etc.) in the generated stylesheet, plus an
+  `.alert` utility that pairs with the new `dismiss` behavior.
+- 34 new tests (87 total) covering the new components, behaviors, and
+  CSS utilities across `test_html_backend.py`, `test_css_backend.py`,
+  `test_js_backend.py`, and `test_validate.py`.
+
+#### Notes
+
+- `TableHeaderCell`/`TableCell` are real containers (like `Container`),
+  not text-only -- a real table cell routinely holds a `Link` or
+  `Strong`, not just plain text. This means a bare string child gets
+  wrapped in a `Text` node the same way it would inside a `Container`
+  (consistent with existing normalization behavior, not new).
+  `FigCaption`, `Summary`, `Legend`, `Caption`, `Label`, `Option`,
+  `Textarea` stay text-only, matching how `Heading`/`Text`/`Button`
+  already work.
+- `pyproject.toml`'s version was still `0.001` while
+  `arklight/__init__.py` said `0.003` -- both now correctly read
+  `0.003`.
 
 ### Added
 

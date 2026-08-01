@@ -38,3 +38,16 @@ def test_js_runtime_has_no_eval_or_new_function():
     js = JSBackend().render(_ir())[SCRIPT_PATH]
     assert "eval(" not in js
     assert "new Function(" not in js
+
+
+def test_js_runtime_implements_copy_and_dismiss():
+    js = JSBackend().render(_ir())[SCRIPT_PATH]
+    assert "copy:" in js
+    assert "dismiss:" in js
+    assert "navigator.clipboard" in js
+
+
+def test_js_runtime_still_has_no_eval_or_new_function_after_extension():
+    js = JSBackend().render(_ir())[SCRIPT_PATH]
+    assert "eval(" not in js
+    assert "new Function(" not in js

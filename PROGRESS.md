@@ -365,11 +365,28 @@ opinionated per-component CSS). Rough questions to resolve first:
   anything beyond static output) -- worth deciding explicitly before
   v0.100, not assuming it falls out of v0.010 or v0.100 automatically.
 
+## v0.003 addendum -- vocabulary extension (done)
+
+Not a new milestone/version -- this stays v0.003. Added ~46 more
+built-in components (semantic layout, text-level semantics, forms,
+tables, media) and two more closed JS behaviors (`copy`, `dismiss`) on
+top of the original v0.003 JavaScript-helpers work, entirely as data
+in `arklight.ir.schema.SCHEMA` / `arklight.ir.schema.KNOWN_BEHAVIORS`
+-- no changes to normalize.py, validate.py, or build.py. See
+`CHANGELOG.md` for the full list and `docs/DESIGN-NOTES.md` ("v0.003:
+closing the vocabulary gap, not the structural ceiling") for what this
+does and doesn't change about the ceiling (still no
+`@media`/`@container`, still a closed JS vocabulary).
+
+Also fixed a pre-existing version drift: `pyproject.toml` said
+`0.001` while `arklight/__init__.py` said `0.003`; both now correctly
+read `0.003`.
+
 ## Milestone checklist (from ARCHITECTURE.md)
 
 - [x] v0.001 Python → HTML
 - [x] v0.002 CSS
-- [x] v0.003 JavaScript helpers
+- [x] v0.003 JavaScript helpers (+ vocabulary extension addendum above)
 - [ ] v0.010 Components
 - [ ] v0.100 Alternate backends -- Backend interface ready; IR needs a
       state/event-semantics milestone first (see `docs/DESIGN-NOTES.md`)

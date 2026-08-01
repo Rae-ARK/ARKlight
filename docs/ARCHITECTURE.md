@@ -112,7 +112,9 @@ arklight-framework/
 
 - v0.001 Python → HTML
 - v0.002 CSS
-- v0.003 JavaScript helpers
+- v0.003 JavaScript helpers (also covers a later vocabulary extension:
+  semantic layout, forms, tables, media; intrinsic responsive layout
+  utilities; `copy`/`dismiss` behaviors -- see CHANGELOG.md)
 - v0.010 Components
 - v0.100 Alternate backends
 - v1.0 Stable compiler

@@ -1,6 +1,21 @@
 import pytest
 
-from arklight.api import Button, Container, Heading, Image, Link, Page, Text
+from arklight.api import (
+    Button,
+    Container,
+    Details,
+    Heading,
+    Image,
+    Input,
+    Link,
+    Page,
+    Pre,
+    Source,
+    Summary,
+    Table,
+    TableCell,
+    Text,
+)
 from arklight.ast.nodes import ARKNode
 from arklight.ir.normalize import normalize_node
 from arklight.ir.validate import ValidationError, validate_node, validate_page
@@ -68,3 +83,32 @@ def test_on_click_without_behavior_target_raises():
     tree = Page(Button("Show", on_click="toggle"))
     with pytest.raises(ValidationError, match="no `behavior_target` prop"):
         norm_validate(tree)
+
+
+def test_v0_004_component_tree_passes():
+    tree = Page(
+        Details(Summary("More"), Text("hidden")),
+        Pre(Text("code")),
+        Table(TableCell("x")),
+    )
+    norm_validate(tree)  # should not raise
+
+
+def test_source_missing_required_src_raises():
+    tree = Source()
+    with pytest.raises(ValidationError, match="missing required prop 'src'"):
+        norm_validate(tree)
+
+
+def test_input_with_children_raises():
+    bad = ARKNode(type="Input", props={}, children=[ARKNode("Text", {}, ["x"])])
+    with pytest.raises(ValidationError, match="must not have children"):
+        validate_node(bad)
+
+
+def test_valid_copy_and_dismiss_behaviors_pass():
+    tree = Page(
+        Button("Copy", on_click="copy", behavior_target="#snippet"),
+        Button("Close", on_click="dismiss", behavior_target="#banner"),
+    )
+    norm_validate(tree)  # should not raise

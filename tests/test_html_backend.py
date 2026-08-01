@@ -1,4 +1,41 @@
-from arklight.api import Button, Container, Heading, Image, Link, Page, Text
+from arklight.api import (
+    Audio,
+    Blockquote,
+    Button,
+    Caption,
+    Code,
+    Container,
+    Details,
+    FieldSet,
+    Figure,
+    FigCaption,
+    Form,
+    Header,
+    Heading,
+    HorizontalRule,
+    Image,
+    Input,
+    Label,
+    Legend,
+    LineBreak,
+    Link,
+    Nav,
+    Option,
+    Page,
+    Pre,
+    Select,
+    Source,
+    Summary,
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableHeaderCell,
+    TableRow,
+    Text,
+    Textarea,
+    Video,
+)
 from arklight.backend.html.render import HTMLBackend
 from arklight.ir.build import build_website_ir
 from arklight.ir.normalize import normalize_ark_ast
@@ -154,3 +191,130 @@ def test_external_and_fragment_hrefs_are_not_rewritten():
     assert 'href="https://example.com"' in html
     assert 'href="#section"' in html
     assert 'href="mailto:a@b.com"' in html
+
+
+def test_semantic_layout_tags_render_correctly():
+    output = render(
+        {
+            "/": Page(
+                Header(Nav(Link("Home", href="/"))),
+                Text("body"),
+            )
+        }
+    )
+    html = output["index.html"]
+    assert "<header>" in html and "</header>" in html
+    assert "<nav>" in html and "</nav>" in html
+
+
+def test_figure_and_figcaption_render():
+    output = render({"/": Page(Figure(Image(src="a.png", alt="pic"), FigCaption("a caption")))})
+    html = output["index.html"]
+    assert "<figure>" in html
+    assert "<figcaption>a caption</figcaption>" in html
+
+
+def test_details_summary_render_native_disclosure():
+    output = render({"/": Page(Details(Summary("More"), Text("hidden content"), open=True))})
+    html = output["index.html"]
+    assert "<details open>" in html
+    assert "<summary>More</summary>" in html
+
+
+def test_pre_code_pairing_renders_as_container():
+    output = render({"/": Page(Pre(Code("x = 1")))})
+    assert "<pre><code>x = 1</code></pre>" in output["index.html"]
+
+
+def test_blockquote_renders():
+    output = render({"/": Page(Blockquote(Text("quoted")))})
+    assert "<blockquote><p>quoted</p></blockquote>" in output["index.html"]
+
+
+def test_void_tags_render_self_closing():
+    output = render({"/": Page(Text("a"), HorizontalRule(), LineBreak())})
+    html = output["index.html"]
+    assert "<hr />" in html
+    assert "<br />" in html
+
+
+def test_form_elements_render_with_form_attrs():
+    output = render(
+        {
+            "/": Page(
+                Form(
+                    Label("Email", for_="email"),
+                    Input(type="email", name="email", id="email", required=True),
+                    Textarea("", name="message", rows=4),
+                    Select(Option("A", value="a"), Option("B", value="b")),
+                    action="/submit",
+                    method="post",
+                )
+            )
+        }
+    )
+    html = output["index.html"]
+    assert '<label for="email">Email</label>' in html
+    assert '<input type="email" name="email" id="email" required />' in html
+    assert '<textarea name="message" rows="4"></textarea>' in html
+    assert '<option value="a">A</option>' in html
+    assert '<form action="/submit" method="post">' in html
+
+
+def test_fieldset_and_legend_render():
+    output = render({"/": Page(FieldSet(Legend("Details"), Text("x")))})
+    html = output["index.html"]
+    assert "<fieldset>" in html
+    assert "<legend>Details</legend>" in html
+
+
+def test_table_elements_render():
+    output = render(
+        {
+            "/": Page(
+                Table(
+                    Caption("A table"),
+                    TableHead(TableRow(TableHeaderCell("Name"))),
+                    TableBody(TableRow(TableCell("Alice"))),
+                )
+            )
+        }
+    )
+    html = output["index.html"]
+    assert "<table>" in html
+    assert "<caption>A table</caption>" in html
+    # TableHeaderCell/TableCell are real containers (like Container),
+    # not text-only, so they can hold links, spans, etc. -- a bare
+    # string child is wrapped in a Text node the same way it would be
+    # inside a Container, hence the nested <p>.
+    assert "<thead><tr><th><p>Name</p></th></tr></thead>" in html
+    assert "<tbody><tr><td><p>Alice</p></td></tr></tbody>" in html
+
+
+def test_media_elements_render_with_source_child():
+    output = render(
+        {
+            "/": Page(
+                Video(Source(src="movie.mp4", type="video/mp4"), controls=True),
+                Audio(Source(src="song.mp3"), controls=True),
+            )
+        }
+    )
+    html = output["index.html"]
+    assert '<video controls>' in html
+    assert '<source src="movie.mp4" type="video/mp4" />' in html
+    assert '<audio controls>' in html
+
+
+def test_aria_prop_convention_renders_as_aria_dash_attribute():
+    output = render({"/": Page(Button("Close", aria_label="Close dialog", aria_expanded=False))})
+    html = output["index.html"]
+    assert 'aria-label="Close dialog"' in html
+    # aria_expanded=False is falsy and therefore omitted, matching the
+    # existing convention for other boolean-ish props.
+    assert "aria-expanded" not in html
+
+
+def test_aria_boolean_true_renders_as_bare_attribute():
+    output = render({"/": Page(Container(Text("x"), aria_hidden=True))})
+    assert "aria-hidden" in output["index.html"]
