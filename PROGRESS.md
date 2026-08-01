@@ -382,11 +382,38 @@ Also fixed a pre-existing version drift: `pyproject.toml` said
 `0.001` while `arklight/__init__.py` said `0.003`; both now correctly
 read `0.003`.
 
+## v0.003 addendum 2 -- even more vocabulary (done)
+
+Still v0.003, same mechanism as addendum 1: 33 more built-in
+components, purely as data in `arklight.ir.schema.SCHEMA` (+
+`TAG_MAP`/`PASSTHROUGH_ATTRS`/`VOID_TAGS` in the HTML backend, +
+default CSS rules) -- normalize.py/validate.py/build.py untouched
+again. This batch closes the "long tail" gaps a production
+responsive static site still hits after addendum 1: a numbered list
+(`OrderedList` -- addendum 1 could only ever produce `<ul>`),
+description lists, art-directed responsive images
+(`Picture`/`PictureSource` + `loading`/`decoding`, the image half of
+"responsive design" that addendum 1's CSS-only utilities didn't
+cover), native progress/gauge/autocomplete/output widgets, a
+`Dialog` that opens and closes with zero JS via
+`Form(method="dialog")`, the rest of text-level semantics including
+bidi (`Bdi`/`Bdo`) and ruby (`Ruby`/`Rt`/`Rp`) annotations, table
+column grouping, video/audio caption tracks, image maps, `IFrame`
+embeds, and a `NoScript` fallback. 22 new tests in
+`tests/test_vocabulary_addendum_2.py` (109 total). Full list and
+per-group rationale in `CHANGELOG.md`.
+
+Deliberately left out (see CHANGELOG.md "Notes" for why):
+`<canvas>`/`<template>` (meaningless without JS driving them, out of
+scope for the closed-behavior model), the new `<search>` landmark
+(too new/unsettled), `<object>`/`<embed>` (redundant with `IFrame`
+for this project's use cases).
+
 ## Milestone checklist (from ARCHITECTURE.md)
 
 - [x] v0.001 Python → HTML
 - [x] v0.002 CSS
-- [x] v0.003 JavaScript helpers (+ vocabulary extension addendum above)
+- [x] v0.003 JavaScript helpers (+ two vocabulary extension addenda above)
 - [ ] v0.010 Components
 - [ ] v0.100 Alternate backends -- Backend interface ready; IR needs a
       state/event-semantics milestone first (see `docs/DESIGN-NOTES.md`)

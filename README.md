@@ -201,6 +201,37 @@ returns an `ARKNode`:
 "Text-only" components may only contain plain strings, not other
 components -- this is enforced by the Validation stage.
 
+The table above is the original v0.001 core. Two vocabulary
+addenda (still v0.003, no new pipeline stage -- see CHANGELOG.md) add
+~79 more components on top of it, purely as data in
+`arklight.ir.schema.SCHEMA` (the single source of truth every stage
+reads from):
+
+- **First addendum:** semantic layout (`Header`, `Footer`, `Main`,
+  `Nav`, `Section`, `Article`, `Aside`, `Figure`/`FigCaption`,
+  `Details`/`Summary`), text-level semantics (`Strong`, `Em`, `Small`,
+  `Mark`, `Code`, `Cite`, `Abbr`, `Sub`, `Sup`, `Span`, `Time`,
+  `HorizontalRule`, `LineBreak`, `Pre`, `Blockquote`), forms (`Form`,
+  `Input`, `Textarea`, `Select`, `Option`, `OptGroup`, `Label`,
+  `FieldSet`, `Legend`), tables (`Table`, `TableHead`, `TableBody`,
+  `TableFoot`, `TableRow`, `TableHeaderCell`, `TableCell`, `Caption`),
+  and media (`Video`, `Audio`, `Source`).
+- **Second addendum ("even more vocabulary"):** numbered/description
+  lists (`OrderedList`, `DescriptionList`/`DescriptionTerm`/
+  `DescriptionDetails`), art-directed responsive images (`Picture`/
+  `PictureSource`, plus `loading`/`decoding` attributes), native
+  widgets (`Progress`, `Meter`, `Datalist`, `Output`), a zero-JS
+  `Dialog`, more text semantics including bidi and ruby (`Kbd`,
+  `Samp`, `Var`, `Data`, `Ins`, `Del`, `Q`, `Dfn`, `Address`, `Wbr`,
+  `Bdi`, `Bdo`, `Ruby`, `Rt`, `Rp`), table column grouping
+  (`ColGroup`, `Col`), video/audio captions (`Track`), image maps
+  (`Map`, `Area`), `IFrame` embeds, and a `NoScript` fallback.
+
+See [`CHANGELOG.md`](./CHANGELOG.md) for the rationale behind each
+group and `arklight.ir.schema.SCHEMA` for the authoritative list of
+every component's required props, text-only-children rule, and
+whether it allows children at all.
+
 `Site`:
 
 ```python

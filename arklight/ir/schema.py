@@ -101,6 +101,102 @@ SCHEMA: dict[str, NodeSpec] = {
     "Video": NodeSpec(),
     "Audio": NodeSpec(),
     "Source": NodeSpec(required_props=("src",), allow_children=False),
+    # ------------------------------------------------------------------
+    # v0.003: second vocabulary addendum ("even more vocabulary"). Same
+    # deal as the addendum above -- pure data in SCHEMA (+ TAG_MAP/
+    # PASSTHROUGH_ATTRS/VOID_TAGS in the HTML backend), no compiler
+    # logic touched. This batch fills in the "long tail" of standard,
+    # production-grade static-site HTML that the first addendum left
+    # out: numbered/description lists, art-directed responsive images,
+    # native form/progress widgets, a zero-JS dialog, the rest of
+    # HTML's text-level semantics (including bidi + ruby), table
+    # column grouping, video captions, image maps, iframes, and a
+    # <noscript> fallback. See docs/DESIGN-NOTES.md and CHANGELOG.md
+    # for the full rationale per group.
+    # ------------------------------------------------------------------
+    # Lists: v0.003's first pass only ever produced <ul> (via `List`).
+    # `OrderedList` is a genuine gap, not a niche one -- there was no
+    # numbered list at all. `DescriptionList` covers key/value and
+    # glossary content (specs, FAQs, metadata blocks) that a <ul> can't
+    # express semantically.
+    "OrderedList": NodeSpec(),
+    "DescriptionList": NodeSpec(),
+    # Short, like `Item` -- a term is a label, not a place for a
+    # nested Container/Figure/etc.
+    "DescriptionTerm": NodeSpec(text_only_children=True),
+    # Real container (like `TableCell`) -- a definition routinely holds
+    # a `Link`, `Strong`, or multiple `Text` paragraphs, not just a
+    # bare string.
+    "DescriptionDetails": NodeSpec(),
+    # Responsive images: art-direction (a different crop/format per
+    # viewport, via `<source media=... srcset=...>`), the image half of
+    # "responsive design" that the first addendum's CSS-only utilities
+    # didn't touch at all.
+    "Picture": NodeSpec(),
+    # Distinct from the existing `Source` (which is for Video/Audio and
+    # requires `src`) -- a <picture>'s <source> takes `srcset`/`sizes`/
+    # `media`/`type` instead, so it gets its own required prop.
+    "PictureSource": NodeSpec(required_props=("srcset",), allow_children=False),
+    # Native, zero-JS widgets: progress bars, gauges, autocomplete lists,
+    # and calculation output are all built into the browser already.
+    "Progress": NodeSpec(text_only_children=True),
+    "Meter": NodeSpec(text_only_children=True),
+    "Datalist": NodeSpec(),
+    "Output": NodeSpec(text_only_children=True),
+    # <dialog open>: renders open with zero JS, and
+    # `Form(method="dialog")` closes it natively (a browser behavior,
+    # not a script) -- genuinely clever within the "no arbitrary JS"
+    # constraint for a static confirmation/FAQ modal. Programmatically
+    # opening it from an arbitrary trigger would need JS and stays out
+    # of scope, same as the rest of v0.003.
+    "Dialog": NodeSpec(),
+    # More text-level semantics.
+    "Kbd": NodeSpec(text_only_children=True),
+    "Samp": NodeSpec(text_only_children=True),
+    "Var": NodeSpec(text_only_children=True),
+    "Data": NodeSpec(required_props=("value",), text_only_children=True),
+    # `Ins`/`Del` are real containers (not text-only): HTML5 allows them
+    # to wrap block content (e.g. a whole edited paragraph), same
+    # reasoning as `Blockquote`.
+    "Ins": NodeSpec(),
+    "Del": NodeSpec(),
+    "Q": NodeSpec(text_only_children=True),
+    "Dfn": NodeSpec(text_only_children=True),
+    # Real container -- postal/contact info commonly mixes plain text
+    # with a `Link` (mailto:) or `LineBreak`s.
+    "Address": NodeSpec(),
+    "Wbr": NodeSpec(allow_children=False),
+    # Bidirectional text isolation/override -- a real, production i18n
+    # need (mixed LTR/RTL content: names, prices, or user-generated
+    # text embedded in an RTL page, or vice versa), not just theory.
+    "Bdi": NodeSpec(text_only_children=True),
+    "Bdo": NodeSpec(text_only_children=True),
+    # Ruby annotations (furigana/pinyin-style glosses) -- a real,
+    # standard part of production East-Asian-language typography, and
+    # a genuine gap: nothing above could express it at all.
+    "Ruby": NodeSpec(),
+    "Rt": NodeSpec(text_only_children=True),
+    "Rp": NodeSpec(text_only_children=True),
+    # Table extras: column-level styling/grouping without repeating a
+    # style on every cell in the column.
+    "ColGroup": NodeSpec(),
+    "Col": NodeSpec(allow_children=False),
+    # Media: caption/subtitle tracks -- accessibility, not decoration.
+    "Track": NodeSpec(required_props=("src",), allow_children=False),
+    # Image maps: multiple clickable regions on one image.
+    "Map": NodeSpec(required_props=("name",)),
+    "Area": NodeSpec(allow_children=False),
+    # Embeds: the single most common "extra functionality" a static
+    # site reaches for that plain markup can't provide on its own --
+    # embedding a map, a video host player, or another site's widget --
+    # while still being pure declarative HTML (no JS involved in the
+    # embed itself).
+    "IFrame": NodeSpec(required_props=("src",), allow_children=False),
+    # Fallback content for the (rare, but real) visitor with JavaScript
+    # disabled -- pairs naturally with ARKlight's own small JS runtime:
+    # anything gated behind a `toggle`/`copy`/`dismiss` behavior can
+    # have a `NoScript` sibling explaining what's missing.
+    "NoScript": NodeSpec(),
 }
 
 # Types whose raw string children should stay raw strings during

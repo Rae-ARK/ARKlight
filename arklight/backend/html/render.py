@@ -103,6 +103,50 @@ TAG_MAP: dict[str, str] = {
     "Video": "video",
     "Audio": "audio",
     "Source": "source",
+    # v0.003 (second addendum): lists.
+    "OrderedList": "ol",
+    "DescriptionList": "dl",
+    "DescriptionTerm": "dt",
+    "DescriptionDetails": "dd",
+    # v0.003 (second addendum): responsive images.
+    "Picture": "picture",
+    "PictureSource": "source",
+    # v0.003 (second addendum): native widgets.
+    "Progress": "progress",
+    "Meter": "meter",
+    "Datalist": "datalist",
+    "Output": "output",
+    # v0.003 (second addendum): dialog.
+    "Dialog": "dialog",
+    # v0.003 (second addendum): more text-level semantics.
+    "Kbd": "kbd",
+    "Samp": "samp",
+    "Var": "var",
+    "Data": "data",
+    "Ins": "ins",
+    "Del": "del",
+    "Q": "q",
+    "Dfn": "dfn",
+    "Address": "address",
+    "Wbr": "wbr",
+    "Bdi": "bdi",
+    "Bdo": "bdo",
+    # v0.003 (second addendum): ruby annotations.
+    "Ruby": "ruby",
+    "Rt": "rt",
+    "Rp": "rp",
+    # v0.003 (second addendum): table extras.
+    "ColGroup": "colgroup",
+    "Col": "col",
+    # v0.003 (second addendum): media.
+    "Track": "track",
+    # v0.003 (second addendum): image maps.
+    "Map": "map",
+    "Area": "area",
+    # v0.003 (second addendum): embeds.
+    "IFrame": "iframe",
+    # v0.003 (second addendum): no-JS fallback.
+    "NoScript": "noscript",
 }
 
 # Prop names that map straight through to HTML attributes.
@@ -122,6 +166,24 @@ PASSTHROUGH_ATTRS = {
     # v0.003: accessibility (beyond the generic aria_* -> aria-* mapping
     # below, `role` is common enough to spell out explicitly).
     "role", "tabindex",
+    # v0.003 (second addendum): lists (<ol>).
+    "start", "reversed",
+    # v0.003 (second addendum): responsive images (<picture><source>)
+    # and native lazy-loading/decoding hints on <img>/<iframe>.
+    "srcset", "sizes", "media", "loading", "decoding",
+    # v0.003 (second addendum): native widgets (<meter>).
+    "low", "high", "optimum",
+    # v0.003 (second addendum): bidi text (<bdo>, and <bdi> where
+    # explicit direction is needed) plus generic `dir` support.
+    "dir",
+    # v0.003 (second addendum): table column grouping (<col span>).
+    "span",
+    # v0.003 (second addendum): <track> (video/audio captions).
+    "kind", "srclang", "default",
+    # v0.003 (second addendum): image maps (<area>).
+    "shape", "coords",
+    # v0.003 (second addendum): <iframe> embeds.
+    "allow", "allowfullscreen", "sandbox", "referrerpolicy",
 }
 
 # Props whose HTML attribute name differs from the prop's Python name
@@ -144,7 +206,11 @@ BEHAVIOR_PROP_ATTRS = {
 ROUTE_AWARE_ATTRS = {"href", "src"}
 
 # Tags that never have a closing tag / children.
-VOID_TAGS = {"img", "hr", "br", "input", "source"}
+VOID_TAGS = {
+    "img", "hr", "br", "input", "source",
+    # v0.003 (second addendum).
+    "wbr", "col", "area", "track",
+}
 
 
 def _style_dict_to_css(style: dict) -> str:

@@ -345,6 +345,101 @@ audio {
   width: 100%;
 }
 
+picture img {
+  max-width: 100%;
+  border-radius: 8px;
+}
+
+/* ------------------------------------------------------------------ */
+/* v0.003 -- default styling for the second vocabulary addendum.       */
+/* ------------------------------------------------------------------ */
+
+ol {
+  padding-left: 1.25em;
+  margin: 0 0 1em;
+}
+
+dl {
+  margin: 0 0 1em;
+}
+
+dt {
+  font-weight: 700;
+}
+
+dd {
+  margin: 0 0 0.75em 1.25em;
+  color: var(--ark-muted);
+}
+
+progress, meter {
+  width: 100%;
+  height: 0.6em;
+  accent-color: var(--ark-accent);
+}
+
+output {
+  font-weight: 600;
+}
+
+dialog {
+  border: 1px solid var(--ark-border);
+  border-radius: 12px;
+  padding: 1.5rem 1.75rem;
+  max-width: min(90vw, 32rem);
+}
+
+dialog::backdrop {
+  background: rgba(26, 26, 46, 0.4);
+}
+
+kbd {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 0.85em;
+  background: var(--ark-bg);
+  border: 1px solid var(--ark-border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 0.1em 0.4em;
+}
+
+samp, var {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 0.9em;
+}
+
+dfn {
+  font-style: italic;
+}
+
+address {
+  font-style: normal;
+  color: var(--ark-muted);
+}
+
+ruby {
+  ruby-position: over;
+}
+
+rt {
+  color: var(--ark-muted);
+  font-size: 0.65em;
+}
+
+colgroup col.highlight {
+  background: var(--ark-border);
+}
+
+iframe {
+  max-width: 100%;
+  border: 1px solid var(--ark-border);
+  border-radius: 8px;
+}
+
+map, area {
+  display: none; /* invisible hotspot layer over an <img>, nothing to lay out */
+}
+
 /* ------------------------------------------------------------------ */
 /* v0.003 -- intrinsic responsive layout utilities.                    */
 /*                                                                      */

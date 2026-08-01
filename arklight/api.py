@@ -5,7 +5,8 @@ Public ARKlight API.
 
 - `Site`       -- the app object, holds page registrations
 - `Page`       -- the root node every page function must return
-- Built-in components: `Heading`, `Text`, `Button`, `Container`, `Link`, `Image`, `List`, `Item`
+- Built-in components: `Heading`, `Text`, `Button`, `Container`, `Link`, `Image`, `List`, `Item`,
+  plus the v0.003 vocabulary extension and its "even more vocabulary" addendum below.
 
 Everything a user calls here returns an `ARKNode` (see arklight.ast.nodes),
 except `Site`, which is a small registry object.
@@ -102,6 +103,69 @@ Video = node("Video")
 Audio = node("Audio")
 Source = node("Source")
 
+# ---------------------------------------------------------------------------
+# v0.003 second vocabulary extension addendum ("even more vocabulary").
+#
+# Same mechanism as everything above -- each is `node("SomeType")`. See
+# arklight.ir.schema.SCHEMA for what each one allows and CHANGELOG.md /
+# docs/DESIGN-NOTES.md for why these specifically.
+# ---------------------------------------------------------------------------
+
+# Lists.
+OrderedList = node("OrderedList")
+DescriptionList = node("DescriptionList")
+DescriptionTerm = node("DescriptionTerm")
+DescriptionDetails = node("DescriptionDetails")
+
+# Responsive images.
+Picture = node("Picture")
+PictureSource = node("PictureSource")
+
+# Native widgets.
+Progress = node("Progress")
+Meter = node("Meter")
+Datalist = node("Datalist")
+Output = node("Output")
+
+# Dialog.
+Dialog = node("Dialog")
+
+# More text-level semantics.
+Kbd = node("Kbd")
+Samp = node("Samp")
+Var = node("Var")
+Data = node("Data")
+Ins = node("Ins")
+Del = node("Del")
+Q = node("Q")
+Dfn = node("Dfn")
+Address = node("Address")
+Wbr = node("Wbr")
+Bdi = node("Bdi")
+Bdo = node("Bdo")
+
+# Ruby annotations.
+Ruby = node("Ruby")
+Rt = node("Rt")
+Rp = node("Rp")
+
+# Table extras.
+ColGroup = node("ColGroup")
+Col = node("Col")
+
+# Media.
+Track = node("Track")
+
+# Image maps.
+Map = node("Map")
+Area = node("Area")
+
+# Embeds.
+IFrame = node("IFrame")
+
+# Fallback content for no-JS visitors.
+NoScript = node("NoScript")
+
 BUILTIN_COMPONENTS = {
     "Page": Page,
     "Heading": Heading,
@@ -158,6 +222,39 @@ BUILTIN_COMPONENTS = {
     "Video": Video,
     "Audio": Audio,
     "Source": Source,
+    "OrderedList": OrderedList,
+    "DescriptionList": DescriptionList,
+    "DescriptionTerm": DescriptionTerm,
+    "DescriptionDetails": DescriptionDetails,
+    "Picture": Picture,
+    "PictureSource": PictureSource,
+    "Progress": Progress,
+    "Meter": Meter,
+    "Datalist": Datalist,
+    "Output": Output,
+    "Dialog": Dialog,
+    "Kbd": Kbd,
+    "Samp": Samp,
+    "Var": Var,
+    "Data": Data,
+    "Ins": Ins,
+    "Del": Del,
+    "Q": Q,
+    "Dfn": Dfn,
+    "Address": Address,
+    "Wbr": Wbr,
+    "Bdi": Bdi,
+    "Bdo": Bdo,
+    "Ruby": Ruby,
+    "Rt": Rt,
+    "Rp": Rp,
+    "ColGroup": ColGroup,
+    "Col": Col,
+    "Track": Track,
+    "Map": Map,
+    "Area": Area,
+    "IFrame": IFrame,
+    "NoScript": NoScript,
 }
 
 
@@ -271,5 +368,38 @@ __all__ = [
     "Video",
     "Audio",
     "Source",
+    "OrderedList",
+    "DescriptionList",
+    "DescriptionTerm",
+    "DescriptionDetails",
+    "Picture",
+    "PictureSource",
+    "Progress",
+    "Meter",
+    "Datalist",
+    "Output",
+    "Dialog",
+    "Kbd",
+    "Samp",
+    "Var",
+    "Data",
+    "Ins",
+    "Del",
+    "Q",
+    "Dfn",
+    "Address",
+    "Wbr",
+    "Bdi",
+    "Bdo",
+    "Ruby",
+    "Rt",
+    "Rp",
+    "ColGroup",
+    "Col",
+    "Track",
+    "Map",
+    "Area",
+    "IFrame",
+    "NoScript",
     "ARKNode",
 ]

@@ -5,9 +5,108 @@ follows [Keep a Changelog](https://keepachangelog.com/); versions
 follow the milestone scheme from ARCHITECTURE.md rather than strict
 SemVer.
 
-## [0.003] -- JavaScript helpers (+ vocabulary extension addendum)
+## [0.003] -- JavaScript helpers (+ two vocabulary extension addenda)
 
-### Addendum: vocabulary extension
+### Addendum 2: even more vocabulary
+
+Still not a version bump -- this stays v0.003, same as addendum 1
+below. Extends the same `arklight.ir.schema.SCHEMA` dict with the
+"long tail" of standard, production-grade static-site HTML that
+addendum 1 left out: numbered/description lists, art-directed
+responsive images, native form/progress widgets, a zero-JS dialog,
+the rest of HTML's text-level semantics (bidi + ruby included), table
+column grouping, video captions, image maps, iframes, and a
+`<noscript>` fallback. Same guarantee as before: zero changes to
+normalize.py, validate.py, or build.py -- every addition below is
+data only, in `SCHEMA` (+ `TAG_MAP`/`PASSTHROUGH_ATTRS`/`VOID_TAGS` in
+the HTML backend, + default CSS rules in the CSS backend).
+
+#### Added
+
+- **33 new built-in components:**
+  - Lists: `OrderedList` (`<ol>`, with `start`/`reversed`) --
+    genuinely missing before this: v0.003's first pass could only ever
+    produce `<ul>` via `List`, with no numbered list at all.
+    `DescriptionList`/`DescriptionTerm`/`DescriptionDetails`
+    (`<dl>`/`<dt>`/`<dd>`) for key/value and glossary content (specs,
+    FAQs, metadata blocks) a `<ul>` can't express semantically.
+  - Responsive images: `Picture`/`PictureSource` (`<picture>` +
+    `srcset`/`sizes`/`media` art-direction) -- the image half of
+    "responsive design", which addendum 1's CSS-only intrinsic-layout
+    utilities didn't touch at all. `PictureSource` is a distinct type
+    from the existing `Source` (used by `Video`/`Audio`, which
+    requires `src`) since a `<picture>`'s `<source>` takes `srcset`
+    instead. Also added `loading`/`decoding` as generic passthrough
+    attributes, so `Image(..., loading="lazy")` gets native
+    lazy-loading with zero JS.
+  - Native, zero-JS widgets: `Progress`, `Meter`, `Datalist`, `Output`
+    -- progress bars, gauges, input autocomplete, and calculation
+    output are all built into the browser already.
+  - `Dialog` (`<dialog open>`): renders open with zero JS, and
+    `Form(method="dialog")` closes it natively (a real browser
+    behavior, not a script) -- a static confirmation/FAQ modal needs
+    no JS at all with this pairing. Opening it programmatically from
+    an arbitrary trigger would need JS and stays out of scope, same as
+    the rest of v0.003's "no arbitrary JS" boundary.
+  - More text-level semantics: `Kbd`, `Samp`, `Var`, `Data`
+    (`required_props=("value",)`), `Ins`, `Del`, `Q`, `Dfn`,
+    `Address`, `Wbr`, plus bidirectional-text isolation/override
+    (`Bdi`, `Bdo`) for real production i18n needs (mixed LTR/RTL
+    content), and ruby annotations (`Ruby`/`Rt`/`Rp`) for East-Asian
+    typography -- a genuine gap nothing above could express at all.
+  - Table extras: `ColGroup`/`Col` for column-level styling without
+    repeating a rule on every cell in the column.
+  - Media: `Track` (`required_props=("src",)`) for caption/subtitle
+    tracks -- accessibility, not decoration.
+  - Image maps: `Map` (`required_props=("name",)`) / `Area` for
+    multiple clickable regions on one image.
+  - Embeds: `IFrame` (`required_props=("src",)`, no children) --
+    arguably the single most common piece of "extra functionality" a
+    static site reaches for that plain markup alone can't provide
+    (embedding a map, a video host's player, or another site's
+    widget), while staying pure declarative HTML.
+  - `NoScript`: fallback content for the visitor with JavaScript
+    disabled, pairing naturally with ARKlight's own small JS runtime
+    -- anything gated behind `toggle`/`copy`/`dismiss` can have a
+    `NoScript` sibling.
+- New passthrough HTML attributes: `start`, `reversed` (`<ol>`);
+  `srcset`, `sizes`, `media`, `loading`, `decoding` (responsive
+  images); `low`, `high`, `optimum` (`<meter>`); `dir` (bidi text);
+  `span` (`<colgroup>`/`<col>`); `kind`, `srclang`, `default`
+  (`<track>`); `shape`, `coords` (`<area>`); `allow`,
+  `allowfullscreen`, `sandbox`, `referrerpolicy` (`<iframe>`).
+- Four new void tags in the HTML backend (`wbr`, `col`, `area`,
+  `track`), alongside the existing `img`/`hr`/`br`/`input`/`source`.
+- Default styling for every new tag in the generated stylesheet
+  (`ol`/`dl`/`dt`/`dd`, `progress`/`meter`, `dialog`, `kbd`/`samp`/
+  `var`, `dfn`, `address`, `ruby`/`rt`, `iframe`, `map`/`area`).
+- 22 new tests (109 total) in `tests/test_vocabulary_addendum_2.py`
+  covering every new component, its required props, and its rendered
+  HTML.
+
+#### Notes
+
+- `DescriptionDetails`, `Ins`, `Del`, `Ruby`, and `Address` are real
+  containers (like `TableCell`/`Blockquote`), not text-only -- a
+  definition, an edit, a ruby base, or an address block routinely
+  holds a `Link`/`Strong`/`Span`, not just a bare string. As with
+  `Blockquote(Text("..."))` elsewhere, wrap plain text explicitly
+  (e.g. `Ruby(Span("漢"), Rt("kan"))`) rather than relying on the
+  auto-wrap, since a bare string in a non-text-only container becomes
+  a block-level `Text`/`<p>` node, which isn't what an inline element
+  like `<ruby>` wants.
+- `DescriptionTerm`, `Progress`, `Meter`, `Output`, `Kbd`, `Samp`,
+  `Var`, `Data`, `Q`, `Dfn`, `Bdi`, `Bdo`, `Rt`, `Rp` stay text-only,
+  matching how `Item`/`Caption`/`Label` already work.
+- Considered and deliberately left out: `<canvas>`/`<template>` (both
+  are meaningless without JS driving them, which is out of scope for
+  v0.003's closed-behavior model); a brand-new `<search>` landmark
+  (too new/unsettled for a "production-grade" vocabulary claim); and
+  `<object>`/`<embed>` (redundant with the new `IFrame` for the static
+  use cases this project targets, with worse fallback-content
+  ergonomics).
+
+### Addendum 1: vocabulary extension
 
 Not a version bump and not a new pipeline stage -- this stays v0.003.
 Every addition below is data, not new compiler logic:
