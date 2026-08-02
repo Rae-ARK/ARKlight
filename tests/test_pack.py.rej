@@ -1,0 +1,10 @@
+diff a/tests/test_pack.py b/tests/test_pack.py	(rejected hunks)
+@@ -126,7 +126,7 @@ def test_assets_are_carried_into_the_bundle(tmp_path):
+     (assets_dir / "logo.png").write_bytes(raw_png)
+ 
+     bundle_path = tmp_path / "site.ark"
+-    result = pack(out_dir, bundle_path)
++    result = pack(out_dir, bundle_path, sealed=False)
+ 
+     assert "assets/logo.png" in result.packed_paths
+     assert result.skipped_paths == []

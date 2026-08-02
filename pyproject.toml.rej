@@ -1,0 +1,10 @@
+diff a/pyproject.toml b/pyproject.toml	(rejected hunks)
+@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
+ 
+ [project]
+ name = "arklight"
+-
++version = "0.038"
+ description = "A Python-first compiler for building beautiful static websites."
+ readme = "README.md"
+ requires-python = ">=3.10"

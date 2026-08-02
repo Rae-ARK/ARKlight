@@ -1,0 +1,1036 @@
+diff --git a/arklight/__init__.py b/arklight/__init__.py
+index d9fc98f..33af9d6 100644
+--- a/arklight/__init__.py
++++ b/arklight/__init__.py
+@@ -120,7 +120,7 @@ from arklight.api import (
+     ARKNode,
+ )
+ 
+-__version__ = "0.037"
++__version__ = "0.038"
+ 
+ __all__ = [
+     "Site",
+diff --git a/arklight/cli/main.py b/arklight/cli/main.py
+index a1dea82..7bf87a0 100644
+--- a/arklight/cli/main.py
++++ b/arklight/cli/main.py
+@@ -5,6 +5,7 @@ ARKlight CLI.
+     arklight build site.py -o ARK
+     arklight pack ARK -o site.ark
+     arklight unpack site.ark -o ARK
++    arklight pwa ARK --name "My Site"
+ 
+ Beginner-friendly by design: a handful of subcommands, sensible
+ defaults (builds AND opens the result in your browser), and error
+@@ -24,6 +25,7 @@ from arklight.cli.scaffold import ScaffoldError, new_project
+ from arklight.cli.templates import TEMPLATES
+ from arklight.compiler.pipeline import BuildResult, CompileError, build
+ from arklight.packer.bundle import PackError, pack, unpack
++from arklight.pwa import PWAError, enable_pwa
+ 
+ 
+ def open_in_browser(result: BuildResult, output_dir: str | Path) -> bool:
+@@ -121,6 +123,38 @@ def _cmd_unpack(args: argparse.Namespace) -> int:
+     return 0
+ 
+ 
++def _cmd_pwa(args: argparse.Namespace) -> int:
++    try:
++        result = enable_pwa(
++            args.build_dir,
++            name=args.name,
++            short_name=args.short_name,
++            start_url=args.start_url,
++            theme_color=args.theme_color,
++            background_color=args.background_color,
++            display=args.display,
++        )
++    except PWAError as exc:
++        print(f"ARKlight pwa failed: {exc}", file=sys.stderr)
++        return 1
++
++    print(
++        f"ARKlight v{__version__} enabled PWA support in {result.build_dir}/ "
++        f"({len(result.cached_paths)} file(s) precached, cache {result.cache_name})"
++    )
++    print(f"  {result.manifest_path.relative_to(result.build_dir)}")
++    print(f"  {result.service_worker_path.relative_to(result.build_dir)}")
++    for path in result.updated_pages:
++        print(f"  {path} (manifest link + SW registration injected)")
++    print(
++        "Re-run `arklight pwa` on this directory after every `arklight build` "
++        "to keep the manifest/service worker/precache list in sync -- it's "
++        "idempotent, so this is always safe."
++    )
++
++    return 0
++
++
+ def _cmd_new(args: argparse.Namespace) -> int:
+     try:
+         result = new_project(args.name, template=args.template, dest_dir=args.dir)
+@@ -212,6 +246,40 @@ def main(argv: list[str] | None = None) -> int:
+     )
+     unpack_parser.set_defaults(func=_cmd_unpack)
+ 
++    pwa_parser = subparsers.add_parser(
++        "pwa",
++        help="Turn a build directory into an installable PWA (manifest + service worker).",
++    )
++    pwa_parser.add_argument(
++        "build_dir", help="Path to an `arklight build` output directory (e.g. ARK)"
++    )
++    pwa_parser.add_argument("--name", required=True, help="Full app name for the manifest")
++    pwa_parser.add_argument(
++        "--short-name",
++        default=None,
++        help="Short app name for the manifest (default: first 12 chars of --name)",
++    )
++    pwa_parser.add_argument(
++        "--start-url",
++        default="index.html",
++        help="Manifest start_url, relative to the build directory (default: index.html)",
++    )
++    pwa_parser.add_argument(
++        "--theme-color", default="#000000", help="Manifest/meta theme color (default: #000000)"
++    )
++    pwa_parser.add_argument(
++        "--background-color",
++        default="#ffffff",
++        help="Manifest background color (default: #ffffff)",
++    )
++    pwa_parser.add_argument(
++        "--display",
++        default="standalone",
++        choices=["standalone", "fullscreen", "minimal-ui", "browser"],
++        help="Manifest display mode (default: standalone)",
++    )
++    pwa_parser.set_defaults(func=_cmd_pwa)
++
+     new_parser = subparsers.add_parser(
+         "new", help="Scaffold a new ARKlight project from a built-in template."
+     )
+diff --git a/arklight/packer/bundle.py b/arklight/packer/bundle.py
+index 07e6c5e..b4a31c3 100644
+--- a/arklight/packer/bundle.py
++++ b/arklight/packer/bundle.py
+@@ -1,46 +1,61 @@
+ """
+-ARK Bundle packer -- v0.036 ("ARK Bundle spec v1").
++ARK Bundle packer -- v0.037 ("ARK Bundle spec v1" + sealing).
+ 
+ Packs an already-built ARKlight output directory (whatever `arklight
+-build` wrote to disk) into a single `.ark` file: an HTML/ZIP polyglot.
+-See docs/DESIGN-NOTES.md, "v0.036: ARK Bundle spec v1", for the full
+-format writeup and rationale.
++build` wrote to disk) into a single `.ark` file: an HTML/[sealed or
++plain ZIP] polyglot. See docs/DESIGN-NOTES.md, "v0.036: ARK Bundle
++spec v1" and "v0.037: sealed bundles", for the full format writeup and
++rationale.
+ 
+ This module only ever reads files a normal build already produced --
+ it does not import or touch the compiler pipeline (parser/ir/backend).
+ That keeps packing a step *after* `arklight build`, not a new pipeline
+ stage fused into it.
+ 
+-    [ inlined entry page ][ ZIP of the original build files ]
+-
+-- HTML parsers stop at `</html>` and never reach the ZIP bytes after
+-  it, so opening the `.ark` file in a browser just renders the page.
+-- ZIP readers seek to the End-Of-Central-Directory record near the end
+-  of the file rather than assuming the archive starts at byte 0, so
+-  any archive tool still opens the same bytes as a normal ZIP.
+-
+-v1 scope: `.html`/`.css`/`.js` files are read as text so the entry
+-page can be inlined (see `_inline_entry_page`). Every other file found
+-in the build directory -- most notably an `assets/` folder with
+-images, audio, video, or other files -- is now carried into the bundle
+-too, written into the ZIP half as raw bytes with no attempt to read or
+-transform their contents. Only the *inlined front-matter page* is
+-unaffected by this: it still references `assets/...` by relative path,
+-which only resolves once the bundle is opened with an archive tool and
+-extracted next to those files, not when the `.ark` is opened directly
+-in a browser as a polyglot -- that limitation is unchanged from v1.
++    [ inlined entry page ][ sealed OR plain archive of the build files ]
++
++- HTML parsers stop at `</html>` and never reach the bytes after it,
++  so opening the `.ark` file in a browser just renders the page,
++  regardless of what the archive half contains.
++- **Sealed (default):** the archive half is encrypted (see
++  `arklight.packer.seal`) -- a generic archive tool, "rename to .zip",
++  or hex editor sees only opaque bytes, not a ZIP, so nothing can
++  casually inspect or splice its contents. `arklight unpack` reverses
++  this.
++- **Plain (opt-in via `sealed=False` / `--plain`):** the original v1
++  behavior -- a real, generically-openable ZIP tail. ZIP readers seek
++  to the End-Of-Central-Directory record near the end of the file
++  rather than assuming the archive starts at byte 0, so any archive
++  tool opens the same bytes as a normal ZIP. Kept as an explicit choice
++  for anyone who *wants* the extracted build to be freely inspectable
++  or re-editable without ARKlight installed.
++
++v1 archive scope (applies to both sealed and plain): `.html`/`.css`/
++`.js` files are read as text so the entry page can be inlined (see
++`_inline_entry_page`). Every other file found in the build directory --
++most notably an `assets/` folder with images, audio, video, or other
++files -- is carried into the archive too, as raw bytes with no attempt
++to read or transform their contents. Only the *inlined front-matter
++page* is unaffected: it still references `assets/...` by relative
++path, which only resolves once the bundle is unpacked next to those
++files, not when the `.ark` is opened directly in a browser as a
++polyglot.
+ """
+ 
+ from __future__ import annotations
+ 
++import io
+ import re
+ import zipfile
+ from dataclasses import dataclass, field
+ from pathlib import Path
+ 
++from arklight.packer.seal import SealError, seal, unseal
++
+ STYLESHEET_NAME = "styles.css"
+ SCRIPT_NAME = "arklight.js"
+ ENTRY_HTML_NAME = "index.html"
++HTML_END_MARKER = b"</html>\n"
+ 
+ # These file types are read as text (needed to inline the entry page --
+ # see _inline_entry_page). Everything else in the build directory is
+@@ -177,24 +192,101 @@ def pack(
+     packed = all_files
+     skipped: list[Path] = []
+ 
+-    output_path.parent.mkdir(parents=True, exist_ok=True)
++    # Build the ZIP entirely in memory first -- offsets zipfile writes
++    # are always relative to wherever it started writing, so a ZIP
++    # built into a fresh buffer at offset 0 is byte-for-byte the same
++    # archive as one built by appending after prefix bytes in a real
++    # file. That's what makes both the plain (concat-and-done) and
++    # sealed (encrypt-then-concat) paths below correct: neither one
++    # patches a single ZIP header by hand.
++    zip_buffer = io.BytesIO()
++    with zipfile.ZipFile(zip_buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
++        for path in packed:
++            arcname = path.relative_to(build_dir).as_posix()
++            zf.write(path, arcname)
++    zip_bytes = zip_buffer.getvalue()
++
++    if sealed:
++        archive_bytes = seal(zip_bytes, passphrase=passphrase)
++    else:
++        archive_bytes = zip_bytes
+ 
+-    # Writing the prefix bytes first, then opening the *same* file
+-    # handle in ZIP append mode, is what makes this a polyglot rather
+-    # than needing to hand-patch ZIP header offsets: zipfile computes
+-    # every offset it writes from the handle's current file position,
+-    # so entries land correctly after the prefix without any of the
+-    # manual byte-patching a naive "concat two files" approach would
+-    # need.
+-    with open(output_path, "wb") as bundle_file:
+-        bundle_file.write(prefix_bytes)
+-        with zipfile.ZipFile(bundle_file, mode="a", compression=zipfile.ZIP_DEFLATED) as zf:
+-            for path in packed:
+-                arcname = path.relative_to(build_dir).as_posix()
+-                zf.write(path, arcname)
++    output_path.parent.mkdir(parents=True, exist_ok=True)
++    output_path.write_bytes(prefix_bytes + archive_bytes)
+ 
+     return PackResult(
+         output_path=output_path,
+         packed_paths=[p.relative_to(build_dir).as_posix() for p in packed],
+         skipped_paths=[p.relative_to(build_dir).as_posix() for p in skipped],
++        sealed=sealed,
++        passphrase_protected=sealed and passphrase is not None,
++    )
++
++
++def _find_archive_start(data: bytes) -> int:
++    """
++    The archive half (sealed or plain) begins immediately after the
++    inlined front-matter page's `</html>\n` -- exactly what the HTML
++    backend always emits to close the document (see
++    arklight/backend/html/render.py). Locating it this way (rather
++    than searching for the seal MAGIC, which plain bundles never have)
++    works identically for both bundle kinds.
++    """
++    idx = data.find(HTML_END_MARKER)
++    if idx == -1:
++        raise PackError(
++            "Could not locate the end of the inlined HTML front matter "
++            "(`</html>`) -- is this a valid .ark bundle?"
++        )
++    return idx + len(HTML_END_MARKER)
++
++
++def unpack(
++    bundle_path: str | Path,
++    output_dir: str | Path,
++    *,
++    passphrase: str | None = None,
++) -> UnpackResult:
++    """
++    Reverse of `pack()`: extract a `.ark` bundle's archive half back
++    into a normal ARKlight build directory at `output_dir`.
++
++    Auto-detects sealed vs. plain bundles -- `passphrase` is only
++    needed (and only used) if the bundle was sealed with one. Raises
++    PackError if the bundle can't be read, is missing/wrong
++    passphrase, or its archive half fails the integrity check (see
++    `arklight.packer.seal.unseal`).
++    """
++    bundle_path = Path(bundle_path)
++    output_dir = Path(output_dir)
++
++    if not bundle_path.is_file():
++        raise PackError(f"Bundle file not found: {bundle_path}")
++
++    data = bundle_path.read_bytes()
++    archive_bytes = data[_find_archive_start(data):]
++
++    was_sealed = archive_bytes.startswith(b"ARKSEAL1")
++    if was_sealed:
++        try:
++            zip_bytes = unseal(archive_bytes, passphrase=passphrase)
++        except SealError as exc:
++            raise PackError(str(exc)) from exc
++    else:
++        zip_bytes = archive_bytes
++
++    output_dir.mkdir(parents=True, exist_ok=True)
++    try:
++        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
++            zf.extractall(output_dir)
++            extracted = zf.namelist()
++    except zipfile.BadZipFile as exc:
++        raise PackError(
++            f"Bundle's archive half isn't a valid ZIP once unsealed: {exc}"
++        ) from exc
++
++    return UnpackResult(
++        output_dir=output_dir,
++        extracted_paths=sorted(extracted),
++        was_sealed=was_sealed,
+     )
+diff --git a/arklight/packer/bundle.py.rej b/arklight/packer/bundle.py.rej
+deleted file mode 100644
+index 6ac66d6..0000000
+--- a/arklight/packer/bundle.py.rej
++++ /dev/null
+@@ -1,211 +0,0 @@
+-diff a/arklight/packer/bundle.py b/arklight/packer/bundle.py	(rejected hunks)
+-@@ -1,47 +1,68 @@
+- """
+--ARK Bundle packer -- v0.036 ("ARK Bundle spec v1").
+-+ARK Bundle packer -- v0.037 ("ARK Bundle spec v1" + sealing).
+- 
+- Packs an already-built ARKlight output directory (whatever `arklight
+--build` wrote to disk) into a single `.ark` file: an HTML/ZIP polyglot.
+--See docs/DESIGN-NOTES.md, "v0.036: ARK Bundle spec v1", for the full
+--format writeup and rationale.
+-+build` wrote to disk) into a single `.ark` file: an HTML/[sealed or
+-+plain ZIP] polyglot. See docs/DESIGN-NOTES.md, "v0.036: ARK Bundle
+-+spec v1" and "v0.037: sealed bundles", for the full format writeup and
+-+rationale.
+- 
+- This module only ever reads files a normal build already produced --
+- it does not import or touch the compiler pipeline (parser/ir/backend).
+- That keeps packing a step *after* `arklight build`, not a new pipeline
+- stage fused into it.
+- 
+--    [ inlined entry page ][ ZIP of the original build files ]
+-+    [ inlined entry page ][ sealed OR plain archive of the build files ]
+- 
+--- HTML parsers stop at `</html>` and never reach the ZIP bytes after
+--  it, so opening the `.ark` file in a browser just renders the page.
+--- ZIP readers seek to the End-Of-Central-Directory record near the end
+--  of the file rather than assuming the archive starts at byte 0, so
+--  any archive tool still opens the same bytes as a normal ZIP.
+-+- HTML parsers stop at `</html>` and never reach the bytes after it,
+-+  so opening the `.ark` file in a browser just renders the page,
+-+  regardless of what the archive half contains.
+-+- **Sealed (default):** the archive half is encrypted (see
+-+  `arklight.packer.seal`) -- a generic archive tool, "rename to .zip",
+-+  or hex editor sees only opaque bytes, not a ZIP, so nothing can
+-+  casually inspect or splice its contents. `arklight unpack` reverses
+-+  this.
+-+- **Plain (opt-in via `sealed=False` / `--plain`):** the original v1
+-+  behavior -- a real, generically-openable ZIP tail. ZIP readers seek
+-+  to the End-Of-Central-Directory record near the end of the file
+-+  rather than assuming the archive starts at byte 0, so any archive
+-+  tool opens the same bytes as a normal ZIP. Kept as an explicit choice
+-+  for anyone who *wants* the extracted build to be freely inspectable
+-+  or re-editable without ARKlight installed.
+- 
+--v1 scope: only `.html`/`.css`/`.js` files are packed. Anything else in
+--the build directory (most notably an `assets/` folder with images,
+--audio, video, or other files) is intentionally left out of the bundle
+--for now -- carrying those over is deferred to a future version so this
+--milestone stays exactly what was asked for: full HTML/CSS/JS carry-
+--over, nothing more.
+-+v1 archive scope (applies to both sealed and plain): `.html`/`.css`/
+-+`.js` files are read as text so the entry page can be inlined (see
+-+`_inline_entry_page`). Every other file found in the build directory --
+-+most notably an `assets/` folder with images, audio, video, or other
+-+files -- is carried into the archive too, as raw bytes with no attempt
+-+to read or transform their contents. Only the *inlined front-matter
+-+page* is unaffected: it still references `assets/...` by relative
+-+path, which only resolves once the bundle is unpacked next to those
+-+files, not when the `.ark` is opened directly in a browser as a
+-+polyglot.
+- """
+- 
+- from __future__ import annotations
+- 
+-+import io
+- import re
+- import zipfile
+- from dataclasses import dataclass, field
+- from pathlib import Path
+- 
+-+from arklight.packer.seal import SealError, seal, unseal
+-+
+- STYLESHEET_NAME = "styles.css"
+- SCRIPT_NAME = "arklight.js"
+- ENTRY_HTML_NAME = "index.html"
+-+HTML_END_MARKER = b"</html>\n"
+- 
+--# v1 scope: only these file types are carried into the bundle. Anything
+--# else found in the build directory (e.g. assets/) is reported as
+--# skipped rather than silently dropped -- see PackResult.skipped_paths.
+--_PACKED_SUFFIXES = {".html", ".css", ".js"}
+-+# These file types are read as text (needed to inline the entry page --
+-+# see _inline_entry_page). Everything else in the build directory is
+-+# still packed into the ZIP half, just as raw bytes instead of text --
+-+# see PackResult.packed_paths / _PACKED_SUFFIXES is no longer a filter,
+-+# only a hint for which files get text-mode handling.
+-+_TEXT_SUFFIXES = {".html", ".css", ".js"}
+- 
+- # Matches the exact tags the HTML backend emits for the entry page
+- # (arklight/backend/html/render.py: _render_page). Whitespace between
+-@@ -135,27 +189,104 @@ def pack(build_dir: str | Path, output_path: str | Path) -> PackResult:
+-     prefix_bytes = inlined_html.encode("utf-8")
+- 
+-     all_files = sorted(p for p in build_dir.rglob("*") if p.is_file())
+--    packed = [p for p in all_files if p.suffix.lower() in _PACKED_SUFFIXES]
+--    skipped = [p for p in all_files if p.suffix.lower() not in _PACKED_SUFFIXES]
+-+    packed = all_files
+-+    skipped: list[Path] = []
+- 
+--    output_path.parent.mkdir(parents=True, exist_ok=True)
+-+    # Build the ZIP entirely in memory first -- offsets zipfile writes
+-+    # are always relative to wherever it started writing, so a ZIP
+-+    # built into a fresh buffer at offset 0 is byte-for-byte the same
+-+    # archive as one built by appending after prefix bytes in a real
+-+    # file. That's what makes both the plain (concat-and-done) and
+-+    # sealed (encrypt-then-concat) paths below correct: neither one
+-+    # patches a single ZIP header by hand.
+-+    zip_buffer = io.BytesIO()
+-+    with zipfile.ZipFile(zip_buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+-+        for path in packed:
+-+            arcname = path.relative_to(build_dir).as_posix()
+-+            zf.write(path, arcname)
+-+    zip_bytes = zip_buffer.getvalue()
+- 
+--    # Writing the prefix bytes first, then opening the *same* file
+--    # handle in ZIP append mode, is what makes this a polyglot rather
+--    # than needing to hand-patch ZIP header offsets: zipfile computes
+--    # every offset it writes from the handle's current file position,
+--    # so entries land correctly after the prefix without any of the
+--    # manual byte-patching a naive "concat two files" approach would
+--    # need.
+--    with open(output_path, "wb") as bundle_file:
+--        bundle_file.write(prefix_bytes)
+--        with zipfile.ZipFile(bundle_file, mode="a", compression=zipfile.ZIP_DEFLATED) as zf:
+--            for path in packed:
+--                arcname = path.relative_to(build_dir).as_posix()
+--                zf.write(path, arcname)
+-+    if sealed:
+-+        archive_bytes = seal(zip_bytes, passphrase=passphrase)
+-+    else:
+-+        archive_bytes = zip_bytes
+-+
+-+    output_path.parent.mkdir(parents=True, exist_ok=True)
+-+    output_path.write_bytes(prefix_bytes + archive_bytes)
+- 
+-     return PackResult(
+-         output_path=output_path,
+-         packed_paths=[p.relative_to(build_dir).as_posix() for p in packed],
+-         skipped_paths=[p.relative_to(build_dir).as_posix() for p in skipped],
+-+        sealed=sealed,
+-+        passphrase_protected=sealed and passphrase is not None,
+-+    )
+-+
+-+
+-+def _find_archive_start(data: bytes) -> int:
+-+    """
+-+    The archive half (sealed or plain) begins immediately after the
+-+    inlined front-matter page's `</html>\\n` -- exactly what the HTML
+-+    backend always emits to close the document (see
+-+    arklight/backend/html/render.py). Locating it this way (rather
+-+    than searching for the seal MAGIC, which plain bundles never have)
+-+    works identically for both bundle kinds.
+-+    """
+-+    idx = data.find(HTML_END_MARKER)
+-+    if idx == -1:
+-+        raise PackError(
+-+            "Could not locate the end of the inlined HTML front matter "
+-+            "(`</html>`) -- is this a valid .ark bundle?"
+-+        )
+-+    return idx + len(HTML_END_MARKER)
+-+
+-+
+-+def unpack(
+-+    bundle_path: str | Path,
+-+    output_dir: str | Path,
+-+    *,
+-+    passphrase: str | None = None,
+-+) -> UnpackResult:
+-+    """
+-+    Reverse of `pack()`: extract a `.ark` bundle's archive half back
+-+    into a normal ARKlight build directory at `output_dir`.
+-+
+-+    Auto-detects sealed vs. plain bundles -- `passphrase` is only
+-+    needed (and only used) if the bundle was sealed with one. Raises
+-+    PackError if the bundle can't be read, is missing/wrong
+-+    passphrase, or its archive half fails the integrity check (see
+-+    `arklight.packer.seal.unseal`).
+-+    """
+-+    bundle_path = Path(bundle_path)
+-+    output_dir = Path(output_dir)
+-+
+-+    if not bundle_path.is_file():
+-+        raise PackError(f"Bundle file not found: {bundle_path}")
+-+
+-+    data = bundle_path.read_bytes()
+-+    archive_bytes = data[_find_archive_start(data) :]
+-+
+-+    was_sealed = archive_bytes.startswith(b"ARKSEAL1")
+-+    if was_sealed:
+-+        try:
+-+            zip_bytes = unseal(archive_bytes, passphrase=passphrase)
+-+        except SealError as exc:
+-+            raise PackError(str(exc)) from exc
+-+    else:
+-+        zip_bytes = archive_bytes
+-+
+-+    output_dir.mkdir(parents=True, exist_ok=True)
+-+    try:
+-+        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+-+            zf.extractall(output_dir)
+-+            extracted = zf.namelist()
+-+    except zipfile.BadZipFile as exc:
+-+        raise PackError(
+-+            f"Bundle's archive half isn't a valid ZIP once unsealed: {exc}"
+-+        ) from exc
+-+
+-+    return UnpackResult(
+-+        output_dir=output_dir,
+-+        extracted_paths=sorted(extracted),
+-+        was_sealed=was_sealed,
+-     )
+diff --git a/arklight/pwa.py b/arklight/pwa.py
+new file mode 100644
+index 0000000..c9906eb
+--- /dev/null
++++ b/arklight/pwa.py
+@@ -0,0 +1,290 @@
++"""
++PWA (Progressive Web App) support -- v0.038.
++
++Incremental, opt-in post-build step: turns an existing `arklight
++build` output directory into an installable PWA by generating a Web
++App Manifest and a Service Worker, then injecting the two small tags
++each page needs to pick them up (`<link rel="manifest">` and an inline
++registration script) into every already-built HTML file.
++
++Like `arklight.packer.bundle`, this module only ever reads files a
++normal build already produced -- it does not import or touch the
++compiler pipeline (parser/ir/backend). That keeps PWA-enabling a step
++*after* `arklight build`, not a new pipeline stage fused into it, and
++it's what makes it safe to run repeatedly: `enable_pwa()` re-scans
++`build_dir` every time and rewrites `manifest.json`/`sw.js` plus the
++injected tags in place -- nothing is appended twice, and edits to the
++build (new pages, changed assets) are picked up on the next run
++without cleaning anything up by hand first. That's the "incremental"
++part: there's no separate PWA build mode to keep in sync, just re-run
++`arklight pwa <build-dir>` after any `arklight build`.
++
++    build-dir/
++      index.html, about.html, ...   <- get manifest link/meta + SW
++                                        registration injected in place
++      manifest.json                 <- generated
++      sw.js                         <- generated, precaches every file
++                                        found in build-dir at run time
++
++The service worker is a small, dependency-free, cache-first precache:
++every file `enable_pwa()` finds in `build_dir` (HTML/CSS/JS/assets/
++anything else) is listed and precached on install; `CACHE_NAME` embeds
++a content hash of that file list, so any change to the build (added,
++removed, or edited file) yields a new cache name -- that's what
++actually triggers the browser to fetch the update on the next visit,
++via the generated `sw.js`'s own `activate` handler dropping any
++differently-named cache. An unchanged re-run produces the same cache
++name and is a no-op for anyone with it already installed.
++"""
++
++from __future__ import annotations
++
++import hashlib
++import json
++import posixpath
++import re
++from dataclasses import dataclass, field
++from pathlib import Path
++
++MANIFEST_NAME = "manifest.json"
++SERVICE_WORKER_NAME = "sw.js"
++
++# Injected verbatim into every page's <head>/<body>, wrapped in these
++# marker comments so re-running enable_pwa() finds and replaces its
++# own prior injection instead of appending a second copy each time.
++_HEAD_MARKER_START = "<!-- arklight:pwa:head -->"
++_HEAD_MARKER_END = "<!-- /arklight:pwa:head -->"
++_SW_MARKER_START = "<!-- arklight:pwa:sw -->"
++_SW_MARKER_END = "<!-- /arklight:pwa:sw -->"
++
++_HEAD_BLOCK_RE = re.compile(
++    re.escape(_HEAD_MARKER_START) + r".*?" + re.escape(_HEAD_MARKER_END) + r"\n?",
++    re.DOTALL,
++)
++_SW_BLOCK_RE = re.compile(
++    re.escape(_SW_MARKER_START) + r".*?" + re.escape(_SW_MARKER_END) + r"\n?",
++    re.DOTALL,
++)
++_HEAD_CLOSE_RE = re.compile(r"</head>", re.IGNORECASE)
++_BODY_CLOSE_RE = re.compile(r"</body>", re.IGNORECASE)
++
++
++class PWAError(Exception):
++    """Raised when a build directory can't be turned into a PWA."""
++
++
++@dataclass
++class PWAResult:
++    build_dir: Path
++    manifest_path: Path
++    service_worker_path: Path
++    updated_pages: list[str] = field(default_factory=list)
++    cached_paths: list[str] = field(default_factory=list)
++    cache_name: str = ""
++
++
++def _cache_name(paths: list[Path], build_dir: Path) -> str:
++    """
++    Content hash of every precached file's relative path *and* bytes,
++    so any change to the build -- a new file, a removed one, an edited
++    one -- changes the cache name. See the module docstring for why
++    that's what makes a re-run an effective cache-bust.
++    """
++    digest = hashlib.sha256()
++    for path in paths:
++        digest.update(path.relative_to(build_dir).as_posix().encode("utf-8"))
++        digest.update(path.read_bytes())
++    return f"arklight-pwa-{digest.hexdigest()[:16]}"
++
++
++def _render_manifest(
++    *,
++    name: str,
++    short_name: str | None,
++    start_url: str,
++    theme_color: str,
++    background_color: str,
++    display: str,
++    icons: list[dict[str, str]],
++) -> str:
++    manifest = {
++        "name": name,
++        "short_name": short_name or name[:12],
++        "start_url": start_url,
++        "scope": "./",
++        "display": display,
++        "theme_color": theme_color,
++        "background_color": background_color,
++        "icons": icons,
++    }
++    return json.dumps(manifest, indent=2) + "\n"
++
++
++def _render_service_worker(cache_name: str, precache_paths: list[str]) -> str:
++    precache_json = json.dumps(sorted(set(precache_paths + [MANIFEST_NAME])), indent=2)
++    return (
++        "// Generated by `arklight pwa` -- do not edit by hand. Re-run\n"
++        "// `arklight pwa <build-dir>` after your next `arklight build`\n"
++        "// instead; this file (including CACHE_NAME) is fully\n"
++        "// regenerated every time, not patched in place.\n"
++        f'const CACHE_NAME = "{cache_name}";\n'
++        f"const PRECACHE_URLS = {precache_json};\n"
++        "\n"
++        'self.addEventListener("install", (event) => {\n'
++        "  event.waitUntil(\n"
++        "    caches.open(CACHE_NAME).then((cache) => cache.addAll(PRECACHE_URLS))\n"
++        "  );\n"
++        "  self.skipWaiting();\n"
++        "});\n"
++        "\n"
++        'self.addEventListener("activate", (event) => {\n'
++        "  event.waitUntil(\n"
++        "    caches.keys().then((names) =>\n"
++        "      Promise.all(\n"
++        "        names.filter((name) => name !== CACHE_NAME).map((name) => caches.delete(name))\n"
++        "      )\n"
++        "    )\n"
++        "  );\n"
++        "  self.clients.claim();\n"
++        "});\n"
++        "\n"
++        'self.addEventListener("fetch", (event) => {\n'
++        "  event.respondWith(\n"
++        "    caches.match(event.request).then((cached) => cached || fetch(event.request))\n"
++        "  );\n"
++        "});\n"
++    )
++
++
++def _relative_href(target_name: str, page_rel_path: str) -> str:
++    """`target_name` (e.g. "manifest.json", root-level) relative to a
++    page's own directory -- same approach the HTML backend already
++    uses for stylesheet/script hrefs, see
++    `arklight.backend.html.render._relative_asset_path`."""
++    current_dir = posixpath.dirname(page_rel_path) or "."
++    return posixpath.relpath(target_name, current_dir)
++
++
++def _inject_page(html: str, *, manifest_href: str, sw_href: str, theme_color: str) -> str:
++    head_block = (
++        f"{_HEAD_MARKER_START}\n"
++        f'  <link rel="manifest" href="{manifest_href}">\n'
++        f'  <meta name="theme-color" content="{theme_color}">\n'
++        f"{_HEAD_MARKER_END}\n"
++    )
++    sw_block = (
++        f"{_SW_MARKER_START}\n"
++        "  <script>\n"
++        '    if ("serviceWorker" in navigator) {\n'
++        '      window.addEventListener("load", () => {\n'
++        f'        navigator.serviceWorker.register("{sw_href}");\n'
++        "      });\n"
++        "    }\n"
++        "  </script>\n"
++        f"{_SW_MARKER_END}\n"
++    )
++
++    # Strip any previously-injected blocks first -- re-running enable_pwa()
++    # replaces its own output rather than piling up duplicate copies.
++    html = _HEAD_BLOCK_RE.sub("", html)
++    html = _SW_BLOCK_RE.sub("", html)
++
++    if not _HEAD_CLOSE_RE.search(html):
++        raise PWAError("Could not find </head> to inject the PWA manifest link into.")
++    if not _BODY_CLOSE_RE.search(html):
++        raise PWAError("Could not find </body> to inject the service worker registration into.")
++
++    html = _HEAD_CLOSE_RE.sub(head_block + "</head>", html, count=1)
++    html = _BODY_CLOSE_RE.sub(sw_block + "</body>", html, count=1)
++    return html
++
++
++def enable_pwa(
++    build_dir: str | Path,
++    *,
++    name: str,
++    short_name: str | None = None,
++    start_url: str = "index.html",
++    theme_color: str = "#000000",
++    background_color: str = "#ffffff",
++    display: str = "standalone",
++    icons: list[dict[str, str]] | None = None,
++) -> PWAResult:
++    """
++    Turn `build_dir` (an existing `arklight build` output directory)
++    into a PWA: writes `manifest.json` + `sw.js` into it and injects
++    the tags every `.html` page needs to pick them up.
++
++    Safe to call repeatedly on the same directory -- see the module
++    docstring's "incremental" note. Raises PWAError if `build_dir`
++    doesn't exist or contains no `.html` files (i.e. doesn't look like
++    an `arklight build` output directory).
++    """
++    build_dir = Path(build_dir)
++    if not build_dir.is_dir():
++        raise PWAError(f"Build directory not found: {build_dir}")
++
++    html_paths = sorted(build_dir.rglob("*.html"))
++    if not html_paths:
++        raise PWAError(
++            f"No .html files found in {build_dir} -- run `arklight build` first, "
++            f"then enable PWA on its output directory."
++        )
++
++    manifest_path = build_dir / MANIFEST_NAME
++    sw_path = build_dir / SERVICE_WORKER_NAME
++
++    # Inject/write every page *before* computing the precache hash, so
++    # the hash always covers each page's final (post-injection) bytes
++    # -- otherwise a first run (hashing pre-injection pages) and a
++    # second run (hashing the first run's already-injected pages)
++    # would produce different cache names for what is, from the
++    # outside, an unchanged build. See the module docstring.
++    updated_pages: list[str] = []
++    for page_path in html_paths:
++        page_rel = page_path.relative_to(build_dir).as_posix()
++        manifest_href = _relative_href(MANIFEST_NAME, page_rel)
++        sw_href = _relative_href(SERVICE_WORKER_NAME, page_rel)
++        original = page_path.read_text(encoding="utf-8")
++        updated = _inject_page(
++            original, manifest_href=manifest_href, sw_href=sw_href, theme_color=theme_color
++        )
++        if updated != original:
++            page_path.write_text(updated, encoding="utf-8")
++        updated_pages.append(page_rel)
++
++    # Precache list/hash is computed from whatever's in build_dir now
++    # (post-injection), excluding this run's own manifest.json/sw.js --
++    # avoids hashing sw.js's own not-yet-written bytes into its own
++    # cache name, and re-including a stale manifest.json from a prior
++    # run in the new one's hash.
++    precache_sources = sorted(
++        p
++        for p in build_dir.rglob("*")
++        if p.is_file() and p not in (manifest_path, sw_path)
++    )
++    cache_name = _cache_name(precache_sources, build_dir)
++    precache_rel = [p.relative_to(build_dir).as_posix() for p in precache_sources]
++
++    manifest_path.write_text(
++        _render_manifest(
++            name=name,
++            short_name=short_name,
++            start_url=start_url,
++            theme_color=theme_color,
++            background_color=background_color,
++            display=display,
++            icons=icons or [],
++        ),
++        encoding="utf-8",
++    )
++    sw_path.write_text(_render_service_worker(cache_name, precache_rel), encoding="utf-8")
++
++    return PWAResult(
++        build_dir=build_dir,
++        manifest_path=manifest_path,
++        service_worker_path=sw_path,
++        updated_pages=updated_pages,
++        cached_paths=sorted(set(precache_rel + [MANIFEST_NAME])),
++        cache_name=cache_name,
++    )
+diff --git a/pyproject.toml b/pyproject.toml
+index d5cb328..d1e9c24 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
+ 
+ [project]
+ name = "arklight"
+-
++version = "0.038"
+ description = "A Python-first compiler for building beautiful static websites."
+ readme = "README.md"
+ requires-python = ">=3.10"
+diff --git a/tests/test_pack.py b/tests/test_pack.py
+index 33b9640..38f4e50 100644
+--- a/tests/test_pack.py
++++ b/tests/test_pack.py
+@@ -126,7 +126,7 @@ def test_assets_are_carried_into_the_bundle(tmp_path):
+     (assets_dir / "logo.png").write_bytes(raw_png)
+ 
+     bundle_path = tmp_path / "site.ark"
+-    result = pack(out_dir, bundle_path)
++    result = pack(out_dir, bundle_path, sealed=False)
+ 
+     assert "assets/logo.png" in result.packed_paths
+     assert result.skipped_paths == []
+diff --git a/tests/test_pwa.py b/tests/test_pwa.py
+new file mode 100644
+index 0000000..3646f2f
+--- /dev/null
++++ b/tests/test_pwa.py
+@@ -0,0 +1,174 @@
++import json
++from pathlib import Path
++
++import pytest
++
++from arklight.compiler.pipeline import build
++from arklight.pwa import MANIFEST_NAME, SERVICE_WORKER_NAME, PWAError, enable_pwa
++
++SIMPLE_SITE = """
++from arklight import *
++site = Site()
++
++@site.page("/")
++def home():
++    return Page(Heading("Hi"), Text("Hello from ARKlight."))
++
++@site.page("/about")
++def about():
++    return Page(Heading("About"))
++"""
++
++
++def write_site(tmp_path: Path) -> Path:
++    path = tmp_path / "site.py"
++    path.write_text(SIMPLE_SITE)
++    return path
++
++
++def build_dir(tmp_path: Path) -> Path:
++    site_path = write_site(tmp_path)
++    out_dir = tmp_path / "ARK"
++    build(site_path, out_dir)
++    return out_dir
++
++
++def test_enable_pwa_writes_manifest_and_service_worker(tmp_path):
++    out_dir = build_dir(tmp_path)
++
++    result = enable_pwa(out_dir, name="My Site")
++
++    manifest_path = out_dir / MANIFEST_NAME
++    sw_path = out_dir / SERVICE_WORKER_NAME
++    assert manifest_path.exists()
++    assert sw_path.exists()
++    assert result.manifest_path == manifest_path
++    assert result.service_worker_path == sw_path
++
++    manifest = json.loads(manifest_path.read_text())
++    assert manifest["name"] == "My Site"
++    assert manifest["short_name"] == "My Site"[:12]
++    assert manifest["display"] == "standalone"
++
++
++def test_enable_pwa_injects_every_page(tmp_path):
++    out_dir = build_dir(tmp_path)
++
++    result = enable_pwa(out_dir, name="My Site")
++
++    assert set(result.updated_pages) == {"index.html", "about.html"}
++    for rel_path in result.updated_pages:
++        html = (out_dir / rel_path).read_text()
++        assert '<link rel="manifest" href="manifest.json">' in html
++        assert 'navigator.serviceWorker.register("sw.js")' in html
++        assert '<meta name="theme-color" content="#000000">' in html
++
++
++def test_enable_pwa_precaches_every_build_file(tmp_path):
++    out_dir = build_dir(tmp_path)
++
++    result = enable_pwa(out_dir, name="My Site")
++
++    assert "index.html" in result.cached_paths
++    assert "about.html" in result.cached_paths
++    assert "styles.css" in result.cached_paths
++    assert "arklight.js" in result.cached_paths
++    assert MANIFEST_NAME in result.cached_paths
++
++    sw_contents = (out_dir / SERVICE_WORKER_NAME).read_text()
++    assert result.cache_name in sw_contents
++    for path in result.cached_paths:
++        assert json.dumps(path) in sw_contents
++
++
++def test_enable_pwa_is_idempotent(tmp_path):
++    out_dir = build_dir(tmp_path)
++
++    enable_pwa(out_dir, name="My Site")
++    first_html = (out_dir / "index.html").read_text()
++    first_sw = (out_dir / SERVICE_WORKER_NAME).read_text()
++
++    enable_pwa(out_dir, name="My Site")
++    second_html = (out_dir / "index.html").read_text()
++    second_sw = (out_dir / SERVICE_WORKER_NAME).read_text()
++
++    assert first_html == second_html
++    assert first_sw == second_sw
++    # No duplicated injection markers from a second run.
++    assert first_html.count("arklight:pwa:head") == 2  # start + end marker
++    assert first_html.count("arklight:pwa:sw") == 2
++
++
++def test_enable_pwa_cache_name_changes_when_build_changes(tmp_path):
++    out_dir = build_dir(tmp_path)
++    result_one = enable_pwa(out_dir, name="My Site")
++
++    (out_dir / "extra.txt").write_text("new file")
++    result_two = enable_pwa(out_dir, name="My Site")
++
++    assert result_one.cache_name != result_two.cache_name
++    assert "extra.txt" in result_two.cached_paths
++
++
++def test_enable_pwa_raises_on_missing_build_dir(tmp_path):
++    with pytest.raises(PWAError, match="not found"):
++        enable_pwa(tmp_path / "nope", name="My Site")
++
++
++def test_enable_pwa_raises_on_dir_without_html(tmp_path):
++    empty_dir = tmp_path / "empty"
++    empty_dir.mkdir()
++    with pytest.raises(PWAError, match="No .html files"):
++        enable_pwa(empty_dir, name="My Site")
++
++
++def test_enable_pwa_respects_custom_options(tmp_path):
++    out_dir = build_dir(tmp_path)
++
++    result = enable_pwa(
++        out_dir,
++        name="My Site",
++        short_name="MS",
++        start_url="index.html",
++        theme_color="#123456",
++        background_color="#abcdef",
++        display="fullscreen",
++    )
++
++    manifest = json.loads((out_dir / MANIFEST_NAME).read_text())
++    assert manifest["short_name"] == "MS"
++    assert manifest["theme_color"] == "#123456"
++    assert manifest["background_color"] == "#abcdef"
++    assert manifest["display"] == "fullscreen"
++
++    for rel_path in result.updated_pages:
++        html = (out_dir / rel_path).read_text()
++        assert '<meta name="theme-color" content="#123456">' in html
++
++
++def test_enable_pwa_relative_hrefs_for_nested_pages(tmp_path):
++    nested_site = """
++from arklight import *
++site = Site()
++
++@site.page("/")
++def home():
++    return Page(Heading("Hi"))
++
++@site.page("/blog/post")
++def post():
++    return Page(Heading("Post"))
++"""
++    site_path = tmp_path / "site.py"
++    site_path.write_text(nested_site)
++    out_dir = tmp_path / "ARK"
++    build(site_path, out_dir)
++
++    enable_pwa(out_dir, name="My Site")
++
++    nested_html = (out_dir / "blog" / "post.html").read_text()
++    assert '<link rel="manifest" href="../manifest.json">' in nested_html
++    assert 'navigator.serviceWorker.register("../sw.js")' in nested_html
++
++    root_html = (out_dir / "index.html").read_text()
++    assert '<link rel="manifest" href="manifest.json">' in root_html

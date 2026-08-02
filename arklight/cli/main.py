@@ -5,6 +5,7 @@ ARKlight CLI.
     arklight build site.py -o ARK
     arklight pack ARK -o site.ark
     arklight unpack site.ark -o ARK
+    arklight pwa ARK --name "My Site"
 
 Beginner-friendly by design: a handful of subcommands, sensible
 defaults (builds AND opens the result in your browser), and error
@@ -24,6 +25,7 @@ from arklight.cli.scaffold import ScaffoldError, new_project
 from arklight.cli.templates import TEMPLATES
 from arklight.compiler.pipeline import BuildResult, CompileError, build
 from arklight.packer.bundle import PackError, pack, unpack
+from arklight.pwa import PWAError, enable_pwa
 
 
 def open_in_browser(result: BuildResult, output_dir: str | Path) -> bool:
@@ -121,6 +123,70 @@ def _cmd_unpack(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_pwa(args: argparse.Namespace) -> int:
+    try:
+        result = enable_pwa(
+            args.build_dir,
+            name=args.name,
+            short_name=args.short_name,
+            start_url=args.start_url,
+            theme_color=args.theme_color,
+            background_color=args.background_color,
+            display=args.display,
+        )
+    except PWAError as exc:
+        print(f"ARKlight pwa failed: {exc}", file=sys.stderr)
+        return 1
+
+    print(
+        f"ARKlight v{__version__} enabled PWA support in {result.build_dir}/ "
+        f"({len(result.cached_paths)} file(s) precached, cache {result.cache_name})"
+    )
+    print(f"  {result.manifest_path.relative_to(result.build_dir)}")
+    print(f"  {result.service_worker_path.relative_to(result.build_dir)}")
+    for path in result.updated_pages:
+        print(f"  {path} (manifest link + SW registration injected)")
+    print(
+        "Re-run `arklight pwa` on this directory after every `arklight build` "
+        "to keep the manifest/service worker/precache list in sync -- it's "
+        "idempotent, so this is always safe."
+    )
+
+    return 0
+
+
+def _cmd_pwa(args: argparse.Namespace) -> int:
+    try:
+        result = enable_pwa(
+            args.build_dir,
+            name=args.name,
+            short_name=args.short_name,
+            start_url=args.start_url,
+            theme_color=args.theme_color,
+            background_color=args.background_color,
+            display=args.display,
+        )
+    except PWAError as exc:
+        print(f"ARKlight pwa failed: {exc}", file=sys.stderr)
+        return 1
+
+    print(
+        f"ARKlight v{__version__} enabled PWA support in {result.build_dir}/ "
+        f"({len(result.cached_paths)} file(s) precached, cache {result.cache_name})"
+    )
+    print(f"  {result.manifest_path.relative_to(result.build_dir)}")
+    print(f"  {result.service_worker_path.relative_to(result.build_dir)}")
+    for path in result.updated_pages:
+        print(f"  {path} (manifest link + SW registration injected)")
+    print(
+        "Re-run `arklight pwa` on this directory after every `arklight build` "
+        "to keep the manifest/service worker/precache list in sync -- it's "
+        "idempotent, so this is always safe."
+    )
+
+    return 0
+
+
 def _cmd_new(args: argparse.Namespace) -> int:
     try:
         result = new_project(args.name, template=args.template, dest_dir=args.dir)
@@ -211,6 +277,40 @@ def main(argv: list[str] | None = None) -> int:
         help="Passphrase the bundle was sealed with (only needed for passphrase-sealed bundles).",
     )
     unpack_parser.set_defaults(func=_cmd_unpack)
+
+    pwa_parser = subparsers.add_parser(
+        "pwa",
+        help="Turn a build directory into an installable PWA (manifest + service worker).",
+    )
+    pwa_parser.add_argument(
+        "build_dir", help="Path to an `arklight build` output directory (e.g. ARK)"
+    )
+    pwa_parser.add_argument("--name", required=True, help="Full app name for the manifest")
+    pwa_parser.add_argument(
+        "--short-name",
+        default=None,
+        help="Short app name for the manifest (default: first 12 chars of --name)",
+    )
+    pwa_parser.add_argument(
+        "--start-url",
+        default="index.html",
+        help="Manifest start_url, relative to the build directory (default: index.html)",
+    )
+    pwa_parser.add_argument(
+        "--theme-color", default="#000000", help="Manifest/meta theme color (default: #000000)"
+    )
+    pwa_parser.add_argument(
+        "--background-color",
+        default="#ffffff",
+        help="Manifest background color (default: #ffffff)",
+    )
+    pwa_parser.add_argument(
+        "--display",
+        default="standalone",
+        choices=["standalone", "fullscreen", "minimal-ui", "browser"],
+        help="Manifest display mode (default: standalone)",
+    )
+    pwa_parser.set_defaults(func=_cmd_pwa)
 
     new_parser = subparsers.add_parser(
         "new", help="Scaffold a new ARKlight project from a built-in template."

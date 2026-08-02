@@ -1,0 +1,201 @@
+diff a/arklight/packer/bundle.py b/arklight/packer/bundle.py	(rejected hunks)
+@@ -1,46 +1,61 @@
+ """
+-ARK Bundle packer -- v0.036 ("ARK Bundle spec v1").
++ARK Bundle packer -- v0.037 ("ARK Bundle spec v1" + sealing).
+ 
+ Packs an already-built ARKlight output directory (whatever `arklight
+-build` wrote to disk) into a single `.ark` file: an HTML/ZIP polyglot.
+-See docs/DESIGN-NOTES.md, "v0.036: ARK Bundle spec v1", for the full
+-format writeup and rationale.
++build` wrote to disk) into a single `.ark` file: an HTML/[sealed or
++plain ZIP] polyglot. See docs/DESIGN-NOTES.md, "v0.036: ARK Bundle
++spec v1" and "v0.037: sealed bundles", for the full format writeup and
++rationale.
+ 
+ This module only ever reads files a normal build already produced --
+ it does not import or touch the compiler pipeline (parser/ir/backend).
+ That keeps packing a step *after* `arklight build`, not a new pipeline
+ stage fused into it.
+ 
+-    [ inlined entry page ][ ZIP of the original build files ]
+-
+-- HTML parsers stop at `</html>` and never reach the ZIP bytes after
+-  it, so opening the `.ark` file in a browser just renders the page.
+-- ZIP readers seek to the End-Of-Central-Directory record near the end
+-  of the file rather than assuming the archive starts at byte 0, so
+-  any archive tool still opens the same bytes as a normal ZIP.
+-
+-v1 scope: `.html`/`.css`/`.js` files are read as text so the entry
+-page can be inlined (see `_inline_entry_page`). Every other file found
+-in the build directory -- most notably an `assets/` folder with
+-images, audio, video, or other files -- is now carried into the bundle
+-too, written into the ZIP half as raw bytes with no attempt to read or
+-transform their contents. Only the *inlined front-matter page* is
+-unaffected by this: it still references `assets/...` by relative path,
+-which only resolves once the bundle is opened with an archive tool and
+-extracted next to those files, not when the `.ark` is opened directly
+-in a browser as a polyglot -- that limitation is unchanged from v1.
++    [ inlined entry page ][ sealed OR plain archive of the build files ]
++
++- HTML parsers stop at `</html>` and never reach the bytes after it,
++  so opening the `.ark` file in a browser just renders the page,
++  regardless of what the archive half contains.
++- **Sealed (default):** the archive half is encrypted (see
++  `arklight.packer.seal`) -- a generic archive tool, "rename to .zip",
++  or hex editor sees only opaque bytes, not a ZIP, so nothing can
++  casually inspect or splice its contents. `arklight unpack` reverses
++  this.
++- **Plain (opt-in via `sealed=False` / `--plain`):** the original v1
++  behavior -- a real, generically-openable ZIP tail. ZIP readers seek
++  to the End-Of-Central-Directory record near the end of the file
++  rather than assuming the archive starts at byte 0, so any archive
++  tool opens the same bytes as a normal ZIP. Kept as an explicit choice
++  for anyone who *wants* the extracted build to be freely inspectable
++  or re-editable without ARKlight installed.
++
++v1 archive scope (applies to both sealed and plain): `.html`/`.css`/
++`.js` files are read as text so the entry page can be inlined (see
++`_inline_entry_page`). Every other file found in the build directory --
++most notably an `assets/` folder with images, audio, video, or other
++files -- is carried into the archive too, as raw bytes with no attempt
++to read or transform their contents. Only the *inlined front-matter
++page* is unaffected: it still references `assets/...` by relative
++path, which only resolves once the bundle is unpacked next to those
++files, not when the `.ark` is opened directly in a browser as a
++polyglot.
+ """
+ 
+ from __future__ import annotations
+ 
++import io
+ import re
+ import zipfile
+ from dataclasses import dataclass, field
+ from pathlib import Path
+ 
++from arklight.packer.seal import SealError, seal, unseal
++
+ STYLESHEET_NAME = "styles.css"
+ SCRIPT_NAME = "arklight.js"
+ ENTRY_HTML_NAME = "index.html"
++HTML_END_MARKER = b"</html>\n"
+ 
+ # These file types are read as text (needed to inline the entry page --
+ # see _inline_entry_page). Everything else in the build directory is
+@@ -177,24 +192,101 @@ def pack(
+     packed = all_files
+     skipped: list[Path] = []
+ 
+-    output_path.parent.mkdir(parents=True, exist_ok=True)
++    # Build the ZIP entirely in memory first -- offsets zipfile writes
++    # are always relative to wherever it started writing, so a ZIP
++    # built into a fresh buffer at offset 0 is byte-for-byte the same
++    # archive as one built by appending after prefix bytes in a real
++    # file. That's what makes both the plain (concat-and-done) and
++    # sealed (encrypt-then-concat) paths below correct: neither one
++    # patches a single ZIP header by hand.
++    zip_buffer = io.BytesIO()
++    with zipfile.ZipFile(zip_buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
++        for path in packed:
++            arcname = path.relative_to(build_dir).as_posix()
++            zf.write(path, arcname)
++    zip_bytes = zip_buffer.getvalue()
++
++    if sealed:
++        archive_bytes = seal(zip_bytes, passphrase=passphrase)
++    else:
++        archive_bytes = zip_bytes
+ 
+-    # Writing the prefix bytes first, then opening the *same* file
+-    # handle in ZIP append mode, is what makes this a polyglot rather
+-    # than needing to hand-patch ZIP header offsets: zipfile computes
+-    # every offset it writes from the handle's current file position,
+-    # so entries land correctly after the prefix without any of the
+-    # manual byte-patching a naive "concat two files" approach would
+-    # need.
+-    with open(output_path, "wb") as bundle_file:
+-        bundle_file.write(prefix_bytes)
+-        with zipfile.ZipFile(bundle_file, mode="a", compression=zipfile.ZIP_DEFLATED) as zf:
+-            for path in packed:
+-                arcname = path.relative_to(build_dir).as_posix()
+-                zf.write(path, arcname)
++    output_path.parent.mkdir(parents=True, exist_ok=True)
++    output_path.write_bytes(prefix_bytes + archive_bytes)
+ 
+     return PackResult(
+         output_path=output_path,
+         packed_paths=[p.relative_to(build_dir).as_posix() for p in packed],
+         skipped_paths=[p.relative_to(build_dir).as_posix() for p in skipped],
++        sealed=sealed,
++        passphrase_protected=sealed and passphrase is not None,
++    )
++
++
++def _find_archive_start(data: bytes) -> int:
++    """
++    The archive half (sealed or plain) begins immediately after the
++    inlined front-matter page's `</html>\n` -- exactly what the HTML
++    backend always emits to close the document (see
++    arklight/backend/html/render.py). Locating it this way (rather
++    than searching for the seal MAGIC, which plain bundles never have)
++    works identically for both bundle kinds.
++    """
++    idx = data.find(HTML_END_MARKER)
++    if idx == -1:
++        raise PackError(
++            "Could not locate the end of the inlined HTML front matter "
++            "(`</html>`) -- is this a valid .ark bundle?"
++        )
++    return idx + len(HTML_END_MARKER)
++
++
++def unpack(
++    bundle_path: str | Path,
++    output_dir: str | Path,
++    *,
++    passphrase: str | None = None,
++) -> UnpackResult:
++    """
++    Reverse of `pack()`: extract a `.ark` bundle's archive half back
++    into a normal ARKlight build directory at `output_dir`.
++
++    Auto-detects sealed vs. plain bundles -- `passphrase` is only
++    needed (and only used) if the bundle was sealed with one. Raises
++    PackError if the bundle can't be read, is missing/wrong
++    passphrase, or its archive half fails the integrity check (see
++    `arklight.packer.seal.unseal`).
++    """
++    bundle_path = Path(bundle_path)
++    output_dir = Path(output_dir)
++
++    if not bundle_path.is_file():
++        raise PackError(f"Bundle file not found: {bundle_path}")
++
++    data = bundle_path.read_bytes()
++    archive_bytes = data[_find_archive_start(data):]
++
++    was_sealed = archive_bytes.startswith(b"ARKSEAL1")
++    if was_sealed:
++        try:
++            zip_bytes = unseal(archive_bytes, passphrase=passphrase)
++        except SealError as exc:
++            raise PackError(str(exc)) from exc
++    else:
++        zip_bytes = archive_bytes
++
++    output_dir.mkdir(parents=True, exist_ok=True)
++    try:
++        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
++            zf.extractall(output_dir)
++            extracted = zf.namelist()
++    except zipfile.BadZipFile as exc:
++        raise PackError(
++            f"Bundle's archive half isn't a valid ZIP once unsealed: {exc}"
++        ) from exc
++
++    return UnpackResult(
++        output_dir=output_dir,
++        extracted_paths=sorted(extracted),
++        was_sealed=was_sealed,
+     )

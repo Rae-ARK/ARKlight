@@ -1,0 +1,10 @@
+diff a/arklight/__init__.py b/arklight/__init__.py	(rejected hunks)
+@@ -120,7 +120,7 @@ from arklight.api import (
+     ARKNode,
+ )
+ 
+-__version__ = "0.037"
++__version__ = "0.038"
+ 
+ __all__ = [
+     "Site",
