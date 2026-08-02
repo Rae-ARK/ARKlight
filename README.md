@@ -184,6 +184,56 @@ is rendered as an inline `style` attribute. Built-in utility classes
 from the default stylesheet: `.nav`, `.card`, `.muted`, `.page`,
 `.hidden` (pairs with the `toggle` behavior below).
 
+### Responsive layout, without `@media` (platform-independent by construction)
+
+`Page` never gets a `<head>` hook (see
+[`docs/DESIGN-NOTES.md`](./docs/DESIGN-NOTES.md)), so a generated site
+has no `@media`/`@container` query available to it at all -- there is
+no "desktop breakpoint" or "mobile breakpoint" to hand-tune, and
+nothing keyed to a specific screen width, device, or platform. Layouts
+still adapt, but from the *content's own* available width using plain
+flexbox/grid sizing keywords (`minmax`, `auto-fit`, `flex-wrap`,
+`clamp`) -- the same technique goes by "intrinsic web design." Opt in
+with `class_name`, same mechanism as `.nav`/`.card` above:
+
+| Class             | What it does                                                                 |
+|-------------------|-------------------------------------------------------------------------------|
+| `.stack`          | Consistent vertical rhythm between block children                            |
+| `.cluster`        | A row of items that wraps as a group once it runs out of width                |
+| `.sidebar`        | Two panels side-by-side once there's room, stacked when there isn't           |
+| `.switcher`       | Children stay in a row until each would drop below a minimum width, then stack |
+| `.grid`           | An auto-filling card/tile grid with no explicit column count                  |
+| `.center`         | Constrains and horizontally centers content, with optional gutters            |
+| `.reel`           | A horizontally-scrolling row that never wraps or overflows the page           |
+| `.fluid-heading`  | Font size scales smoothly with available width via `clamp()`                  |
+
+For a layout that's three columns on a wide viewport and a single
+column on a narrow one -- the classic "desktop vs. mobile" case --
+`.switcher` is usually the right tool: give it three children and it
+lays them out in a row as long as each stays above a minimum width
+(`--ark-switcher-threshold`, default `30rem`), and stacks them
+vertically the moment they'd drop below that, with no device or
+browser ever queried:
+
+```python
+Container(
+    Container(Heading("Fast"), Text("...", class_name="muted"), class_name="card"),
+    Container(Heading("Simple"), Text("...", class_name="muted"), class_name="card"),
+    Container(Heading("Portable"), Text("...", class_name="muted"), class_name="card"),
+    class_name="switcher",
+)
+```
+
+This adapts identically on any platform that renders CSS at all --
+desktop browser, phone browser, embedded webview -- because the
+decision is made from the container's own measured width, not from
+`user-agent`, viewport metadata, or a hard-coded pixel breakpoint.
+`.grid` is the equivalent choice when the number of items is open-ended
+rather than a fixed three (a card feed, a tag list), auto-filling as
+many `minmax()`-wide columns as the available width allows. All
+`--ark-*` custom properties above (space, thresholds, widths) can be
+overridden per-instance via the `style` prop shown earlier.
+
 ### Behaviors (client-side interactivity, no JS written by hand)
 
 Any component accepts `on_click` + `behavior_target` (a CSS selector)

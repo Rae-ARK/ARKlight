@@ -19,12 +19,16 @@ stage fused into it.
   of the file rather than assuming the archive starts at byte 0, so
   any archive tool still opens the same bytes as a normal ZIP.
 
-v1 scope: only `.html`/`.css`/`.js` files are packed. Anything else in
-the build directory (most notably an `assets/` folder with images,
-audio, video, or other files) is intentionally left out of the bundle
-for now -- carrying those over is deferred to a future version so this
-milestone stays exactly what was asked for: full HTML/CSS/JS carry-
-over, nothing more.
+v1 scope: `.html`/`.css`/`.js` files are read as text so the entry
+page can be inlined (see `_inline_entry_page`). Every other file found
+in the build directory -- most notably an `assets/` folder with
+images, audio, video, or other files -- is now carried into the bundle
+too, written into the ZIP half as raw bytes with no attempt to read or
+transform their contents. Only the *inlined front-matter page* is
+unaffected by this: it still references `assets/...` by relative path,
+which only resolves once the bundle is opened with an archive tool and
+extracted next to those files, not when the `.ark` is opened directly
+in a browser as a polyglot -- that limitation is unchanged from v1.
 """
 
 from __future__ import annotations
@@ -38,10 +42,12 @@ STYLESHEET_NAME = "styles.css"
 SCRIPT_NAME = "arklight.js"
 ENTRY_HTML_NAME = "index.html"
 
-# v1 scope: only these file types are carried into the bundle. Anything
-# else found in the build directory (e.g. assets/) is reported as
-# skipped rather than silently dropped -- see PackResult.skipped_paths.
-_PACKED_SUFFIXES = {".html", ".css", ".js"}
+# These file types are read as text (needed to inline the entry page --
+# see _inline_entry_page). Everything else in the build directory is
+# still packed into the ZIP half, just as raw bytes instead of text --
+# see PackResult.packed_paths / _PACKED_SUFFIXES is no longer a filter,
+# only a hint for which files get text-mode handling.
+_TEXT_SUFFIXES = {".html", ".css", ".js"}
 
 # Matches the exact tags the HTML backend emits for the entry page
 # (arklight/backend/html/render.py: _render_page). Whitespace between
@@ -135,8 +141,8 @@ def pack(build_dir: str | Path, output_path: str | Path) -> PackResult:
     prefix_bytes = inlined_html.encode("utf-8")
 
     all_files = sorted(p for p in build_dir.rglob("*") if p.is_file())
-    packed = [p for p in all_files if p.suffix.lower() in _PACKED_SUFFIXES]
-    skipped = [p for p in all_files if p.suffix.lower() not in _PACKED_SUFFIXES]
+    packed = all_files
+    skipped: list[Path] = []
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
 

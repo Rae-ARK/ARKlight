@@ -85,20 +85,23 @@ def test_bundle_is_still_a_valid_zip_of_the_original_build(tmp_path):
         assert '<script src="arklight.js" defer></script>' in extracted_index
 
 
-def test_non_html_css_js_files_are_skipped_in_v1(tmp_path):
+def test_assets_are_carried_into_the_bundle(tmp_path):
     out_dir = build_dir(tmp_path)
     assets_dir = out_dir / "assets"
     assets_dir.mkdir()
-    (assets_dir / "logo.png").write_bytes(b"\x89PNG\r\n fake")
+    raw_png = b"\x89PNG\r\n fake"
+    (assets_dir / "logo.png").write_bytes(raw_png)
 
     bundle_path = tmp_path / "site.ark"
     result = pack(out_dir, bundle_path)
 
-    assert "assets/logo.png" in result.skipped_paths
-    assert not any(p.endswith(".png") for p in result.packed_paths)
+    assert "assets/logo.png" in result.packed_paths
+    assert result.skipped_paths == []
 
     with zipfile.ZipFile(bundle_path) as zf:
-        assert "assets/logo.png" not in zf.namelist()
+        assert "assets/logo.png" in zf.namelist()
+        # Carried in as raw bytes, untouched.
+        assert zf.read("assets/logo.png") == raw_png
 
 
 def test_pack_raises_on_missing_build_dir(tmp_path):
