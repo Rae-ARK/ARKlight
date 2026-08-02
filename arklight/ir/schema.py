@@ -277,6 +277,21 @@ ACTION_REGISTRY: dict[str, ActionSpec] = {
     "set": ActionSpec(args=("value",)),
     "increment": ActionSpec(args=("delta",)),
     "toggle_bool": ActionSpec(),
+    # ------------------------------------------------------------------
+    # v0.0035: stateful-JS vocabulary addendum. Same discipline as the
+    # v0.003 HTML vocabulary addendum above -- these fill in the two
+    # gaps real usage hits almost immediately (a counter needs a `-1`
+    # as much as a `+1`; a form/counter/toggle demo needs a "put it
+    # back the way it started" control), rather than every site
+    # re-deriving them from `set`/`increment` by hand. Only the most
+    # commonly needed additions land here; see docs/DESIGN-NOTES.md
+    # ("v0.0035: stateful JS vocabulary addendum") for the rest of the
+    # candidates (list append/remove, derived/computed state, debounced
+    # actions, input-bound `set`) deliberately left for a future
+    # version instead of growing this addendum further.
+    # ------------------------------------------------------------------
+    "decrement": ActionSpec(args=("delta",)),
+    "reset": ActionSpec(),
 }
 
 KNOWN_ACTIONS = frozenset(ACTION_REGISTRY)

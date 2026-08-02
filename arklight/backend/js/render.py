@@ -83,6 +83,10 @@ _STATE_CORE_JS = """  function createState(initial) {
         state[key] = value;
         listeners.forEach(function (fn) { fn(); });
       },
+      reset: function (key) {
+        state[key] = initial[key];
+        listeners.forEach(function (fn) { fn(); });
+      },
       subscribe: function (fn) { listeners.push(fn); }
     };
   }

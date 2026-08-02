@@ -332,6 +332,55 @@ vocabulary instead of a closed *behavior name* vocabulary.**
   addenda already established for HTML components, applied to JS for
   the first time.
 
+### v0.0035: stateful-JS vocabulary addendum
+
+Once the registry/capability refactor above landed, growing the
+*vocabulary* itself is meant to be additive data -- same discipline as
+the two HTML vocabulary addenda already applied to `SCHEMA`. This is
+the first time that's been exercised for `ACTION_REGISTRY`: two new
+entries, picked for being the gaps real usage hits almost immediately
+rather than a speculative full list.
+
+- **`Action.decrement(name, delta=1)`.** `increment` shipped without
+  its natural counterpart. Routing a `-1` button through
+  `Action.increment(name, delta=-1)` works, but it's a footgun by
+  omission (nothing stops the sign from being wrong, and it's not the
+  obvious way to decrement) -- a counter demo needs both buttons about
+  as often as it needs either one.
+- **`Action.reset(name)`.** Puts a state key back to the value it was
+  declared with in `State(...)`, without the call site hardcoding that
+  value a second time (and needing an edit at every call site if the
+  initial value ever changes). Implemented as a `reset(key)` method on
+  the reactive core's `createState` closure -- it reads the store's own
+  captured `initial` snapshot, not a value threaded through from
+  Python -- so the action fragment itself (`arklight/backend/js/actions/reset.py`)
+  is a one-line call into the core, same shape as every other action.
+
+Both are additive: new `ACTION_REGISTRY` entries, new
+`arklight/backend/js/actions/*.py` fragment modules, new `Action.*`
+static methods on `arklight.api.Action`. No change to
+`normalize.py`/`validate.py`/`build.py`/`JSBackend`'s generation logic,
+confirming the registry refactor's actual point.
+
+**Deliberately left for a future version, not included here** (this
+addendum is intentionally the *most commonly needed* two, not an
+exhaustive pass):
+
+- List actions (`Action.append`, `Action.remove`) -- state today is
+  scalar-valued (`State("count", 0)`, `State("is_open", False)`); a
+  list-valued state key and the rendering story for it
+  (`data-ark-bind` currently assumes a single text node) needs its own
+  design pass, not a quick registry entry.
+- Derived/computed state (a value computed from other state keys,
+  re-evaluated on every change) -- changes what `createState` *is*,
+  not just what actions exist.
+- `Action.set_from_input` / binding a state key directly to a form
+  control's value on `input`/`change` (not just `click`) -- needs an
+  `on_change=`-shaped prop family, not just a new action name.
+- Debounced/throttled actions -- a timing concern orthogonal to what
+  an action does, better solved once as a wrapper than duplicated per
+  action.
+
 ### v0.004: CLI scaffolding (`arklight new`)
 
 ```

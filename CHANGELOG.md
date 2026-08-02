@@ -5,6 +5,40 @@ follows [Keep a Changelog](https://keepachangelog.com/); versions
 follow the milestone scheme from ARCHITECTURE.md rather than strict
 SemVer.
 
+## [Unreleased] -- Stateful JS vocabulary addendum
+
+Full writeup in `docs/DESIGN-NOTES.md` ("v0.0035: stateful-JS
+vocabulary addendum"). Grows `ACTION_REGISTRY` (added in v0.0035) with
+the two most commonly needed actions real usage hits right away,
+following the same "additive data, not a compiler change" discipline
+the v0.0035 registry refactor was built for.
+
+### Added
+
+- `Action.decrement(name, delta=1)` -- the `-1` counterpart to
+  `Action.increment`. New `arklight/backend/js/actions/decrement.py`
+  fragment and `ACTION_REGISTRY["decrement"]` entry.
+- `Action.reset(name)` -- resets a state key to the value it was
+  declared with in `State(...)`, without hardcoding that value again
+  at the call site. Backed by a new `reset(key)` method on the
+  reactive core's `createState` closure (reads its own captured
+  `initial` snapshot), plus a new
+  `arklight/backend/js/actions/reset.py` fragment and
+  `ACTION_REGISTRY["reset"]` entry.
+- `tests/test_stateful_js_vocabulary_addendum.py` -- 10 new tests
+  (170 total).
+
+### Deliberately deferred to a future version
+
+Not an exhaustive vocabulary pass -- see `docs/DESIGN-NOTES.md` for
+the reasoning behind leaving these out of this addendum:
+
+- List actions (`Action.append` / `Action.remove`) -- state is
+  scalar-valued today; list-valued state needs its own design pass.
+- Derived/computed state.
+- `Action.set_from_input` / binding state to `input`/`change` events.
+- Debounced/throttled actions.
+
 ## [0.036] -- ARK Bundle spec v1
 
 Full writeup in `docs/DESIGN-NOTES.md` ("v0.036: ARK Bundle spec v1").

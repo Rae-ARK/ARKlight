@@ -548,6 +548,29 @@ a component's schema by name once the vocabulary is large enough that
 recall becomes the bottleneck. Explicitly held for a separate
 go-ahead signal, independent of v0.0035/v0.004 above.
 
+## v0.0035 addendum -- stateful JS vocabulary addendum (done)
+
+Not a new milestone/version -- same "addendum, not a full milestone"
+treatment as the two v0.003 vocabulary addenda above, applied to
+`ACTION_REGISTRY` for the first time. Added the two most commonly
+needed state actions, purely as new registry entries + JS fragment
+modules (no changes to normalize.py/validate.py/build.py/`JSBackend`'s
+generation logic):
+
+- [x] `Action.decrement(name, delta=1)` -- `-1` counterpart to
+      `Action.increment`. `arklight/backend/js/actions/decrement.py`.
+- [x] `Action.reset(name)` -- resets a state key back to its declared
+      initial value, via a new `reset(key)` method on the reactive
+      core's `createState` closure. `arklight/backend/js/actions/reset.py`.
+- [x] `tests/test_stateful_js_vocabulary_addendum.py` -- 10 new tests
+      (170 total, all passing).
+
+Deliberately left for a future version (see `docs/DESIGN-NOTES.md`,
+"v0.0035: stateful-JS vocabulary addendum"): list actions
+(`Action.append`/`Action.remove`), derived/computed state,
+`Action.set_from_input` (binding state to `input`/`change` events, not
+just `click`), and debounced/throttled actions.
+
 ## Milestone checklist (from ARCHITECTURE.md)
 
 - [x] v0.001 Python → HTML

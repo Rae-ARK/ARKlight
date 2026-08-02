@@ -210,8 +210,17 @@ class Action:
     string of JavaScript or Python.
 
         Button("+1", on_click=Action.increment("count"))
-        Button("Reset", on_click=Action.set("count", 0))
+        Button("-1", on_click=Action.decrement("count"))
+        Button("Reset", on_click=Action.reset("count"))
         Button("Toggle", on_click=Action.toggle_bool("is_open"))
+
+    v0.0035 vocabulary addendum: `decrement` and `reset` fill the two
+    gaps most sites hit right away -- a counter's `-1` counterpart to
+    `increment`, and "put this state back the way it started" without
+    hardcoding the initial value again at every call site (`reset`
+    reads the store's own captured initial value). Only the most
+    commonly needed additions; see docs/DESIGN-NOTES.md for what's
+    deliberately left for a future version.
     """
 
     @staticmethod
@@ -223,8 +232,16 @@ class Action:
         return ActionRef(action="increment", state=name, args={"delta": delta})
 
     @staticmethod
+    def decrement(name: str, delta: Any = 1) -> ActionRef:
+        return ActionRef(action="decrement", state=name, args={"delta": delta})
+
+    @staticmethod
     def toggle_bool(name: str) -> ActionRef:
         return ActionRef(action="toggle_bool", state=name, args={})
+
+    @staticmethod
+    def reset(name: str) -> ActionRef:
+        return ActionRef(action="reset", state=name, args={})
 
 
 BUILTIN_COMPONENTS = {
