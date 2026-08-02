@@ -1,0 +1,19 @@
+diff a/arklight/compiler/pipeline.py b/arklight/compiler/pipeline.py	(rejected hunks)
+@@ -44,7 +44,7 @@ from arklight.parser.loader import SiteLoadError, load_site
+ # into the output directory (verbatim, recursively) if it exists. Fixes
+ # the "404 images" gotcha documented in docs/DESIGN-NOTES.md: previously
+ # a site's `assets/` (images, fonts, favicons, ...) had to be copied by
+-# hand with `cp -r assets dist/assets` after every build.
++# hand with `cp -r assets ARK/assets` after every build.
+ ASSETS_DIR_NAME = "assets"
+ 
+ 
+@@ -138,7 +138,7 @@ def _copy_assets(entry_path: str | Path, out_dir: Path) -> list[Path]:
+     file) into `<output_dir>/assets`, recursively, if one exists.
+ 
+     This was previously a manual, easy-to-forget step (`cp -r assets
+-    dist/assets`) -- a real gap, not a template-only concern, per
++    ARK/assets`) -- a real gap, not a template-only concern, per
+     docs/DESIGN-NOTES.md. No-op (returns an empty list) when there's no
+     `assets/` folder to copy.
+     """

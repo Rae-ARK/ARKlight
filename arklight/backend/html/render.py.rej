@@ -1,0 +1,10 @@
+diff a/arklight/backend/html/render.py b/arklight/backend/html/render.py	(rejected hunks)
+@@ -15,7 +15,7 @@ Three things beyond basic tag rendering are handled here:
+    a domain root; opening the file directly (`file://.../index.html`)
+    or serving it from a subdirectory would send the browser to
+    `/about` on the local filesystem or wrong origin, not
+-   `dist/about.html`. So any href/src starting with "/" (and matching
++   `ARK/about.html`. So any href/src starting with "/" (and matching
+    a known route) is rewritten to the correct relative path from the
+    *current* page's output location. External URLs, `#fragments`,
+    `mailto:`, and unrecognized paths are left untouched.
