@@ -5,26 +5,47 @@ follows [Keep a Changelog](https://keepachangelog.com/); versions
 follow the milestone scheme from ARCHITECTURE.md rather than strict
 SemVer.
 
-## [Unreleased] -- v0.036: ARK Bundle spec v1 (PLANNING)
+## [0.036] -- ARK Bundle spec v1
 
-Design only -- nothing in this section is implemented yet. Full
-writeup in `docs/DESIGN-NOTES.md` ("v0.036: ARK Bundle spec v1").
+Full writeup in `docs/DESIGN-NOTES.md` ("v0.036: ARK Bundle spec v1").
 
-### Planned
+### Added
 
-- A single-file `.ark` packaging format: a site's existing build
-  output (`index.html`/`styles.css`/`arklight.js`/`assets/`) stored
-  unmodified inside a standard ZIP archive, with a fully
-  self-contained, inlined rendering of the entry page prepended before
-  the ZIP data -- an HTML/ZIP polyglot, so the same file is both a
-  directly-renderable HTML document (double-click / open in a browser,
-  desktop or Android, no unzip step, no temp files, no local server)
-  and a valid ZIP archive (any archive tool extracts the original
-  build output untouched).
-- Scoped as a packaging step over already-built output, and as a
-  separate tool rather than new logic inside the `arklight` package --
-  no changes planned to `normalize.py`/`validate.py`/`build.py`/the
-  `Backend` interface/the IR.
+- `arklight pack <build-dir> -o site.ark` -- a new CLI subcommand
+  (`arklight/packer/bundle.py`) that packages an existing
+  `arklight build` output directory into a single `.ark` file: an
+  HTML/ZIP polyglot. A fully self-contained, inlined rendering of the
+  entry page is prepended before a standard ZIP archive of the
+  original build output, so the same bytes are both a directly-
+  renderable HTML document (double-click / open in a browser, no
+  unzip step, no temp files, no local server) and a valid ZIP archive
+  (any archive tool extracts the original build output untouched).
+- `arklight.packer.bundle.pack(build_dir, output_path) -> PackResult`
+  -- the underlying Python API, importable independently of the CLI.
+  `PackResult` exposes `packed_paths` and `skipped_paths`.
+- `arklight.packer.bundle.PackError` -- raised with a specific message
+  when `build_dir` isn't an `arklight build` output directory (missing
+  `index.html`/`styles.css`/`arklight.js`, or missing the expected
+  `<link>`/`<script src>` tags to inline).
+
+### Scope (v1)
+
+- Only `.html`/`.css`/`.js` files are inlined/packed. Any other file in
+  the build directory -- most notably an `assets/` folder with images,
+  audio, video, or anything else -- is intentionally left out of the
+  bundle and reported as skipped (`PackResult.skipped_paths`, printed
+  by the CLI) rather than silently dropped. Asset carry-over is planned
+  for a follow-up version, not included here.
+- Packaging only, over already-built output: no changes to
+  `normalize.py`/`validate.py`/`build.py`/the `Backend` interface/the
+  IR. `arklight/packer/` only reads already-written build files and
+  never imports the parser/ir/backend internals.
+- stdlib `zipfile` turned out to handle writing entries after an
+  arbitrary byte prefix correctly (`zipfile.ZipFile(handle, mode="a")`
+  on a handle that already has the HTML prefix written to it computes
+  every offset from the handle's current position) -- no manual ZIP
+  header patching was needed, simplifying the original design's
+  assumption on this point.
 
 ## [0.0035] -- Stateful JS
 

@@ -27,6 +27,19 @@ produces `ARK/index.html` -- plain, dependency-free HTML.
 
 ## Status
 
+**v0.036 — ARK Bundle (v1 scope).** `arklight pack <build-dir> -o
+site.ark` packs an existing `arklight build` output directory into a
+single `.ark` file -- an HTML/ZIP polyglot that renders directly in a
+browser (double-click, no server, no unzip step) and, opened with any
+archive tool instead, extracts to the exact same `index.html`/
+`styles.css`/`arklight.js` files a normal build already produces. v1
+scope carries over `.html`/`.css`/`.js` files only; anything else in
+the build directory (most notably an `assets/` folder) is reported as
+skipped rather than packed -- that's deferred to a future version. See
+"ARK Bundle" below and
+[`docs/DESIGN-NOTES.md`](./docs/DESIGN-NOTES.md) ("v0.036: ARK Bundle
+spec v1") for the full format writeup.
+
 **v0.0035 — Stateful JS.** Named client-side behaviors
 (`on_click="toggle"`, `"scroll-to"`, `"copy"`, `"dismiss"`) are now a
 registry (`arklight.ir.schema.BEHAVIOR_REGISTRY`) instead of a
@@ -71,6 +84,23 @@ browser:
 
 ```bash
 arklight build examples/hello_site/site.py -o ARK
+```
+
+```bash
+arklight pack <build-dir> [-o OUTPUT.ark]
+```
+
+- `build-dir` -- an existing `arklight build` output directory (e.g.
+  `ARK`).
+- `-o, --output` -- output bundle path, default `site.ark`.
+- Packs the build directory into a single `.ark` file: an HTML/ZIP
+  polyglot (see "ARK Bundle" below). v1 only carries over `.html`/
+  `.css`/`.js` files; any other file found (e.g. `assets/`) is printed
+  as skipped, not packed.
+
+```bash
+arklight build examples/hello_site/site.py -o ARK --no-open
+arklight pack ARK -o hello_site.ark
 ```
 
 ## Compiler pipeline
@@ -252,17 +282,15 @@ Any keyword prop passed to a component that isn't recognized (e.g.
 `id`, `class`, `href`, `src`, `style`, ...) is emitted as a `data-*`
 HTML attribute, so nothing you write is silently dropped.
 
-## ARK Bundle (`.ark`) -- v0.036 (PLANNING, not yet implemented)
+## ARK Bundle (`.ark`) -- v0.036 (v1 scope, implemented)
 
 A build's output (`index.html`, `styles.css`, `arklight.js`, `assets/`)
-is today a folder of separate files. v0.036 is a spec (design only --
-see [`docs/DESIGN-NOTES.md`](./docs/DESIGN-NOTES.md), "v0.036: ARK
-Bundle spec v1") for packaging that same output as a single `.ark`
-file:
+is a folder of separate files. `arklight pack` (see CLI section above)
+packages that output as a single `.ark` file:
 
 - The raw build files are stored as-is inside a standard ZIP archive
-  -- no new file format, no re-encoding, nothing HTML-backend/CSS-
-  backend/JS-backend needs to change to produce them.
+  -- no new file format, no re-encoding; nothing about how the HTML/
+  CSS/JS backends generate files changes for this feature.
 - The bundle is a **polyglot**: a fully self-contained, inlined
   rendering of the entry page is placed *before* the ZIP data, so the
   exact same bytes are simultaneously a valid, directly-renderable
@@ -270,15 +298,28 @@ file:
   renders the page immediately -- no unzip step, no temp files, no
   server, the same way an image viewer doesn't "extract" a `.png`
   before displaying it. Opening the same file with any archive tool
-  extracts the original build output untouched.
+  (`unzip`, 7-Zip, a phone's file manager) extracts the original build
+  output untouched.
 - This is a packaging step that runs *after* `arklight build`, over
-  files the existing pipeline already produces -- it doesn't touch
-  `normalize.py`/`validate.py`/`build.py`/the `Backend` interface, and
-  is planned as a separate tool, not a new pipeline stage baked into
-  the `arklight` package itself.
+  files the existing pipeline already produces -- `arklight.packer`
+  only reads already-written build output and never imports the
+  parser/ir/backend internals.
+- **v1 scope:** only `.html`/`.css`/`.js` files are inlined/packed.
+  Anything else found in the build directory -- most notably an
+  `assets/` folder with images, audio, video, or other file types -- is
+  reported as skipped (printed by the CLI, and available as
+  `PackResult.skipped_paths` from the Python API) rather than silently
+  dropped or packed. Carrying those over is the very next planned
+  version.
+- **Planned after that:** an `--encrypt`/password flag so the ZIP
+  payload isn't inspectable without a password -- packaging-level, not
+  a pipeline change; see `docs/DESIGN-NOTES.md` for the open questions
+  that milestone still needs to resolve (crypto library choice, since
+  stdlib `zipfile` can't *write* encrypted archives).
 
-See the design doc for the full byte layout, packing algorithm, and
-known caveats.
+See [`docs/DESIGN-NOTES.md`](./docs/DESIGN-NOTES.md) ("v0.036: ARK
+Bundle spec v1") for the full byte layout, packing algorithm, and known
+caveats.
 
 ## Repository layout
 
@@ -303,6 +344,9 @@ arklight-framework/
     cli/               `arklight` command-line entry point
       templates/       Reserved for v0.004 `arklight new` (empty
                         scaffold; see docs/DESIGN-NOTES.md)
+    packer/            `arklight pack` -- ARK Bundle (.ark) packaging,
+                        reads already-built output only, never touches
+                        the compiler pipeline
   examples/
     hello_site/        Example site matching this README
   tests/               Unit + end-to-end tests for every pipeline stage
@@ -342,9 +386,15 @@ pytest
       in `docs/DESIGN-NOTES.md`, explicitly waiting on a go-ahead
       before implementation starts
 - [ ] v0.010 -- Components (user-defined, reusable)
-- [ ] v0.036 -- ARK Bundle spec v1 (single-file `.ark` packaging of a
-      site's build output; design complete, see `docs/DESIGN-NOTES.md`
-      ("v0.036: ARK Bundle spec v1"), implementation not started)
+- [x] v0.036 -- ARK Bundle spec v1 (single-file `.ark` packaging of a
+      site's build output via `arklight pack`; see `docs/DESIGN-NOTES.md`
+      ("v0.036: ARK Bundle spec v1"). v1 scope is html/css/js carry-over
+      only)
+- [ ] not yet scheduled -- ARK Bundle v2: carry `assets/` (images,
+      audio, video, anything else) into the bundle too
+- [ ] not yet scheduled -- ARK Bundle v3: `--encrypt` flag on
+      `arklight pack` so the ZIP payload isn't inspectable without a
+      password
 - [ ] v0.100 -- Alternate backends (Vue, Svelte) -- **note:** the
       Backend interface is ready for this today; the IR isn't yet.
       See [`docs/DESIGN-NOTES.md`](./docs/DESIGN-NOTES.md) for why a

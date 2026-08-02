@@ -426,11 +426,22 @@ behavior/action registries) lands first and independently; **v0.004**
 (scaffolding + responsive/head) does not depend on it and could
 technically land first if that's preferred once implementation starts.
 
-## v0.036: ARK Bundle spec v1 (PLANNING -- not yet implemented)
+## v0.036: ARK Bundle spec v1 (IMPLEMENTED)
 
-Nothing in this section is implemented. Written up front, same
-discipline as the v0.0035/v0.004 design above, so the format is agreed
-on before code exists.
+This section was originally written up front (same discipline as the
+v0.0035/v0.004 design above) before any code existed. v1 is now
+implemented as `arklight pack` (`arklight/packer/bundle.py`) -- the
+packing algorithm below matches what's shipped, with one
+simplification noted inline: stdlib `zipfile` turned out to handle the
+offset math itself (see "Packing algorithm" below), so no manual ZIP
+header patching was needed after all.
+
+**v1 scope, confirmed at implementation time:** only `.html`/`.css`/
+`.js` files are inlined/packed. Any other file in the build directory
+(most notably `assets/`) is intentionally left out and reported as
+skipped -- see "Scope and non-goals for v1" below, which was expanded
+slightly from the original draft to make this explicit rather than
+implied.
 
 ### Problem this solves
 
@@ -532,24 +543,47 @@ nothing to clean up either way.
    step 4.
 
 Python's stdlib `zipfile` module doesn't support "write arbitrary bytes
-before the archive" directly, so this needs either a small amount of
-manual ZIP-header patching after using `zipfile` normally, or writing
-the local file headers by hand -- a bounded, self-contained piece of
-code, not a change to any existing pipeline stage.
+before the archive" via its high-level API, but it doesn't need to:
+opening the *same* already-open file handle with
+`zipfile.ZipFile(handle, mode="a")` after writing the prefix bytes to
+that handle directly is enough. `zipfile` computes every offset it
+writes (local file headers, central directory, End-Of-Central-
+Directory record) from the handle's current file position rather than
+assuming the archive starts at byte 0, so the entries land correctly
+after the prefix with no manual header patching required. Verified
+against both Python's own `zipfile` reader and the system `unzip`
+binary -- both read the resulting file's ZIP contents correctly,
+ignoring the HTML prefix.
 
 ### Scope and non-goals for v1
 
+- **Only `.html`/`.css`/`.js` files are packed.** Even though a normal
+  `arklight build` may also produce an `assets/` folder (images,
+  audio, video, or anything else copied in from a top-level `assets/`
+  next to the entry file), `arklight pack` v1 deliberately does not
+  inline or include those in the `.ark` bundle -- it reports them as
+  skipped instead. A site that references `assets/` content will have
+  broken references in the bundle's inlined entry page (and in the
+  extracted ZIP's `index.html`, until those files are added back
+  manually) until asset carry-over ships in a later version. This was
+  an explicit scope call, not an oversight: it keeps this milestone to
+  exactly "html/css/js carry-over," with asset support and its own
+  edge cases (binary files, large media, MIME types) deferred rather
+  than folded in.
 - **Packaging only, over already-built output.** No changes to
   `normalize.py`/`validate.py`/`build.py`/the `Backend` interface/the
   IR. This is not a new backend in the `Backend.render(ir) ->
   {path: contents}` sense -- it runs *after* all backends have already
   produced their files.
-- **A separate tool, not new logic inside the `arklight` package** --
+- **A separate module, not new logic inside the compiler pipeline** --
   explicit requirement from the person requesting this, matching how
   `arklight build`'s output is the input to this step rather than a
-  new pipeline stage fused into it. Likely shape: a standalone script
-  or CLI (`ark-pack <build-dir> -o bundle.ark`) that only ever reads
-  already-written build output, never the compiler internals.
+  new pipeline stage fused into it. Implemented as `arklight/packer/`,
+  a module that only ever reads already-written build output and never
+  imports the parser/ir/backend internals, exposed as a CLI subcommand
+  (`arklight pack <build-dir> -o site.ark`) rather than a separate
+  binary, to match the existing single-entry-point `arklight build ...`
+  CLI style.
 - **No native player app, on Android or elsewhere.** The browser
   already installed on the device is the only runtime this format
   needs. No embedded JSON IR, no server-driven-UI renderer, no

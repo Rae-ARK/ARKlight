@@ -400,14 +400,14 @@ python3 -m pytest -q
   output (`/x/index.html`) was considered but deferred -- easy to add
   as a backend option later without touching earlier stages.
 
-## Next up: v0.036 -- ARK Bundle spec v1 (PLANNING)
+## Done: v0.036 -- ARK Bundle spec v1
 
-Not started -- design only so far. Full writeup in
-`docs/DESIGN-NOTES.md` ("v0.036: ARK Bundle spec v1"). Short version:
-a single-file `.ark` packaging format for a site's existing build
-output (`index.html`/`styles.css`/`arklight.js`/`assets/`), so it can
-be shared and opened like a native document -- no local server, no
-Python environment, no separate player app on desktop *or* Android.
+Implemented. Full writeup in `docs/DESIGN-NOTES.md` ("v0.036: ARK
+Bundle spec v1"). Short version: `arklight pack <build-dir> -o
+site.ark` packages a site's existing build output into a single
+`.ark` file, so it can be shared and opened like a native document --
+no local server, no Python environment, no separate player app on
+desktop *or* Android.
 
 Key design decision: the bundle is an **HTML/ZIP polyglot** -- the raw
 build files are stored untouched inside a standard ZIP, with a fully
@@ -418,14 +418,28 @@ the trailing ZIP data -- no extraction, no temp files, same as opening
 a `.mp4` doesn't unpack it first) and a valid ZIP archive (any archive
 tool can extract the original, unmodified build output). Prior art:
 this is the same technique the SingleFile web-archiving tool ships in
-production as `--self-extracting-archive`.
+production as `--self-extracting-archive`. Confirmed working against
+both Python's own `zipfile` reader and the system `unzip` binary.
 
-Explicit scope boundary for v1: packaging only, over files the
-existing pipeline already produces. No changes to `normalize.py`/
-`validate.py`/`build.py`/the `Backend` interface/the IR, and
-deliberately a **separate tool**, not folded into the `arklight`
-package (per explicit request -- see `docs/DESIGN-NOTES.md`). No
-implementation yet; waiting on go-ahead before writing code.
+Explicit scope boundary for v1, as shipped: packaging only, over files
+the existing pipeline already produces. No changes to `normalize.py`/
+`validate.py`/`build.py`/the `Backend` interface/the IR, and a
+separate module (`arklight/packer/`) rather than logic folded into
+the compiler internals (per explicit request -- see
+`docs/DESIGN-NOTES.md`). **Only `.html`/`.css`/`.js` files are
+inlined/packed** -- an `assets/` folder (images/audio/video/anything
+else) is detected and reported as skipped rather than packed; carrying
+those over is the next planned version, not this one. An
+`--encrypt`/password flag so the ZIP payload isn't inspectable without
+a password is planned for the version after that.
+
+One implementation note worth flagging for future work in this area:
+the original design doc assumed manual ZIP-header offset patching
+would be needed to prepend arbitrary bytes before the archive. It
+wasn't -- opening the same already-open file handle with
+`zipfile.ZipFile(handle, mode="a")` after writing the HTML prefix to
+it directly is sufficient, since `zipfile` computes offsets from the
+handle's current position rather than assuming a byte-0 start.
 
 ## Then: v0.004 -- CLI scaffolding + responsive/head extension (PLANNING)
 
@@ -543,7 +557,8 @@ go-ahead signal, independent of v0.0035/v0.004 above.
       `State`/`Bind`/`Action.*`)
 - [ ] v0.004 CLI scaffolding + responsive/head extension
 - [ ] v0.010 Components
-- [ ] v0.036 ARK Bundle spec v1 (single-file `.ark` packaging)
+- [x] v0.036 ARK Bundle spec v1 (single-file `.ark` packaging via
+      `arklight pack`; html/css/js carry-over only)
 - [ ] v0.100 Alternate backends -- Backend interface ready; IR needs a
       state/event-semantics milestone first (see `docs/DESIGN-NOTES.md`)
 - [ ] v1.0 Stable compiler
