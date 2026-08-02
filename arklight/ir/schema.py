@@ -292,6 +292,15 @@ ACTION_REGISTRY: dict[str, ActionSpec] = {
     # ------------------------------------------------------------------
     "decrement": ActionSpec(args=("delta",)),
     "reset": ActionSpec(),
+    # ------------------------------------------------------------------
+    # v0.0035: stateful-JS vocabulary addendum II. The first actions
+    # that assume a list-valued `State(...)` rather than a scalar one
+    # -- deliberately just the two minimal list mutations (append one
+    # value, remove by index), not a full list-editing vocabulary. See
+    # docs/DESIGN-NOTES.md for what's still left for a future version.
+    # ------------------------------------------------------------------
+    "append": ActionSpec(args=("value",)),
+    "remove": ActionSpec(args=("index",)),
 }
 
 KNOWN_ACTIONS = frozenset(ACTION_REGISTRY)

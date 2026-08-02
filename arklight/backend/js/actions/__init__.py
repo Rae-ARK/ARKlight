@@ -11,7 +11,7 @@ least one page declares `State(...)`.
 
 from __future__ import annotations
 
-from arklight.backend.js.actions import decrement, increment, reset, set, toggle_bool
+from arklight.backend.js.actions import append, decrement, increment, remove, reset, set, toggle_bool
 
 ACTION_MODULES = {
     set.NAME: set,
@@ -19,6 +19,8 @@ ACTION_MODULES = {
     decrement.NAME: decrement,
     toggle_bool.NAME: toggle_bool,
     reset.NAME: reset,
+    append.NAME: append,
+    remove.NAME: remove,
 }
 
 ACTION_FRAGMENTS: dict[str, str] = {

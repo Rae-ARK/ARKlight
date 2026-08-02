@@ -243,6 +243,16 @@ class Action:
     def reset(name: str) -> ActionRef:
         return ActionRef(action="reset", state=name, args={})
 
+    @staticmethod
+    def append(name: str, value: Any) -> ActionRef:
+        """Appends `value` to a list-valued `State(...)`."""
+        return ActionRef(action="append", state=name, args={"value": value})
+
+    @staticmethod
+    def remove(name: str, index: Any) -> ActionRef:
+        """Removes the element at `index` from a list-valued `State(...)`."""
+        return ActionRef(action="remove", state=name, args={"index": index})
+
 
 BUILTIN_COMPONENTS = {
     "Page": Page,
