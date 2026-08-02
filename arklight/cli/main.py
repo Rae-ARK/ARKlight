@@ -1,12 +1,14 @@
 """
 ARKlight CLI.
 
+    arklight new my-site
     arklight build site.py -o ARK
+    arklight pack ARK -o site.ark
 
-Beginner-friendly by design: one subcommand, sensible defaults
-(builds AND opens the result in your browser), and error messages that
-point at exactly what went wrong (parse error, missing Site(), unknown
-component, etc.) rather than a raw traceback.
+Beginner-friendly by design: a handful of subcommands, sensible
+defaults (builds AND opens the result in your browser), and error
+messages that point at exactly what went wrong (parse error, missing
+Site(), unknown component, etc.) rather than a raw traceback.
 """
 
 from __future__ import annotations
@@ -17,6 +19,8 @@ import webbrowser
 from pathlib import Path
 
 from arklight import __version__
+from arklight.cli.scaffold import ScaffoldError, new_project
+from arklight.cli.templates import TEMPLATES
 from arklight.compiler.pipeline import BuildResult, CompileError, build
 from arklight.packer.bundle import PackError, pack
 
@@ -84,6 +88,27 @@ def _cmd_pack(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_new(args: argparse.Namespace) -> int:
+    try:
+        result = new_project(args.name, template=args.template, dest_dir=args.dir)
+    except ScaffoldError as exc:
+        print(f"ARKlight new failed: {exc}", file=sys.stderr)
+        return 1
+
+    print(
+        f"ARKlight v{__version__} scaffolded a {result.template!r} project "
+        f"-> {result.project_dir}/"
+    )
+    for path in result.written_paths:
+        print(f"  {path}")
+    print()
+    print("Next steps:")
+    print(f"  cd {result.project_dir}")
+    print("  arklight build site.py -o ARK")
+
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="arklight", description="Python-first static site compiler.")
     parser.add_argument("--version", action="version", version=f"arklight {__version__}")
@@ -119,6 +144,23 @@ def main(argv: list[str] | None = None) -> int:
         "-o", "--output", default="site.ark", help="Output bundle path (default: site.ark)"
     )
     pack_parser.set_defaults(func=_cmd_pack)
+
+    new_parser = subparsers.add_parser(
+        "new", help="Scaffold a new ARKlight project from a built-in template."
+    )
+    new_parser.add_argument("name", help="Name of the new project (also the directory created for it)")
+    new_parser.add_argument(
+        "--template",
+        choices=sorted(TEMPLATES),
+        default="simple",
+        help="Project template to scaffold (default: simple)",
+    )
+    new_parser.add_argument(
+        "--dir",
+        default=None,
+        help="Directory to create the project in (default: current directory)",
+    )
+    new_parser.set_defaults(func=_cmd_new)
 
     args = parser.parse_args(argv)
     return args.func(args)

@@ -17,6 +17,8 @@ Python interpreter.
 
 from __future__ import annotations
 
+import os
+import sys
 import types
 from pathlib import Path
 
@@ -51,11 +53,46 @@ def load_site(path: str | Path) -> tuple[Site, DiscoveredSite]:
     module = types.ModuleType(file_path.stem)
     module.__file__ = str(file_path)
 
+    # Package-shaped sites (e.g. the `arklight new --template production`
+    # scaffold: site.py + components/ + pages/ + content/) import sibling
+    # packages with ordinary absolute imports ("from pages.home import
+    # home"). Those only resolve if the site file's own directory is on
+    # sys.path -- true by accident when running `python site.py`
+    # directly, but NOT true for the installed `arklight` console
+    # script, whose sys.path[0] is wherever that script lives, not the
+    # user's project directory. Add it here, once, so behavior doesn't
+    # depend on how `arklight` was invoked; remove it again afterward so
+    # repeated builds (e.g. in a test session) don't accumulate stale
+    # entries or leak one project's modules into another's.
+    site_dir = str(file_path.resolve().parent)
+    added_to_path = site_dir not in sys.path
+    if added_to_path:
+        sys.path.insert(0, site_dir)
+
+    # Package-shaped sites commonly use generic top-level package names
+    # ("pages", "components", "content"). If two different projects are
+    # loaded in the same process (e.g. a script that builds several
+    # ARKlight sites, or a test suite), Python's import system caches
+    # the first one it sees in sys.modules and happily hands it back
+    # for the second project too -- even though that cached package's
+    # __path__ points at the *first* project's directory, not this
+    # one. Record what's in sys.modules before exec so anything it adds
+    # can be evicted again afterward, keeping each load_site() call
+    # isolated regardless of naming collisions between projects.
+    modules_before = set(sys.modules)
+
     try:
         code = compile(source, filename=str(file_path), mode="exec")
         exec(code, module.__dict__)  # noqa: S102 -- intentional: this is the framework's job
     except Exception as exc:  # noqa: BLE001 -- surface any user code error clearly
         raise SiteLoadError(f"Error while running {file_path}: {exc}") from exc
+    finally:
+        if added_to_path:
+            sys.path.remove(site_dir)
+        for mod_name in set(sys.modules) - modules_before:
+            mod_file = getattr(sys.modules.get(mod_name), "__file__", None)
+            if mod_file and str(Path(mod_file).resolve()).startswith(site_dir + os.sep):
+                del sys.modules[mod_name]
 
     site_obj = module.__dict__.get(discovered.variable_name)
     if not isinstance(site_obj, Site):
