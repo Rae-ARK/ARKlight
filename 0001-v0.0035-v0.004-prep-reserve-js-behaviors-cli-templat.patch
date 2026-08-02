@@ -1,0 +1,200 @@
+From 9ebaf58ac7810619e7c8c7403b482f7cde06272f Mon Sep 17 00:00:00 2001
+From: ARKlight Dev <dev@arklight.local>
+Date: Sun, 2 Aug 2026 00:17:16 +0000
+Subject: [PATCH] v0.0035/v0.004 prep: reserve js/behaviors + cli/templates
+ scaffolding, document planned --help/--search CLI helpers
+
+---
+ PROGRESS.md                                   | 25 +++++++++++++++
+ README.md                                     |  9 ++++++
+ arklight/backend/js/behaviors/__init__.py     | 30 +++++++++++++++++
+ arklight/cli/templates/__init__.py            | 32 +++++++++++++++++++
+ .../cli/templates/production/assets/.gitkeep  |  0
+ arklight/cli/templates/simple/assets/.gitkeep |  0
+ docs/DESIGN-NOTES.md                          | 21 ++++++++++++
+ 7 files changed, 117 insertions(+)
+ create mode 100644 arklight/backend/js/behaviors/__init__.py
+ create mode 100644 arklight/cli/templates/__init__.py
+ create mode 100644 arklight/cli/templates/production/assets/.gitkeep
+ create mode 100644 arklight/cli/templates/simple/assets/.gitkeep
+
+diff --git a/PROGRESS.md b/PROGRESS.md
+index 2c344db..e561331 100644
+--- a/PROGRESS.md
++++ b/PROGRESS.md
+@@ -440,6 +440,31 @@ scope for the closed-behavior model), the new `<search>` landmark
+ (too new/unsettled), `<object>`/`<embed>` (redundant with `IFrame`
+ for this project's use cases).
+ 
++## v0.0035 / v0.004 -- folder scaffolding only (done; logic not started)
++
++Two empty, docstring-only packages added ahead of the actual work, so
++the eventual diffs for v0.0035 and v0.004 are additive within
++already-existing directories instead of also creating them:
++
++- `arklight/backend/js/behaviors/` -- where the registry-driven
++  behavior/action JS fragments described in `docs/DESIGN-NOTES.md`
++  ("v0.0035: stateful JS") will live. Currently just an `__init__.py`
++  explaining the plan; `arklight/backend/js/render.py` is untouched,
++  `RUNTIME_JS` is still one static string.
++- `arklight/cli/templates/` -- where the `simple`/`production`
++  templates for `arklight new` (`docs/DESIGN-NOTES.md`, "v0.004: CLI
++  scaffolding") will live, with `templates/simple/assets/` and
++  `templates/production/assets/` placeholder directories (just a
++  `.gitkeep` each -- deliberately not copied from Product-Showcase).
++  Nothing is wired into `arklight/cli/main.py` yet; `arklight` still
++  only has the `build` subcommand.
++
++Also documented, not implemented, in `docs/DESIGN-NOTES.md`: two CLI
++helpers (`arklight --help`, `arklight --search <name>`) for looking up
++a component's schema by name once the vocabulary is large enough that
++recall becomes the bottleneck. Explicitly held for a separate
++go-ahead signal, independent of v0.0035/v0.004 above.
++
+ ## Milestone checklist (from ARCHITECTURE.md)
+ 
+ - [x] v0.001 Python → HTML
+diff --git a/README.md b/README.md
+index d7511c1..30921a7 100644
+--- a/README.md
++++ b/README.md
+@@ -258,8 +258,13 @@ arklight-framework/
+     backend/
+       base.py          Backend interface
+       html/            HTML backend (the only backend in v0.001)
++      js/
++        behaviors/     Reserved for v0.0035 (empty scaffold; see
++                        docs/DESIGN-NOTES.md)
+     compiler/          Pipeline orchestration
+     cli/               `arklight` command-line entry point
++      templates/       Reserved for v0.004 `arklight new` (empty
++                        scaffold; see docs/DESIGN-NOTES.md)
+   examples/
+     hello_site/        Example site matching this README
+   tests/               Unit + end-to-end tests for every pipeline stage
+@@ -293,6 +298,10 @@ pytest
+ - [ ] v0.004 -- `arklight new` CLI scaffolding (simple + production
+       templates), CSS `@media` support, structured `<head>` extension
+       (design complete, implementation not started)
++- [ ] not yet scheduled -- `arklight --help` / `arklight --search
++      <name>` (schema lookup for a component by name); design sketched
++      in `docs/DESIGN-NOTES.md`, explicitly waiting on a go-ahead
++      before implementation starts
+ - [ ] v0.010 -- Components (user-defined, reusable)
+ - [ ] v0.100 -- Alternate backends (Vue, Svelte) -- **note:** the
+       Backend interface is ready for this today; the IR isn't yet.
+diff --git a/arklight/backend/js/behaviors/__init__.py b/arklight/backend/js/behaviors/__init__.py
+new file mode 100644
+index 0000000..e39c9bd
+--- /dev/null
++++ b/arklight/backend/js/behaviors/__init__.py
+@@ -0,0 +1,30 @@
++"""
++Reserved for v0.0035 (stateful JS).
++
++Scaffolding only -- no behavior fragments live here yet. Per
++`docs/DESIGN-NOTES.md` ("v0.0035: stateful JS -- capability, not
++vocabulary"), `arklight/backend/js/render.py` currently holds one
++hand-written `RUNTIME_JS` string with a hardcoded `behaviors` object
++inside it, matched by the flat `KNOWN_BEHAVIORS` frozenset in
++`arklight/ir/schema.py`.
++
++The plan, not yet implemented, is for both to become data:
++
++- `arklight/ir/schema.py`: `KNOWN_BEHAVIORS` (frozenset) becomes
++  `BEHAVIOR_REGISTRY: dict[str, BehaviorSpec]`, with `KNOWN_BEHAVIORS`
++  kept as `frozenset(BEHAVIOR_REGISTRY)` so Validation's existing check
++  doesn't change shape. A parallel `ACTION_REGISTRY` covers the new
++  `Action.*` vocabulary (`set`, `increment`, `toggle_bool`, ...).
++- This package: one module per behavior/action (e.g. `toggle.py`,
++  `scroll_to.py`), each exporting a small JS fragment (a function body
++  as a string) plus its `BehaviorSpec`/`ActionSpec`. `JSBackend.render()`
++  will assemble the runtime from only the fragments a given site's IR
++  actually references, instead of one static, hand-maintained string.
++
++This alone adds no new vocabulary and changes no behavior at runtime --
++it is purely a place for that refactor to land. See
++`docs/DESIGN-NOTES.md` for the full design and `PROGRESS.md` for
++current status.
++"""
++
++from __future__ import annotations
+diff --git a/arklight/cli/templates/__init__.py b/arklight/cli/templates/__init__.py
+new file mode 100644
+index 0000000..15ff43d
+--- /dev/null
++++ b/arklight/cli/templates/__init__.py
+@@ -0,0 +1,32 @@
++"""
++Reserved for v0.004 (`arklight new` CLI scaffolding).
++
++Scaffolding only -- no `new` subcommand and no template file contents
++live here yet, only the folder shape. Per `docs/DESIGN-NOTES.md`
++("v0.004: CLI scaffolding (`arklight new`)"), this package will hold
++two templates as an in-package dict of relative path -> file contents
++(f-strings, no templating dependency):
++
++- `templates/simple/` -- a single `site.py`, mirroring
++  `examples/hello_site/` almost exactly. Zero-thinking path from
++  `arklight new my-site` to a working `arklight build`.
++- `templates/production/` -- mirrors Product-Showcase's proven layout
++  (`site.py` + `components/` + `pages/` + `content/` + `assets/`),
++  with `components/__init__.py` / `pages/__init__.py` /
++  `content/__init__.py` present up front so the package-shaped layout
++  imports cleanly from line one, and every generated page wired with a
++  real `@site.page("/route")` decorator (never the equivalent call
++  form), since static discovery only recognizes the decorator.
++
++Each template directory's `assets/` folder is a placeholder for now
++(see the `.gitkeep` inside) -- deliberately not populated by copying
++Product-Showcase's actual images/content, only the folder shape it
++expects. `arklight build` copying a top-level `assets/` into
++`dist/assets` automatically is a related, separate fix tracked
++alongside this milestone (see `docs/DESIGN-NOTES.md`).
++
++Nothing here is wired into `arklight/cli/main.py` yet. See
++`PROGRESS.md` for current status.
++"""
++
++from __future__ import annotations
+diff --git a/arklight/cli/templates/production/assets/.gitkeep b/arklight/cli/templates/production/assets/.gitkeep
+new file mode 100644
+index 0000000..e69de29
+diff --git a/arklight/cli/templates/simple/assets/.gitkeep b/arklight/cli/templates/simple/assets/.gitkeep
+new file mode 100644
+index 0000000..e69de29
+diff --git a/docs/DESIGN-NOTES.md b/docs/DESIGN-NOTES.md
+index a809aae..60401eb 100644
+--- a/docs/DESIGN-NOTES.md
++++ b/docs/DESIGN-NOTES.md
+@@ -370,6 +370,27 @@ arklight new <name> [--template simple|production] [--dir PATH]
+   file contents (f-strings), consistent with "no runtime dependencies
+   beyond the build backend."
+ 
++**Also planned, not yet implemented, not yet scheduled to a specific
++sub-version -- explicitly waiting on a go-ahead before implementation
++starts:** two CLI helpers oriented at discoverability once the
++component vocabulary is ~80+ names deep (a real problem `arklight new`
++alone doesn't solve -- scaffolding gets someone started, it doesn't
++help them remember `Picture`'s required props six months later):
++
++- `arklight --help` -- standard CLI usage/help text (subcommands,
++  flags, short description of each).
++- `arklight --search <name>` -- looks up a component by name in
++  `arklight.ir.schema.SCHEMA` (the single source of truth every stage
++  already reads from) and prints its schema back: required props,
++  whether it allows children, text-only-children rule, and (once
++  v0.0035 lands) whether it's a `Bind`-able target. A read-only
++  reflection tool over data that already exists -- no new schema
++  format, no new source of truth, just a formatter over `SCHEMA`.
++
++Both are additive CLI surface only; neither touches the compiler
++pipeline, the IR, or any backend. Held back from implementation until
++explicitly signaled, independent of the state of v0.0035/v0.004 above.
++
+ ### v0.004: CSS media queries + `<head>` extension
+ 
+ - `Page(...)` gains optional, *structured* extension points --
+-- 
+2.43.0
+

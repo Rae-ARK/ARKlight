@@ -370,6 +370,27 @@ arklight new <name> [--template simple|production] [--dir PATH]
   file contents (f-strings), consistent with "no runtime dependencies
   beyond the build backend."
 
+**Also planned, not yet implemented, not yet scheduled to a specific
+sub-version -- explicitly waiting on a go-ahead before implementation
+starts:** two CLI helpers oriented at discoverability once the
+component vocabulary is ~80+ names deep (a real problem `arklight new`
+alone doesn't solve -- scaffolding gets someone started, it doesn't
+help them remember `Picture`'s required props six months later):
+
+- `arklight --help` -- standard CLI usage/help text (subcommands,
+  flags, short description of each).
+- `arklight --search <name>` -- looks up a component by name in
+  `arklight.ir.schema.SCHEMA` (the single source of truth every stage
+  already reads from) and prints its schema back: required props,
+  whether it allows children, text-only-children rule, and (once
+  v0.0035 lands) whether it's a `Bind`-able target. A read-only
+  reflection tool over data that already exists -- no new schema
+  format, no new source of truth, just a formatter over `SCHEMA`.
+
+Both are additive CLI surface only; neither touches the compiler
+pipeline, the IR, or any backend. Held back from implementation until
+explicitly signaled, independent of the state of v0.0035/v0.004 above.
+
 ### v0.004: CSS media queries + `<head>` extension
 
 - `Page(...)` gains optional, *structured* extension points --

@@ -258,8 +258,13 @@ arklight-framework/
     backend/
       base.py          Backend interface
       html/            HTML backend (the only backend in v0.001)
+      js/
+        behaviors/     Reserved for v0.0035 (empty scaffold; see
+                        docs/DESIGN-NOTES.md)
     compiler/          Pipeline orchestration
     cli/               `arklight` command-line entry point
+      templates/       Reserved for v0.004 `arklight new` (empty
+                        scaffold; see docs/DESIGN-NOTES.md)
   examples/
     hello_site/        Example site matching this README
   tests/               Unit + end-to-end tests for every pipeline stage
@@ -293,6 +298,10 @@ pytest
 - [ ] v0.004 -- `arklight new` CLI scaffolding (simple + production
       templates), CSS `@media` support, structured `<head>` extension
       (design complete, implementation not started)
+- [ ] not yet scheduled -- `arklight --help` / `arklight --search
+      <name>` (schema lookup for a component by name); design sketched
+      in `docs/DESIGN-NOTES.md`, explicitly waiting on a go-ahead
+      before implementation starts
 - [ ] v0.010 -- Components (user-defined, reusable)
 - [ ] v0.100 -- Alternate backends (Vue, Svelte) -- **note:** the
       Backend interface is ready for this today; the IR isn't yet.

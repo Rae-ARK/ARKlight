@@ -440,6 +440,31 @@ scope for the closed-behavior model), the new `<search>` landmark
 (too new/unsettled), `<object>`/`<embed>` (redundant with `IFrame`
 for this project's use cases).
 
+## v0.0035 / v0.004 -- folder scaffolding only (done; logic not started)
+
+Two empty, docstring-only packages added ahead of the actual work, so
+the eventual diffs for v0.0035 and v0.004 are additive within
+already-existing directories instead of also creating them:
+
+- `arklight/backend/js/behaviors/` -- where the registry-driven
+  behavior/action JS fragments described in `docs/DESIGN-NOTES.md`
+  ("v0.0035: stateful JS") will live. Currently just an `__init__.py`
+  explaining the plan; `arklight/backend/js/render.py` is untouched,
+  `RUNTIME_JS` is still one static string.
+- `arklight/cli/templates/` -- where the `simple`/`production`
+  templates for `arklight new` (`docs/DESIGN-NOTES.md`, "v0.004: CLI
+  scaffolding") will live, with `templates/simple/assets/` and
+  `templates/production/assets/` placeholder directories (just a
+  `.gitkeep` each -- deliberately not copied from Product-Showcase).
+  Nothing is wired into `arklight/cli/main.py` yet; `arklight` still
+  only has the `build` subcommand.
+
+Also documented, not implemented, in `docs/DESIGN-NOTES.md`: two CLI
+helpers (`arklight --help`, `arklight --search <name>`) for looking up
+a component's schema by name once the vocabulary is large enough that
+recall becomes the bottleneck. Explicitly held for a separate
+go-ahead signal, independent of v0.0035/v0.004 above.
+
 ## Milestone checklist (from ARCHITECTURE.md)
 
 - [x] v0.001 Python → HTML
