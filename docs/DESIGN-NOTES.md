@@ -332,7 +332,7 @@ vocabulary instead of a closed *behavior name* vocabulary.**
   addenda already established for HTML components, applied to JS for
   the first time.
 
-### v0.0035: stateful-JS vocabulary addendum
+### v0.0035: stateful-JS vocabulary addendum I
 
 Once the registry/capability refactor above landed, growing the
 *vocabulary* itself is meant to be additive data -- same discipline as
@@ -366,11 +366,8 @@ confirming the registry refactor's actual point.
 addendum is intentionally the *most commonly needed* two, not an
 exhaustive pass):
 
-- List actions (`Action.append`, `Action.remove`) -- state today is
-  scalar-valued (`State("count", 0)`, `State("is_open", False)`); a
-  list-valued state key and the rendering story for it
-  (`data-ark-bind` currently assumes a single text node) needs its own
-  design pass, not a quick registry entry.
+- List actions (`Action.append`, `Action.remove`) -- addressed in
+  addendum II directly below.
 - Derived/computed state (a value computed from other state keys,
   re-evaluated on every change) -- changes what `createState` *is*,
   not just what actions exist.
@@ -380,6 +377,51 @@ exhaustive pass):
 - Debounced/throttled actions -- a timing concern orthogonal to what
   an action does, better solved once as a wrapper than duplicated per
   action.
+
+### v0.0035: stateful-JS vocabulary addendum II
+
+Second growth pass on `ACTION_REGISTRY`, same mechanism as addendum I
+above. Where addendum I filled the two most obvious gaps in *scalar*
+state actions, addendum II is the first to touch **list-valued**
+state -- `State("items", ["milk", "eggs"])` -- rather than assume
+every state key is a number/bool/string.
+
+- **`Action.append(name, value)`.** Appends one value to a
+  list-valued state key. Implemented as `store.set(key,
+  list.concat([args.value]))` -- goes through the existing `set`
+  mechanism on the store, not a new store method, so the change stays
+  inside the action fragment (`arklight/backend/js/actions/append.py`)
+  rather than touching `createState` itself.
+- **`Action.remove(name, index)`.** Removes the element at `index`
+  from a list-valued state key, via `list.filter(...)`. Deliberately
+  index-based, not value-based: a value-based `remove` would need an
+  equality rule for objects/lists (reference equality? deep equality?)
+  that index-based removal sidesteps entirely, and "remove the Nth
+  item in a rendered list" is the actual common case (e.g. a rendered
+  list where each item already knows its own index).
+
+**What made this scoped-and-shippable rather than the "needs its own
+design pass" addendum I deferred it as:** the *rendering* half turned
+out to need zero new work. `renderBindings`'s `el.textContent =
+store.get(key)` was written assuming a scalar, but handing it an array
+just invokes JS's own `Array.prototype.toString()` (elements joined by
+commas) -- not pretty, but a real, working display for something like
+a tag list or an item count, with no change to `Bind`, `data-ark-bind`,
+or `renderBindings` at all. That's what kept this a same-shape
+registry-entry addendum instead of a rendering-pipeline redesign.
+
+**What's still explicitly out of scope, and why it stays that way:**
+
+- **Per-item list rendering/templating** -- one `<li>` per item, each
+  with its own wired-up remove button referencing its own index. This
+  is the real remaining gap for a production todo-list/tag-editor
+  style UI, and it's a materially different feature: it needs the
+  compiler to emit a template *per item* and re-render that template
+  set on every change, not just re-run `renderBindings` over a single
+  bound element. Comma-joined display is a stopgap, not the end state.
+- **Derived/computed state, `Action.set_from_input`,
+  debounced/throttled actions** -- unchanged from addendum I's
+  reasoning above; still bigger-than-a-registry-entry design work.
 
 ### v0.004: CLI scaffolding (`arklight new`)
 

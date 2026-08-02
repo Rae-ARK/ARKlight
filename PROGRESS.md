@@ -548,7 +548,29 @@ a component's schema by name once the vocabulary is large enough that
 recall becomes the bottleneck. Explicitly held for a separate
 go-ahead signal, independent of v0.0035/v0.004 above.
 
-## v0.0035 addendum -- stateful JS vocabulary addendum (done)
+## v0.0035 addendum II -- list actions (append, remove) (done)
+
+Not a new milestone/version -- second growth pass on
+`ACTION_REGISTRY`, same mechanism as addendum I directly below. First
+actions that assume a list-valued `State(...)` rather than a scalar
+one:
+
+- [x] `Action.append(name, value)` -- appends to a list-valued state
+      key. `arklight/backend/js/actions/append.py`.
+- [x] `Action.remove(name, index)` -- removes by index from a
+      list-valued state key. `arklight/backend/js/actions/remove.py`.
+- [x] `tests/test_stateful_js_vocabulary_addendum_2.py` -- 12 new
+      tests (182 total, all passing).
+
+No changes needed to `Bind`/`renderBindings` -- `el.textContent =
+store.get(key)` already renders a list via JS's own
+`Array.prototype.toString()`. Per-item templating (a real `<li>` per
+item) is bigger scope and deliberately left for a future version, same
+as derived/computed state, `Action.set_from_input`, and
+debounced/throttled actions -- see `docs/DESIGN-NOTES.md`
+("v0.0035: stateful-JS vocabulary addendum II").
+
+## v0.0035 addendum I -- decrement, reset (done)
 
 Not a new milestone/version -- same "addendum, not a full milestone"
 treatment as the two v0.003 vocabulary addenda above, applied to
@@ -565,11 +587,12 @@ generation logic):
 - [x] `tests/test_stateful_js_vocabulary_addendum.py` -- 10 new tests
       (170 total, all passing).
 
-Deliberately left for a future version (see `docs/DESIGN-NOTES.md`,
-"v0.0035: stateful-JS vocabulary addendum"): list actions
-(`Action.append`/`Action.remove`), derived/computed state,
-`Action.set_from_input` (binding state to `input`/`change` events, not
-just `click`), and debounced/throttled actions.
+Deliberately left for a future version at the time (see
+`docs/DESIGN-NOTES.md`, "v0.0035: stateful-JS vocabulary addendum"):
+list actions -- addressed in addendum II directly above --
+derived/computed state, `Action.set_from_input` (binding state to
+`input`/`change` events, not just `click`), and debounced/throttled
+actions.
 
 ## Milestone checklist (from ARCHITECTURE.md)
 

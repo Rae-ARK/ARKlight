@@ -5,7 +5,48 @@ follows [Keep a Changelog](https://keepachangelog.com/); versions
 follow the milestone scheme from ARCHITECTURE.md rather than strict
 SemVer.
 
-## [Unreleased] -- Stateful JS vocabulary addendum
+## [Unreleased] -- Stateful JS vocabulary addendum II
+
+Full writeup in `docs/DESIGN-NOTES.md` ("v0.0035: stateful-JS
+vocabulary addendum II"). Second growth pass on `ACTION_REGISTRY`,
+same "additive data" discipline as addendum I directly below -- this
+batch is the first to assume a **list-valued** `State(...)` rather
+than a scalar one.
+
+### Added
+
+- `Action.append(name, value)` -- appends `value` to a list-valued
+  `State(...)`. New `arklight/backend/js/actions/append.py` fragment
+  and `ACTION_REGISTRY["append"]` entry.
+- `Action.remove(name, index)` -- removes the element at `index` from
+  a list-valued `State(...)`. Index-based on purpose (unambiguous,
+  unlike a value-based removal, which would need an equality rule for
+  objects). New `arklight/backend/js/actions/remove.py` fragment and
+  `ACTION_REGISTRY["remove"]` entry.
+- `tests/test_stateful_js_vocabulary_addendum_2.py` -- 12 new tests
+  (182 total).
+
+### Notes
+
+- No changes to `renderBindings`/`Bind` were needed: `el.textContent =
+  store.get(key)` already renders a list via JS's own
+  `Array.prototype.toString()` (comma-joined elements) -- enough for a
+  simple tag list or count display. Per-item templating (a real
+  `<li>` per item, with per-item remove buttons wired individually) is
+  materially bigger scope -- would need the compiler to emit a
+  template per list item and re-render *that*, not just re-run
+  `renderBindings` -- and is deliberately left for a future version.
+
+### Deliberately deferred to a future version
+
+Still not an exhaustive vocabulary pass -- see `docs/DESIGN-NOTES.md`:
+
+- Per-item list rendering/templating (see note above).
+- Derived/computed state.
+- `Action.set_from_input` / binding state to `input`/`change` events.
+- Debounced/throttled actions.
+
+## [Unreleased] -- Stateful JS vocabulary addendum I
 
 Full writeup in `docs/DESIGN-NOTES.md` ("v0.0035: stateful-JS
 vocabulary addendum"). Grows `ACTION_REGISTRY` (added in v0.0035) with
@@ -33,8 +74,8 @@ the v0.0035 registry refactor was built for.
 Not an exhaustive vocabulary pass -- see `docs/DESIGN-NOTES.md` for
 the reasoning behind leaving these out of this addendum:
 
-- List actions (`Action.append` / `Action.remove`) -- state is
-  scalar-valued today; list-valued state needs its own design pass.
+- List actions (`Action.append` / `Action.remove`) -- addressed in
+  addendum II directly above.
 - Derived/computed state.
 - `Action.set_from_input` / binding state to `input`/`change` events.
 - Debounced/throttled actions.
