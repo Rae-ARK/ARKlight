@@ -178,6 +178,13 @@ header, footer, main, nav, section, article, aside {
   display: block;
 }
 
+header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: clamp(0.5rem, 2vw, 1.5rem);
+}
+
 figure {
   margin: 1.5em 0;
 }
