@@ -18,6 +18,7 @@ from pathlib import Path
 
 from arklight import __version__
 from arklight.compiler.pipeline import BuildResult, CompileError, build
+from arklight.packer.bundle import PackError, pack
 
 
 def open_in_browser(result: BuildResult, output_dir: str | Path) -> bool:
@@ -61,6 +62,28 @@ def _cmd_build(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_pack(args: argparse.Namespace) -> int:
+    try:
+        result = pack(args.build_dir, args.output)
+    except PackError as exc:
+        print(f"ARKlight pack failed: {exc}", file=sys.stderr)
+        return 1
+
+    print(f"ARKlight v{__version__} packed {len(result.packed_paths)} file(s) -> {result.output_path}")
+    for path in result.packed_paths:
+        print(f"  {path}")
+
+    if result.skipped_paths:
+        print(
+            f"Skipped {len(result.skipped_paths)} non-html/css/js file(s) "
+            f"(asset bundling lands in a future version):"
+        )
+        for path in result.skipped_paths:
+            print(f"  {path}")
+
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="arklight", description="Python-first static site compiler.")
     parser.add_argument("--version", action="version", version=f"arklight {__version__}")
@@ -87,6 +110,15 @@ def main(argv: list[str] | None = None) -> int:
         help="Don't open a browser after building.",
     )
     build_parser.set_defaults(func=_cmd_build)
+
+    pack_parser = subparsers.add_parser(
+        "pack", help="Pack a build directory into a single .ark bundle (HTML/ZIP polyglot)."
+    )
+    pack_parser.add_argument("build_dir", help="Path to an `arklight build` output directory (e.g. ARK)")
+    pack_parser.add_argument(
+        "-o", "--output", default="site.ark", help="Output bundle path (default: site.ark)"
+    )
+    pack_parser.set_defaults(func=_cmd_pack)
 
     args = parser.parse_args(argv)
     return args.func(args)
