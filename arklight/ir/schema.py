@@ -230,4 +230,53 @@ TEXT_ONLY_TYPES = frozenset(
 # can check `on_click` values against it without importing a backend --
 # ir/ stays backend-agnostic; arklight.backend.js imports FROM here to
 # stay in sync instead of the other way around.
-KNOWN_BEHAVIORS = frozenset({"toggle", "scroll-to", "copy", "dismiss"})
+# v0.0035: behaviors are a registry, not a hardcoded dispatch table.
+#
+# `BehaviorSpec` documents what a behavior needs the same way `NodeSpec`
+# documents what an HTML component needs: `extra_props` are optional
+# extra props (beyond the universal `on_click`/`behavior_target` pair)
+# a behavior reads -- e.g. `toggle`'s `toggle_class`.
+@dataclass
+class BehaviorSpec:
+    extra_props: tuple[str, ...] = field(default_factory=tuple)
+
+
+BEHAVIOR_REGISTRY: dict[str, BehaviorSpec] = {
+    "toggle": BehaviorSpec(extra_props=("toggle_class",)),
+    "scroll-to": BehaviorSpec(),
+    "copy": BehaviorSpec(),
+    "dismiss": BehaviorSpec(extra_props=("toggle_class",)),
+}
+
+# Derived, not hand-maintained -- Validation's existing
+# `on_click in KNOWN_BEHAVIORS` check doesn't need to change shape.
+KNOWN_BEHAVIORS = frozenset(BEHAVIOR_REGISTRY)
+
+
+# v0.0035: a real `State` primitive with a closed *action* vocabulary,
+# on top of (not instead of) the named-behavior vocabulary above.
+# `State("count", 0)` declared inside `Page(...)` and `Bind("count")`
+# used wherever a literal value is accepted give components a way to
+# read reactive state; `Action.set/increment/toggle_bool` (structured
+# `ActionRef` objects, see arklight.ast.nodes) give them a closed way
+# to *change* it from `on_click=`. `ActionSpec.args` documents the
+# keyword arguments a given action's `ActionRef.args` dict is expected
+# to carry (e.g. `increment`'s `delta`), the same role `extra_props`
+# plays for `BehaviorSpec` above.
+#
+# Still a closed, described vocabulary, same discipline as
+# `BEHAVIOR_REGISTRY`: adding a new action later is a new registry
+# entry plus a new JS fragment in `arklight/backend/js/actions/`, never
+# a string of JS or Python handed to the browser to execute.
+@dataclass
+class ActionSpec:
+    args: tuple[str, ...] = field(default_factory=tuple)
+
+
+ACTION_REGISTRY: dict[str, ActionSpec] = {
+    "set": ActionSpec(args=("value",)),
+    "increment": ActionSpec(args=("delta",)),
+    "toggle_bool": ActionSpec(),
+}
+
+KNOWN_ACTIONS = frozenset(ACTION_REGISTRY)

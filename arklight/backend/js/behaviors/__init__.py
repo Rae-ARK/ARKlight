@@ -1,30 +1,32 @@
 """
-Reserved for v0.0035 (stateful JS).
+Per-behavior JS runtime fragments (v0.0035).
 
-Scaffolding only -- no behavior fragments live here yet. Per
-`docs/DESIGN-NOTES.md` ("v0.0035: stateful JS -- capability, not
-vocabulary"), `arklight/backend/js/render.py` currently holds one
-hand-written `RUNTIME_JS` string with a hardcoded `behaviors` object
-inside it, matched by the flat `KNOWN_BEHAVIORS` frozenset in
-`arklight/ir/schema.py`.
+Each sibling module exports `NAME` (matching a key in
+`arklight.ir.schema.BEHAVIOR_REGISTRY`) and `JS_FRAGMENT` (that
+behavior's `name: function (el) { ... }` entry, as JS source text).
+`JSBackend.render()` (`arklight/backend/js/render.py`) concatenates
+only the fragments a given site's IR actually references into the
+`behaviors` dispatch object, instead of one hand-maintained runtime
+string always shipping every behavior.
 
-The plan, not yet implemented, is for both to become data:
-
-- `arklight/ir/schema.py`: `KNOWN_BEHAVIORS` (frozenset) becomes
-  `BEHAVIOR_REGISTRY: dict[str, BehaviorSpec]`, with `KNOWN_BEHAVIORS`
-  kept as `frozenset(BEHAVIOR_REGISTRY)` so Validation's existing check
-  doesn't change shape. A parallel `ACTION_REGISTRY` covers the new
-  `Action.*` vocabulary (`set`, `increment`, `toggle_bool`, ...).
-- This package: one module per behavior/action (e.g. `toggle.py`,
-  `scroll_to.py`), each exporting a small JS fragment (a function body
-  as a string) plus its `BehaviorSpec`/`ActionSpec`. `JSBackend.render()`
-  will assemble the runtime from only the fragments a given site's IR
-  actually references, instead of one static, hand-maintained string.
-
-This alone adds no new vocabulary and changes no behavior at runtime --
-it is purely a place for that refactor to land. See
-`docs/DESIGN-NOTES.md` for the full design and `PROGRESS.md` for
-current status.
+Adding a new named behavior later is: one new module here (`NAME` +
+`JS_FRAGMENT`), one new `arklight.ir.schema.BEHAVIOR_REGISTRY` entry,
+and a line in `BEHAVIOR_MODULES` below -- never a change to
+`JSBackend`'s generation logic itself.
 """
 
 from __future__ import annotations
+
+from arklight.backend.js.behaviors import copy, dismiss, scroll_to, toggle
+
+BEHAVIOR_MODULES = {
+    toggle.NAME: toggle,
+    scroll_to.NAME: scroll_to,
+    copy.NAME: copy,
+    dismiss.NAME: dismiss,
+}
+
+# name -> that behavior's JS dispatch-object entry (source text).
+BEHAVIOR_FRAGMENTS: dict[str, str] = {
+    name: module.JS_FRAGMENT for name, module in BEHAVIOR_MODULES.items()
+}

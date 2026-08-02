@@ -19,10 +19,15 @@ IR by default (HTML and CSS) and merges their output files -- this is
 exactly the "Backend Interface" fan-out the architecture doc describes
 under "Future: CSS, JavaScript, Vue, Svelte": each backend consumes the
 same IR and contributes its own output files.
+
+`build()` also copies a top-level `assets/` folder (next to the site's
+entry file) into `<output_dir>/assets` automatically, if one exists --
+see `_copy_assets` below.
 """
 
 from __future__ import annotations
 
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -34,6 +39,13 @@ from arklight.ir.build import WebsiteIR, build_website_ir
 from arklight.ir.normalize import normalize_ark_ast
 from arklight.ir.validate import ValidationError, validate_ark_ast
 from arklight.parser.loader import SiteLoadError, load_site
+
+# Name of the top-level, next-to-`site.py` folder ARKlight auto-copies
+# into the output directory (verbatim, recursively) if it exists. Fixes
+# the "404 images" gotcha documented in docs/DESIGN-NOTES.md: previously
+# a site's `assets/` (images, fonts, favicons, ...) had to be copied by
+# hand with `cp -r assets dist/assets` after every build.
+ASSETS_DIR_NAME = "assets"
 
 
 def default_backends() -> list[Backend]:
@@ -115,4 +127,25 @@ def build(
         dest.write_text(contents, encoding="utf-8")
         written.append(dest)
 
+    written.extend(_copy_assets(entry_path, out_dir))
+
     return BuildResult(ir=ir, output_files=output_files, written_paths=written)
+
+
+def _copy_assets(entry_path: str | Path, out_dir: Path) -> list[Path]:
+    """
+    Copy a top-level `assets/` folder (sitting next to the site's entry
+    file) into `<output_dir>/assets`, recursively, if one exists.
+
+    This was previously a manual, easy-to-forget step (`cp -r assets
+    dist/assets`) -- a real gap, not a template-only concern, per
+    docs/DESIGN-NOTES.md. No-op (returns an empty list) when there's no
+    `assets/` folder to copy.
+    """
+    assets_src = Path(entry_path).resolve().parent / ASSETS_DIR_NAME
+    if not assets_src.is_dir():
+        return []
+
+    assets_dest = out_dir / ASSETS_DIR_NAME
+    shutil.copytree(assets_src, assets_dest, dirs_exist_ok=True)
+    return sorted(p for p in assets_dest.rglob("*") if p.is_file())

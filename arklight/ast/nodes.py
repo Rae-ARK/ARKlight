@@ -26,6 +26,27 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
+@dataclass(frozen=True)
+class ActionRef:
+    """
+    A reference to a closed-vocabulary, state-mutating action -- e.g.
+    `Action.increment("count")`. Used as an `on_click=` value (alongside
+    or instead of a named behavior string) once a page declares
+    `State(...)`.
+
+    Deliberately a small structured object, not a string: it is
+    validated against `arklight.ir.schema.ACTION_REGISTRY` at compile
+    time (unknown action name, or a `state` target that isn't declared
+    on the page, both fail the build) and never becomes a JS/Python
+    string that gets executed. See docs/DESIGN-NOTES.md ("v0.0035:
+    stateful JS -- capability, not vocabulary").
+    """
+
+    action: str
+    state: str
+    args: dict[str, Any] = field(default_factory=dict)
+
+
 @dataclass
 class ARKNode:
     """A single node in the ARK AST."""

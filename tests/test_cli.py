@@ -84,6 +84,19 @@ def test_cli_build_open_by_default_launches_browser(tmp_path):
     mock_open.assert_called_once()
 
 
+def test_cli_build_default_output_dir_is_ark(tmp_path, capsys, monkeypatch):
+    site_path = write_site(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    with patch("arklight.cli.main.webbrowser.open"):
+        exit_code = main(["build", str(site_path), "--no-open"])
+
+    assert exit_code == 0
+    assert (tmp_path / "ARK" / "index.html").exists()
+    captured = capsys.readouterr()
+    assert "-> ARK/" in captured.out
+
+
 def test_cli_build_failure_returns_nonzero(tmp_path, capsys):
     bad_path = tmp_path / "site.py"
     bad_path.write_text("from arklight import *\nsite = Site()\n")  # no pages

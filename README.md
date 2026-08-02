@@ -20,22 +20,26 @@ def home():
 ```
 
 ```
-arklight build site.py -o dist
+arklight build site.py -o ARK
 ```
 
-produces `dist/index.html` -- plain, dependency-free HTML.
+produces `ARK/index.html` -- plain, dependency-free HTML.
 
 ## Status
 
-**v0.003 — JavaScript helpers.** The compiler now runs three backends
-(HTML, CSS, JS) over the same Website IR. Any component can opt into a
-small, closed set of built-in client-side behaviors --
-`on_click="toggle"` and `on_click="scroll-to"` -- via a tiny, fixed
-vanilla-JS runtime ARKlight ships automatically; no JavaScript is ever
-written by hand, and no arbitrary JS strings are accepted (see
+**v0.0035 — Stateful JS.** Named client-side behaviors
+(`on_click="toggle"`, `"scroll-to"`, `"copy"`, `"dismiss"`) are now a
+registry (`arklight.ir.schema.BEHAVIOR_REGISTRY`) instead of a
+hardcoded dispatch table, and `JSBackend` ships only the behavior/
+action fragments a given site's IR actually references. On top of
+that, pages can now declare real reactive state -- `State("count", 0)`,
+`Bind("count")`, and a closed `Action.set` / `Action.increment` /
+`Action.toggle_bool` vocabulary for `on_click=` -- compiled to a small,
+fixed, `eval`-free runtime. Still no JavaScript is ever written by
+hand, and no arbitrary JS strings are accepted (see
 [`docs/DESIGN-NOTES.md`](./docs/DESIGN-NOTES.md) for why that boundary
-is deliberate). The nav bar in the example site also gets its current
-page highlighted automatically, with zero wiring. See
+is deliberate). `arklight build` also now auto-copies a top-level
+`assets/` folder into the output directory. See
 [`PROGRESS.md`](./PROGRESS.md) for what's implemented and what's next,
 and [`CHANGELOG.md`](./CHANGELOG.md) for version history.
 
@@ -56,7 +60,9 @@ arklight build <entry.py> [-o OUTPUT_DIR] [--open | --no-open]
 
 - `entry.py` -- your site file (must define `site = Site()` and at
   least one `@site.page("/route")`-decorated function).
-- `-o, --output` -- output directory, default `dist/`.
+- `-o, --output` -- output directory, default `ARK/`.
+- If a top-level `assets/` folder sits next to `entry.py`, it is
+  copied (recursively) into `<output>/assets` automatically.
 - `--open` (default) -- opens `index.html` in your default browser
   after building. `--no-open` disables this.
 
@@ -64,7 +70,7 @@ Try the bundled example -- this builds the site AND opens it in your
 browser:
 
 ```bash
-arklight build examples/hello_site/site.py -o dist
+arklight build examples/hello_site/site.py -o ARK
 ```
 
 ## Compiler pipeline
@@ -129,7 +135,7 @@ same string you'd pass to `@site.page(...)`. The HTML backend resolves
 this to the correct relative file path at build time (`about.html`,
 `../about.html`, etc., depending on where the linking page lives), so
 navigation works whether you open the file directly from disk or
-deploy the `dist/` folder as-is. External URLs, `#fragments`, and
+deploy the `ARK/` folder as-is. External URLs, `#fragments`, and
 `mailto:`/`tel:` links are left untouched.
 
 ### Styling components

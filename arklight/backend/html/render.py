@@ -29,13 +29,27 @@ Three things beyond basic tag rendering are handled here:
    runtime reads these to wire up behaviors. See
    `arklight.ir.schema.KNOWN_BEHAVIORS` for the full set and
    `arklight.backend.js` for what actually runs.
+
+4. **v0.0035: `Bind(...)` and `Action.*(...)` render as `data-ark-*`
+   hooks too.** A page's `state` (extracted from `State(...)` at the IR
+   stage -- see `arklight.ir.build.IRPage.state`) is serialized as JSON
+   onto `<body data-ark-state="...">`; a `Bind("count")` node renders
+   as a `<span data-ark-bind="count">` pre-filled with that state's
+   current value (so the page is fully readable with JS disabled, same
+   as everything else ARKlight ships); and an `on_click=Action.*(...)`
+   value renders as `data-ark-on-click="action:<name>"` plus
+   `data-ark-action-state`/`data-ark-action-args`, which the JS
+   backend's reactive core (only shipped for pages that declare state)
+   reads to wire up the click.
 """
 
 from __future__ import annotations
 
+import json
 import posixpath
 from html import escape
 
+from arklight.ast.nodes import ActionRef
 from arklight.backend.base import Backend
 from arklight.backend.css.render import STYLESHEET_PATH
 from arklight.backend.js.render import SCRIPT_PATH
@@ -279,6 +293,17 @@ def _attr_string(props: dict, *, current_route: str, route_to_path: dict[str, st
         if value is None or value is False:
             continue
 
+        if key == "on_click" and isinstance(value, ActionRef):
+            # v0.0035: Action.*(...) values carry their own attribute
+            # shape (action name + target state + JSON args) instead of
+            # the plain data-ark-on-click="<behavior name>" a string
+            # on_click gets below.
+            parts.append(f' data-ark-on-click="action:{escape(value.action, quote=True)}"')
+            parts.append(f' data-ark-action-state="{escape(value.state, quote=True)}"')
+            if value.args:
+                parts.append(f' data-ark-action-args="{escape(json.dumps(value.args), quote=True)}"')
+            continue
+
         if key in BEHAVIOR_PROP_ATTRS:
             attr_name = BEHAVIOR_PROP_ATTRS[key]
         elif key.startswith("aria_"):
@@ -317,34 +342,66 @@ def _tag_for(node: IRNode) -> str:
     return TAG_MAP.get(node.type, "div")
 
 
-def _render_children(children: list, *, current_route: str, route_to_path: dict[str, str]) -> str:
+def _render_bind(node: IRNode, *, page_state: dict) -> str:
+    """
+    v0.0035: `Bind("count")` renders as a `<span data-ark-bind="count">`
+    pre-filled with the page's current (build-time) state value, so the
+    page is fully readable with JS disabled -- the shipped reactive
+    core just keeps this element's text in sync with client-side state
+    changes after that.
+    """
+    name = node.props.get("name")
+    value = page_state.get(name, "")
+    return f'<span data-ark-bind="{escape(str(name), quote=True)}">{escape(str(value))}</span>'
+
+
+def _render_children(
+    children: list, *, current_route: str, route_to_path: dict[str, str], page_state: dict
+) -> str:
     rendered = []
     for child in children:
         if isinstance(child, IRNode):
-            rendered.append(_render_node(child, current_route=current_route, route_to_path=route_to_path))
+            rendered.append(
+                _render_node(
+                    child, current_route=current_route, route_to_path=route_to_path, page_state=page_state
+                )
+            )
         else:
             rendered.append(escape(str(child)))
     return "".join(rendered)
 
 
-def _render_node(node: IRNode, *, current_route: str, route_to_path: dict[str, str]) -> str:
+def _render_node(node: IRNode, *, current_route: str, route_to_path: dict[str, str], page_state: dict) -> str:
+    if node.type == "Bind":
+        return _render_bind(node, page_state=page_state)
+
     tag = _tag_for(node)
     attrs = _attr_string(node.props, current_route=current_route, route_to_path=route_to_path)
 
     if tag in VOID_TAGS:
         return f"<{tag}{attrs} />"
 
-    inner = _render_children(node.children, current_route=current_route, route_to_path=route_to_path)
+    inner = _render_children(
+        node.children, current_route=current_route, route_to_path=route_to_path, page_state=page_state
+    )
     return f"<{tag}{attrs}>{inner}</{tag}>"
 
 
 def _render_page(page: IRPage, site_name: str, route_to_path: dict[str, str]) -> str:
     title = page.root.props.get("title", site_name)
-    body_inner = _render_children(page.root.children, current_route=page.route, route_to_path=route_to_path)
+    body_inner = _render_children(
+        page.root.children, current_route=page.route, route_to_path=route_to_path, page_state=page.state
+    )
     stylesheet_href = _relative_asset_path(
         STYLESHEET_PATH, current_route=page.route, route_to_path=route_to_path
     )
     script_src = _relative_asset_path(SCRIPT_PATH, current_route=page.route, route_to_path=route_to_path)
+    # v0.0035: pages that declare State(...) hydrate the client-side
+    # store from here -- a JSON blob of the same initial values the
+    # page was rendered with, so client and server never disagree.
+    body_attrs = ""
+    if page.state:
+        body_attrs = f' data-ark-state="{escape(json.dumps(page.state), quote=True)}"'
     return (
         "<!DOCTYPE html>\n"
         '<html lang="en">\n'
@@ -354,7 +411,7 @@ def _render_page(page: IRPage, site_name: str, route_to_path: dict[str, str]) ->
         f"  <title>{escape(str(title))}</title>\n"
         f'  <link rel="stylesheet" href="{escape(stylesheet_href, quote=True)}">\n'
         "</head>\n"
-        f"<body>\n{body_inner}\n"
+        f"<body{body_attrs}>\n{body_inner}\n"
         f'<script src="{escape(script_src, quote=True)}" defer></script>\n'
         "</body>\n"
         "</html>\n"

@@ -38,6 +38,11 @@ class IRNode:
 class IRPage:
     route: str
     root: IRNode
+    # v0.0035: page-scoped reactive state declared via `State(...)`,
+    # extracted from the Page node's children rather than living as a
+    # prop on some other node -- state belongs to the page, the same
+    # way `title` does. Empty for pages that declare no state.
+    state: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -58,6 +63,22 @@ def _ark_node_to_ir_node(node: ARKNode) -> IRNode:
     return IRNode(type=node.type, props=dict(node.props), children=children)
 
 
+def _extract_page_state(page: ARKNode) -> tuple[dict[str, Any], list]:
+    """
+    Split a validated Page node's children into (state, remaining
+    children). `State(...)` nodes are declarations, not renderable
+    content -- they must never reach the HTML backend as a child.
+    """
+    state: dict[str, Any] = {}
+    remaining: list = []
+    for child in page.children:
+        if isinstance(child, ARKNode) and child.type == "State":
+            state[child.props["name"]] = child.props.get("initial")
+        else:
+            remaining.append(child)
+    return state, remaining
+
+
 def build_website_ir(site_name: str, pages: dict[str, ARKNode]) -> WebsiteIR:
     """
     Build the Website IR from a normalized + validated ARK AST.
@@ -65,7 +86,9 @@ def build_website_ir(site_name: str, pages: dict[str, ARKNode]) -> WebsiteIR:
     Callers are expected to have already run `normalize_ark_ast` and
     `validate_ark_ast` on `pages` before calling this.
     """
-    ir_pages = [
-        IRPage(route=route, root=_ark_node_to_ir_node(page)) for route, page in pages.items()
-    ]
+    ir_pages = []
+    for route, page in pages.items():
+        state, remaining_children = _extract_page_state(page)
+        root_page = ARKNode(type=page.type, props=page.props, children=remaining_children)
+        ir_pages.append(IRPage(route=route, root=_ark_node_to_ir_node(root_page), state=state))
     return WebsiteIR(site_name=site_name, pages=ir_pages)

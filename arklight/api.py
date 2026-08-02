@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from arklight.ast.nodes import ARKNode, node
+from arklight.ast.nodes import ActionRef, ARKNode, node
 
 # ---------------------------------------------------------------------------
 # Built-in components
@@ -165,6 +165,67 @@ IFrame = node("IFrame")
 
 # Fallback content for no-JS visitors.
 NoScript = node("NoScript")
+
+# ---------------------------------------------------------------------------
+# v0.0035: stateful JS -- capability, not vocabulary.
+#
+# `State`/`Bind`/`Action` are the reactivity primitives: a page declares
+# state, components read it via `Bind`, and `on_click=` mutates it via a
+# closed, described set of `Action.*` helpers (never an arbitrary JS/Python
+# string -- see arklight.ir.schema.ACTION_REGISTRY and
+# docs/DESIGN-NOTES.md, "v0.0035: stateful JS -- capability, not
+# vocabulary", for the full design).
+# ---------------------------------------------------------------------------
+
+
+def State(name: str, initial: Any = None) -> ARKNode:
+    """
+    Declare page-scoped reactive state: `State("count", 0)`.
+
+    Must appear as a direct child of `Page(...)` -- state belongs to the
+    page, the same way `title=` does -- and is compiled into the
+    Website IR's `IRPage.state`, never rendered as an HTML element
+    itself. Validation checks every `Bind(...)`/`Action.*(...)` on the
+    page references a `name` declared here.
+    """
+    return ARKNode(type="State", props={"name": name, "initial": initial}, children=[])
+
+
+def Bind(name: str) -> ARKNode:
+    """
+    Reference a `State(...)` value from wherever a literal value is
+    accepted today, e.g. `Text(Bind("count"))`. Compiled to a small
+    `data-ark-bind="<name>"` element the shipped runtime keeps in sync
+    with state -- never a template string evaluated at runtime.
+    """
+    return ARKNode(type="Bind", props={"name": name}, children=[])
+
+
+class Action:
+    """
+    A closed vocabulary of state-mutating actions for `on_click=`,
+    alongside today's named behaviors (`on_click="toggle"`). Each
+    returns a small structured `ActionRef` -- validated against
+    `arklight.ir.schema.ACTION_REGISTRY` at compile time -- never a
+    string of JavaScript or Python.
+
+        Button("+1", on_click=Action.increment("count"))
+        Button("Reset", on_click=Action.set("count", 0))
+        Button("Toggle", on_click=Action.toggle_bool("is_open"))
+    """
+
+    @staticmethod
+    def set(name: str, value: Any) -> ActionRef:
+        return ActionRef(action="set", state=name, args={"value": value})
+
+    @staticmethod
+    def increment(name: str, delta: Any = 1) -> ActionRef:
+        return ActionRef(action="increment", state=name, args={"delta": delta})
+
+    @staticmethod
+    def toggle_bool(name: str) -> ActionRef:
+        return ActionRef(action="toggle_bool", state=name, args={})
+
 
 BUILTIN_COMPONENTS = {
     "Page": Page,
@@ -401,5 +462,9 @@ __all__ = [
     "Area",
     "IFrame",
     "NoScript",
+    "State",
+    "Bind",
+    "Action",
+    "ActionRef",
     "ARKNode",
 ]

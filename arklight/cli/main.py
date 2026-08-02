@@ -1,7 +1,7 @@
 """
 ARKlight CLI.
 
-    arklight build site.py -o dist
+    arklight build site.py -o ARK
 
 Beginner-friendly by design: one subcommand, sensible defaults
 (builds AND opens the result in your browser), and error messages that
@@ -70,7 +70,7 @@ def main(argv: list[str] | None = None) -> int:
     build_parser = subparsers.add_parser("build", help="Compile a site file to static HTML + CSS.")
     build_parser.add_argument("entry", help="Path to the Python site file (e.g. site.py)")
     build_parser.add_argument(
-        "-o", "--output", default="dist", help="Output directory (default: dist)"
+        "-o", "--output", default="ARK", help="Output directory (default: ARK)"
     )
     open_group = build_parser.add_mutually_exclusive_group()
     open_group.add_argument(

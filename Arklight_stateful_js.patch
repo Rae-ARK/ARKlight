@@ -1,0 +1,1691 @@
+diff --git a/README.md b/README.md
+index 30921a7..9741a91 100644
+--- a/README.md
++++ b/README.md
+@@ -20,22 +20,26 @@ def home():
+ ```
+ 
+ ```
+-arklight build site.py -o dist
++arklight build site.py -o ARK
+ ```
+ 
+-produces `dist/index.html` -- plain, dependency-free HTML.
++produces `ARK/index.html` -- plain, dependency-free HTML.
+ 
+ ## Status
+ 
+-**v0.003 — JavaScript helpers.** The compiler now runs three backends
+-(HTML, CSS, JS) over the same Website IR. Any component can opt into a
+-small, closed set of built-in client-side behaviors --
+-`on_click="toggle"` and `on_click="scroll-to"` -- via a tiny, fixed
+-vanilla-JS runtime ARKlight ships automatically; no JavaScript is ever
+-written by hand, and no arbitrary JS strings are accepted (see
++**v0.0035 — Stateful JS.** Named client-side behaviors
++(`on_click="toggle"`, `"scroll-to"`, `"copy"`, `"dismiss"`) are now a
++registry (`arklight.ir.schema.BEHAVIOR_REGISTRY`) instead of a
++hardcoded dispatch table, and `JSBackend` ships only the behavior/
++action fragments a given site's IR actually references. On top of
++that, pages can now declare real reactive state -- `State("count", 0)`,
++`Bind("count")`, and a closed `Action.set` / `Action.increment` /
++`Action.toggle_bool` vocabulary for `on_click=` -- compiled to a small,
++fixed, `eval`-free runtime. Still no JavaScript is ever written by
++hand, and no arbitrary JS strings are accepted (see
+ [`docs/DESIGN-NOTES.md`](./docs/DESIGN-NOTES.md) for why that boundary
+-is deliberate). The nav bar in the example site also gets its current
+-page highlighted automatically, with zero wiring. See
++is deliberate). `arklight build` also now auto-copies a top-level
++`assets/` folder into the output directory. See
+ [`PROGRESS.md`](./PROGRESS.md) for what's implemented and what's next,
+ and [`CHANGELOG.md`](./CHANGELOG.md) for version history.
+ 
+@@ -56,7 +60,9 @@ arklight build <entry.py> [-o OUTPUT_DIR] [--open | --no-open]
+ 
+ - `entry.py` -- your site file (must define `site = Site()` and at
+   least one `@site.page("/route")`-decorated function).
+-- `-o, --output` -- output directory, default `dist/`.
++- `-o, --output` -- output directory, default `ARK/`.
++- If a top-level `assets/` folder sits next to `entry.py`, it is
++  copied (recursively) into `<output>/assets` automatically.
+ - `--open` (default) -- opens `index.html` in your default browser
+   after building. `--no-open` disables this.
+ 
+@@ -64,7 +70,7 @@ Try the bundled example -- this builds the site AND opens it in your
+ browser:
+ 
+ ```bash
+-arklight build examples/hello_site/site.py -o dist
++arklight build examples/hello_site/site.py -o ARK
+ ```
+ 
+ ## Compiler pipeline
+@@ -129,7 +135,7 @@ same string you'd pass to `@site.page(...)`. The HTML backend resolves
+ this to the correct relative file path at build time (`about.html`,
+ `../about.html`, etc., depending on where the linking page lives), so
+ navigation works whether you open the file directly from disk or
+-deploy the `dist/` folder as-is. External URLs, `#fragments`, and
++deploy the `ARK/` folder as-is. External URLs, `#fragments`, and
+ `mailto:`/`tel:` links are left untouched.
+ 
+ ### Styling components
+diff --git a/arklight/__init__.py b/arklight/__init__.py
+index afa493c..c5e996f 100644
+--- a/arklight/__init__.py
++++ b/arklight/__init__.py
+@@ -74,10 +74,14 @@ from arklight.api import (
+     Video,
+     Audio,
+     Source,
++    State,
++    Bind,
++    Action,
++    ActionRef,
+     ARKNode,
+ )
+ 
+-__version__ = "0.003"
++__version__ = "0.0035"
+ 
+ __all__ = [
+     "Site",
+@@ -136,6 +140,10 @@ __all__ = [
+     "Video",
+     "Audio",
+     "Source",
++    "State",
++    "Bind",
++    "Action",
++    "ActionRef",
+     "ARKNode",
+     "__version__",
+ ]
+diff --git a/arklight/api.py b/arklight/api.py
+index ad4ecaf..2a03b65 100644
+--- a/arklight/api.py
++++ b/arklight/api.py
+@@ -16,7 +16,7 @@ from __future__ import annotations
+ 
+ from typing import Any, Callable
+ 
+-from arklight.ast.nodes import ARKNode, node
++from arklight.ast.nodes import ActionRef, ARKNode, node
+ 
+ # ---------------------------------------------------------------------------
+ # Built-in components
+@@ -166,6 +166,67 @@ IFrame = node("IFrame")
+ # Fallback content for no-JS visitors.
+ NoScript = node("NoScript")
+ 
++# ---------------------------------------------------------------------------
++# v0.0035: stateful JS -- capability, not vocabulary.
++#
++# `State`/`Bind`/`Action` are the reactivity primitives: a page declares
++# state, components read it via `Bind`, and `on_click=` mutates it via a
++# closed, described set of `Action.*` helpers (never an arbitrary JS/Python
++# string -- see arklight.ir.schema.ACTION_REGISTRY and
++# docs/DESIGN-NOTES.md, "v0.0035: stateful JS -- capability, not
++# vocabulary", for the full design).
++# ---------------------------------------------------------------------------
++
++
++def State(name: str, initial: Any = None) -> ARKNode:
++    """
++    Declare page-scoped reactive state: `State("count", 0)`.
++
++    Must appear as a direct child of `Page(...)` -- state belongs to the
++    page, the same way `title=` does -- and is compiled into the
++    Website IR's `IRPage.state`, never rendered as an HTML element
++    itself. Validation checks every `Bind(...)`/`Action.*(...)` on the
++    page references a `name` declared here.
++    """
++    return ARKNode(type="State", props={"name": name, "initial": initial}, children=[])
++
++
++def Bind(name: str) -> ARKNode:
++    """
++    Reference a `State(...)` value from wherever a literal value is
++    accepted today, e.g. `Text(Bind("count"))`. Compiled to a small
++    `data-ark-bind="<name>"` element the shipped runtime keeps in sync
++    with state -- never a template string evaluated at runtime.
++    """
++    return ARKNode(type="Bind", props={"name": name}, children=[])
++
++
++class Action:
++    """
++    A closed vocabulary of state-mutating actions for `on_click=`,
++    alongside today's named behaviors (`on_click="toggle"`). Each
++    returns a small structured `ActionRef` -- validated against
++    `arklight.ir.schema.ACTION_REGISTRY` at compile time -- never a
++    string of JavaScript or Python.
++
++        Button("+1", on_click=Action.increment("count"))
++        Button("Reset", on_click=Action.set("count", 0))
++        Button("Toggle", on_click=Action.toggle_bool("is_open"))
++    """
++
++    @staticmethod
++    def set(name: str, value: Any) -> ActionRef:
++        return ActionRef(action="set", state=name, args={"value": value})
++
++    @staticmethod
++    def increment(name: str, delta: Any = 1) -> ActionRef:
++        return ActionRef(action="increment", state=name, args={"delta": delta})
++
++    @staticmethod
++    def toggle_bool(name: str) -> ActionRef:
++        return ActionRef(action="toggle_bool", state=name, args={})
++
++
+ BUILTIN_COMPONENTS = {
+     "Page": Page,
+     "Heading": Heading,
+@@ -401,5 +462,9 @@ __all__ = [
+     "Area",
+     "IFrame",
+     "NoScript",
++    "State",
++    "Bind",
++    "Action",
++    "ActionRef",
+     "ARKNode",
+ ]
+diff --git a/arklight/ast/nodes.py b/arklight/ast/nodes.py
+index 61e4a71..954965f 100644
+--- a/arklight/ast/nodes.py
++++ b/arklight/ast/nodes.py
+@@ -26,6 +26,27 @@ from dataclasses import dataclass, field
+ from typing import Any
+ 
+ 
++@dataclass(frozen=True)
++class ActionRef:
++    """
++    A reference to a closed-vocabulary, state-mutating action -- e.g.
++    `Action.increment("count")`. Used as an `on_click=` value (alongside
++    or instead of a named behavior string) once a page declares
++    `State(...)`.
++
++    Deliberately a small structured object, not a string: it is
++    validated against `arklight.ir.schema.ACTION_REGISTRY` at compile
++    time (unknown action name, or a `state` target that isn't declared
++    on the page, both fail the build) and never becomes a JS/Python
++    string that gets executed. See docs/DESIGN-NOTES.md ("v0.0035:
++    stateful JS -- capability, not vocabulary").
++    """
++
++    action: str
++    state: str
++    args: dict[str, Any] = field(default_factory=dict)
++
++
+ @dataclass
+ class ARKNode:
+     """A single node in the ARK AST."""
+diff --git a/arklight/backend/html/render.py b/arklight/backend/html/render.py
+index 472ce30..f5ceaa7 100644
+--- a/arklight/backend/html/render.py
++++ b/arklight/backend/html/render.py
+@@ -29,13 +29,27 @@ Three things beyond basic tag rendering are handled here:
+    runtime reads these to wire up behaviors. See
+    `arklight.ir.schema.KNOWN_BEHAVIORS` for the full set and
+    `arklight.backend.js` for what actually runs.
++
++4. **v0.0035: `Bind(...)` and `Action.*(...)` render as `data-ark-*`
++   hooks too.** A page's `state` (extracted from `State(...)` at the IR
++   stage -- see `arklight.ir.build.IRPage.state`) is serialized as JSON
++   onto `<body data-ark-state="...">`; a `Bind("count")` node renders
++   as a `<span data-ark-bind="count">` pre-filled with that state's
++   current value (so the page is fully readable with JS disabled, same
++   as everything else ARKlight ships); and an `on_click=Action.*(...)`
++   value renders as `data-ark-on-click="action:<name>"` plus
++   `data-ark-action-state`/`data-ark-action-args`, which the JS
++   backend's reactive core (only shipped for pages that declare state)
++   reads to wire up the click.
+ """
+ 
+ from __future__ import annotations
+ 
++import json
+ import posixpath
+ from html import escape
+ 
++from arklight.ast.nodes import ActionRef
+ from arklight.backend.base import Backend
+ from arklight.backend.css.render import STYLESHEET_PATH
+ from arklight.backend.js.render import SCRIPT_PATH
+@@ -279,6 +293,17 @@ def _attr_string(props: dict, *, current_route: str, route_to_path: dict[str, st
+         if value is None or value is False:
+             continue
+ 
++        if key == "on_click" and isinstance(value, ActionRef):
++            # v0.0035: Action.*(...) values carry their own attribute
++            # shape (action name + target state + JSON args) instead of
++            # the plain data-ark-on-click="<behavior name>" a string
++            # on_click gets below.
++            parts.append(f' data-ark-on-click="action:{escape(value.action, quote=True)}"')
++            parts.append(f' data-ark-action-state="{escape(value.state, quote=True)}"')
++            if value.args:
++                parts.append(f' data-ark-action-args="{escape(json.dumps(value.args), quote=True)}"')
++            continue
++
+         if key in BEHAVIOR_PROP_ATTRS:
+             attr_name = BEHAVIOR_PROP_ATTRS[key]
+         elif key.startswith("aria_"):
+@@ -317,34 +342,66 @@ def _tag_for(node: IRNode) -> str:
+     return TAG_MAP.get(node.type, "div")
+ 
+ 
+-def _render_children(children: list, *, current_route: str, route_to_path: dict[str, str]) -> str:
++def _render_bind(node: IRNode, *, page_state: dict) -> str:
++    """
++    v0.0035: `Bind("count")` renders as a `<span data-ark-bind="count">`
++    pre-filled with the page's current (build-time) state value, so the
++    page is fully readable with JS disabled -- the shipped reactive
++    core just keeps this element's text in sync with client-side state
++    changes after that.
++    """
++    name = node.props.get("name")
++    value = page_state.get(name, "")
++    return f'<span data-ark-bind="{escape(str(name), quote=True)}">{escape(str(value))}</span>'
++
++
++def _render_children(
++    children: list, *, current_route: str, route_to_path: dict[str, str], page_state: dict
++) -> str:
+     rendered = []
+     for child in children:
+         if isinstance(child, IRNode):
+-            rendered.append(_render_node(child, current_route=current_route, route_to_path=route_to_path))
++            rendered.append(
++                _render_node(
++                    child, current_route=current_route, route_to_path=route_to_path, page_state=page_state
++                )
++            )
+         else:
+             rendered.append(escape(str(child)))
+     return "".join(rendered)
+ 
+ 
+-def _render_node(node: IRNode, *, current_route: str, route_to_path: dict[str, str]) -> str:
++def _render_node(node: IRNode, *, current_route: str, route_to_path: dict[str, str], page_state: dict) -> str:
++    if node.type == "Bind":
++        return _render_bind(node, page_state=page_state)
++
+     tag = _tag_for(node)
+     attrs = _attr_string(node.props, current_route=current_route, route_to_path=route_to_path)
+ 
+     if tag in VOID_TAGS:
+         return f"<{tag}{attrs} />"
+ 
+-    inner = _render_children(node.children, current_route=current_route, route_to_path=route_to_path)
++    inner = _render_children(
++        node.children, current_route=current_route, route_to_path=route_to_path, page_state=page_state
++    )
+     return f"<{tag}{attrs}>{inner}</{tag}>"
+ 
+ 
+ def _render_page(page: IRPage, site_name: str, route_to_path: dict[str, str]) -> str:
+     title = page.root.props.get("title", site_name)
+-    body_inner = _render_children(page.root.children, current_route=page.route, route_to_path=route_to_path)
++    body_inner = _render_children(
++        page.root.children, current_route=page.route, route_to_path=route_to_path, page_state=page.state
++    )
+     stylesheet_href = _relative_asset_path(
+         STYLESHEET_PATH, current_route=page.route, route_to_path=route_to_path
+     )
+     script_src = _relative_asset_path(SCRIPT_PATH, current_route=page.route, route_to_path=route_to_path)
++    # v0.0035: pages that declare State(...) hydrate the client-side
++    # store from here -- a JSON blob of the same initial values the
++    # page was rendered with, so client and server never disagree.
++    body_attrs = ""
++    if page.state:
++        body_attrs = f' data-ark-state="{escape(json.dumps(page.state), quote=True)}"'
+     return (
+         "<!DOCTYPE html>\n"
+         '<html lang="en">\n'
+@@ -354,7 +411,7 @@ def _render_page(page: IRPage, site_name: str, route_to_path: dict[str, str]) ->
+         f"  <title>{escape(str(title))}</title>\n"
+         f'  <link rel="stylesheet" href="{escape(stylesheet_href, quote=True)}">\n'
+         "</head>\n"
+-        f"<body>\n{body_inner}\n"
++        f"<body{body_attrs}>\n{body_inner}\n"
+         f'<script src="{escape(script_src, quote=True)}" defer></script>\n'
+         "</body>\n"
+         "</html>\n"
+diff --git a/arklight/backend/js/actions/__init__.py b/arklight/backend/js/actions/__init__.py
+new file mode 100644
+index 0000000..620bdb3
+--- /dev/null
++++ b/arklight/backend/js/actions/__init__.py
+@@ -0,0 +1,24 @@
++"""
++Per-action JS runtime fragments (v0.0035).
++
++Mirrors `arklight.backend.js.behaviors`: each sibling module exports
++`NAME` (matching a key in `arklight.ir.schema.ACTION_REGISTRY`) and
++`JS_FRAGMENT` (that action's `name: function (store, key, args) {
++... }` entry). `JSBackend.render()` includes the reactive core (and
++only the action fragments actually used) for a build only when at
++least one page declares `State(...)`.
++"""
++
++from __future__ import annotations
++
++from arklight.backend.js.actions import increment, set, toggle_bool
++
++ACTION_MODULES = {
++    set.NAME: set,
++    increment.NAME: increment,
++    toggle_bool.NAME: toggle_bool,
++}
++
++ACTION_FRAGMENTS: dict[str, str] = {
++    name: module.JS_FRAGMENT for name, module in ACTION_MODULES.items()
++}
+diff --git a/arklight/backend/js/actions/increment.py b/arklight/backend/js/actions/increment.py
+new file mode 100644
+index 0000000..91e608a
+--- /dev/null
++++ b/arklight/backend/js/actions/increment.py
+@@ -0,0 +1,12 @@
++"""
++`increment` action fragment. See `set.py` for the general shape.
++"""
++
++from __future__ import annotations
++
++NAME = "increment"
++
++JS_FRAGMENT = """    increment: function (store, key, args) {
++      var delta = args && args.delta !== undefined ? args.delta : 1;
++      store.set(key, (store.get(key) || 0) + delta);
++    }"""
+diff --git a/arklight/backend/js/actions/set.py b/arklight/backend/js/actions/set.py
+new file mode 100644
+index 0000000..e6ca947
+--- /dev/null
++++ b/arklight/backend/js/actions/set.py
+@@ -0,0 +1,17 @@
++"""
++`set` action fragment (v0.0035 -- see `arklight.ir.schema.ACTION_REGISTRY`).
++
++Every action fragment has the same shape: `name: function (store, key,
++args) { ... }`, called by the reactive core's action dispatcher with
++the page's state store, the target state's key, and the `ActionRef`'s
++`args` dict (already parsed from JSON -- see
++`arklight/backend/js/render.py`).
++"""
++
++from __future__ import annotations
++
++NAME = "set"
++
++JS_FRAGMENT = """    set: function (store, key, args) {
++      store.set(key, args.value);
++    }"""
+diff --git a/arklight/backend/js/actions/toggle_bool.py b/arklight/backend/js/actions/toggle_bool.py
+new file mode 100644
+index 0000000..363edb5
+--- /dev/null
++++ b/arklight/backend/js/actions/toggle_bool.py
+@@ -0,0 +1,11 @@
++"""
++`toggle_bool` action fragment. See `set.py` for the general shape.
++"""
++
++from __future__ import annotations
++
++NAME = "toggle_bool"
++
++JS_FRAGMENT = """    toggle_bool: function (store, key) {
++      store.set(key, !store.get(key));
++    }"""
+diff --git a/arklight/backend/js/behaviors/__init__.py b/arklight/backend/js/behaviors/__init__.py
+index e39c9bd..0936e50 100644
+--- a/arklight/backend/js/behaviors/__init__.py
++++ b/arklight/backend/js/behaviors/__init__.py
+@@ -1,30 +1,32 @@
+ """
+-Reserved for v0.0035 (stateful JS).
++Per-behavior JS runtime fragments (v0.0035).
+ 
+-Scaffolding only -- no behavior fragments live here yet. Per
+-`docs/DESIGN-NOTES.md` ("v0.0035: stateful JS -- capability, not
+-vocabulary"), `arklight/backend/js/render.py` currently holds one
+-hand-written `RUNTIME_JS` string with a hardcoded `behaviors` object
+-inside it, matched by the flat `KNOWN_BEHAVIORS` frozenset in
+-`arklight/ir/schema.py`.
++Each sibling module exports `NAME` (matching a key in
++`arklight.ir.schema.BEHAVIOR_REGISTRY`) and `JS_FRAGMENT` (that
++behavior's `name: function (el) { ... }` entry, as JS source text).
++`JSBackend.render()` (`arklight/backend/js/render.py`) concatenates
++only the fragments a given site's IR actually references into the
++`behaviors` dispatch object, instead of one hand-maintained runtime
++string always shipping every behavior.
+ 
+-The plan, not yet implemented, is for both to become data:
+-
+-- `arklight/ir/schema.py`: `KNOWN_BEHAVIORS` (frozenset) becomes
+-  `BEHAVIOR_REGISTRY: dict[str, BehaviorSpec]`, with `KNOWN_BEHAVIORS`
+-  kept as `frozenset(BEHAVIOR_REGISTRY)` so Validation's existing check
+-  doesn't change shape. A parallel `ACTION_REGISTRY` covers the new
+-  `Action.*` vocabulary (`set`, `increment`, `toggle_bool`, ...).
+-- This package: one module per behavior/action (e.g. `toggle.py`,
+-  `scroll_to.py`), each exporting a small JS fragment (a function body
+-  as a string) plus its `BehaviorSpec`/`ActionSpec`. `JSBackend.render()`
+-  will assemble the runtime from only the fragments a given site's IR
+-  actually references, instead of one static, hand-maintained string.
+-
+-This alone adds no new vocabulary and changes no behavior at runtime --
+-it is purely a place for that refactor to land. See
+-`docs/DESIGN-NOTES.md` for the full design and `PROGRESS.md` for
+-current status.
++Adding a new named behavior later is: one new module here (`NAME` +
++`JS_FRAGMENT`), one new `arklight.ir.schema.BEHAVIOR_REGISTRY` entry,
++and a line in `BEHAVIOR_MODULES` below -- never a change to
++`JSBackend`'s generation logic itself.
+ """
+ 
+ from __future__ import annotations
++
++from arklight.backend.js.behaviors import copy, dismiss, scroll_to, toggle
++
++BEHAVIOR_MODULES = {
++    toggle.NAME: toggle,
++    scroll_to.NAME: scroll_to,
++    copy.NAME: copy,
++    dismiss.NAME: dismiss,
++}
++
++# name -> that behavior's JS dispatch-object entry (source text).
++BEHAVIOR_FRAGMENTS: dict[str, str] = {
++    name: module.JS_FRAGMENT for name, module in BEHAVIOR_MODULES.items()
++}
+diff --git a/arklight/backend/js/behaviors/copy.py b/arklight/backend/js/behaviors/copy.py
+new file mode 100644
+index 0000000..6c83d74
+--- /dev/null
++++ b/arklight/backend/js/behaviors/copy.py
+@@ -0,0 +1,24 @@
++"""
++`copy` behavior fragment. See `toggle.py` for the general shape.
++"""
++
++from __future__ import annotations
++
++NAME = "copy"
++
++JS_FRAGMENT = """    copy: function (el) {
++      var selector = el.getAttribute("data-ark-target");
++      if (!selector) return;
++      var target = document.querySelector(selector);
++      if (!target || !navigator.clipboard) return;
++      var text = target.value !== undefined && target.tagName === "TEXTAREA"
++        ? target.value
++        : target.textContent;
++      navigator.clipboard.writeText(text.trim()).then(function () {
++        var original = el.textContent;
++        el.textContent = "Copied!";
++        setTimeout(function () {
++          el.textContent = original;
++        }, 1500);
++      });
++    }"""
+diff --git a/arklight/backend/js/behaviors/dismiss.py b/arklight/backend/js/behaviors/dismiss.py
+new file mode 100644
+index 0000000..d77555c
+--- /dev/null
++++ b/arklight/backend/js/behaviors/dismiss.py
+@@ -0,0 +1,16 @@
++"""
++`dismiss` behavior fragment. See `toggle.py` for the general shape.
++"""
++
++from __future__ import annotations
++
++NAME = "dismiss"
++
++JS_FRAGMENT = """    dismiss: function (el) {
++      var selector = el.getAttribute("data-ark-target");
++      var className = el.getAttribute("data-ark-toggle-class") || "hidden";
++      if (!selector) return;
++      document.querySelectorAll(selector).forEach(function (target) {
++        target.classList.add(className);
++      });
++    }"""
+diff --git a/arklight/backend/js/behaviors/scroll_to.py b/arklight/backend/js/behaviors/scroll_to.py
+new file mode 100644
+index 0000000..e781a9c
+--- /dev/null
++++ b/arklight/backend/js/behaviors/scroll_to.py
+@@ -0,0 +1,16 @@
++"""
++`scroll-to` behavior fragment. See `toggle.py` for the general shape.
++"""
++
++from __future__ import annotations
++
++NAME = "scroll-to"
++
++JS_FRAGMENT = """    "scroll-to": function (el) {
++      var selector = el.getAttribute("data-ark-target");
++      if (!selector) return;
++      var target = document.querySelector(selector);
++      if (target && target.scrollIntoView) {
++        target.scrollIntoView({ behavior: "smooth" });
++      }
++    }"""
+diff --git a/arklight/backend/js/behaviors/toggle.py b/arklight/backend/js/behaviors/toggle.py
+new file mode 100644
+index 0000000..4cce039
+--- /dev/null
++++ b/arklight/backend/js/behaviors/toggle.py
+@@ -0,0 +1,22 @@
++"""
++`toggle` behavior fragment.
++
++See `arklight.ir.schema.BEHAVIOR_REGISTRY` for the spec (this behavior
++reads an optional `toggle_class` prop, default "is-open") and
++`docs/DESIGN-NOTES.md` ("v0.0035: stateful JS -- capability, not
++vocabulary") for why behaviors live as one small fragment per file
++instead of one hand-maintained runtime string.
++"""
++
++from __future__ import annotations
++
++NAME = "toggle"
++
++JS_FRAGMENT = """    toggle: function (el) {
++      var selector = el.getAttribute("data-ark-target");
++      var className = el.getAttribute("data-ark-toggle-class") || "is-open";
++      if (!selector) return;
++      document.querySelectorAll(selector).forEach(function (target) {
++        target.classList.toggle(className);
++      });
++    }"""
+diff --git a/arklight/backend/js/render.py b/arklight/backend/js/render.py
+index 0d4fae8..66e4758 100644
+--- a/arklight/backend/js/render.py
++++ b/arklight/backend/js/render.py
+@@ -1,14 +1,14 @@
+ """
+ JS Backend.
+ 
+-v0.003 milestone (extended in v0.003). ARKlight does not compile Python
+-to JavaScript, and components do not accept arbitrary JS strings --
+-both would break "the browser never executes Python" in spirit and
+-"one obvious way" in practice (every site inventing its own inline-JS
+-dialect). Instead, following the same model as Alpine.js/htmx (describe
+-behavior with HTML attributes; a small shipped runtime does the rest,
+-no build step), ARKlight ships one static `arklight.js` implementing a
+-fixed, documented vocabulary of behaviors:
++v0.003 milestone (extended in v0.003, then again in v0.0035). ARKlight
++does not compile Python to JavaScript, and components do not accept
++arbitrary JS strings -- both would break "the browser never executes
++Python" in spirit and "one obvious way" in practice (every site
++inventing its own inline-JS dialect). Instead, following the same model
++as Alpine.js/htmx (describe behavior with HTML attributes; a small
++shipped runtime does the rest, no build step), ARKlight ships one
++static `arklight.js` implementing a fixed, documented vocabulary:
+ 
+ - `toggle`     -- toggles a CSS class on `target` element(s). Which
+                   class is controlled by `toggle_class` (default
+@@ -25,102 +25,46 @@ fixed, documented vocabulary of behaviors:
+                   rather than toggling it back and forth.
+ 
+ A component opts in with `on_click="toggle"` (or `"scroll-to"`,
+-`"copy"`, `"dismiss"`) plus a `target="<css selector>"` prop --
++`"copy"`, `"dismiss"`) plus a `behavior_target="<css selector>"` prop --
+ validated against `arklight.ir.schema.KNOWN_BEHAVIORS` at the
+ Validation stage, so a typo in a behavior name is caught at build time,
+ not silently ignored in the browser.
+ 
+-Every behavior here is stateless in the same sense `toggle` always was:
+-each is a pure reaction to a single click, computed from the DOM at
+-that moment (read a class, read some text, write it to the clipboard).
+-None of them retain a JS-side value across events or otherwise give the
+-runtime memory -- that's still the explicit non-goal (see
+-docs/DESIGN-NOTES.md), not something v0.003 relaxed.
++v0.0035 adds a second, closed vocabulary on top of the above: reactive
++page state. A page that declares `State("count", 0)` gets a small
++reactive core (a `createState` store, a `data-ark-bind` re-render pass,
++and an action dispatcher) plus only the `Action.*` fragments
++(`arklight/backend/js/actions/`) that page's `on_click=` values
++actually reference. Pages with no `State(...)` get none of this --
++same "only ship what's used" discipline v0.0035 also brought to the
++named-behavior runtime below. See docs/DESIGN-NOTES.md ("v0.0035:
++stateful JS -- capability, not vocabulary") for the full design.
++
++Every behavior/action fragment here is a small, statically-readable JS
++function -- there is no `eval`, no `new Function`, no string ever
++executed as code. The registries (`arklight.ir.schema.BEHAVIOR_REGISTRY`
++/ `ACTION_REGISTRY`) are what's open to new *data*; the runtime itself
++never becomes a general-purpose interpreter.
+ 
+ The runtime also auto-highlights the current page's nav link (any `<a>`
+ inside `.nav` whose resolved URL matches the current page) with an
+ `is-active` class -- zero wiring required, since every site with a
+ `nav()` gets this for free.
+-
+-This is intentionally a static, constant JS file for v0.003, same
+-shape as the CSS backend: no per-node code generation yet. Extending
+-`KNOWN_BEHAVIORS` + the `behaviors` object below together is how future
+-milestones add more built-ins without changing the Backend interface.
+ """
+ 
+ from __future__ import annotations
+ 
++from arklight.ast.nodes import ActionRef
+ from arklight.backend.base import Backend
+-from arklight.ir.build import WebsiteIR
++from arklight.backend.js.actions import ACTION_FRAGMENTS
++from arklight.backend.js.behaviors import BEHAVIOR_FRAGMENTS
++from arklight.ir.build import IRNode, WebsiteIR
+ 
+ # Where the HTML backend expects to find the generated runtime,
+ # relative to the output directory root.
+ SCRIPT_PATH = "arklight.js"
+ 
+-RUNTIME_JS = """\
+-// Generated by ARKlight -- v0.003 behavior runtime.
+-// Implements exactly the behaviors in arklight.ir.schema.KNOWN_BEHAVIORS:
+-// "toggle", "scroll-to", "copy", "dismiss". No other JavaScript runs on
+-// this site.
+-(function () {
+-  "use strict";
+-
+-  var behaviors = {
+-    toggle: function (el) {
+-      var selector = el.getAttribute("data-ark-target");
+-      var className = el.getAttribute("data-ark-toggle-class") || "is-open";
+-      if (!selector) return;
+-      document.querySelectorAll(selector).forEach(function (target) {
+-        target.classList.toggle(className);
+-      });
+-    },
+-    "scroll-to": function (el) {
+-      var selector = el.getAttribute("data-ark-target");
+-      if (!selector) return;
+-      var target = document.querySelector(selector);
+-      if (target && target.scrollIntoView) {
+-        target.scrollIntoView({ behavior: "smooth" });
+-      }
+-    },
+-    copy: function (el) {
+-      var selector = el.getAttribute("data-ark-target");
+-      if (!selector) return;
+-      var target = document.querySelector(selector);
+-      if (!target || !navigator.clipboard) return;
+-      var text = target.value !== undefined && target.tagName === "TEXTAREA"
+-        ? target.value
+-        : target.textContent;
+-      navigator.clipboard.writeText(text.trim()).then(function () {
+-        var original = el.textContent;
+-        el.textContent = "Copied!";
+-        setTimeout(function () {
+-          el.textContent = original;
+-        }, 1500);
+-      });
+-    },
+-    dismiss: function (el) {
+-      var selector = el.getAttribute("data-ark-target");
+-      var className = el.getAttribute("data-ark-toggle-class") || "hidden";
+-      if (!selector) return;
+-      document.querySelectorAll(selector).forEach(function (target) {
+-        target.classList.add(className);
+-      });
+-    }
+-  };
+-
+-  function wireBehaviors() {
+-    document.querySelectorAll("[data-ark-on-click]").forEach(function (el) {
+-      var name = el.getAttribute("data-ark-on-click");
+-      var behavior = behaviors[name];
+-      if (!behavior) return;
+-      el.addEventListener("click", function (event) {
+-        event.preventDefault();
+-        behavior(el);
+-      });
+-    });
+-  }
+-
+-  function highlightActiveNavLink() {
++_NAV_HIGHLIGHT_JS = """  function highlightActiveNavLink() {
+     document.querySelectorAll(".nav a").forEach(function (link) {
+       var here = location.href.replace(/#.*$/, "");
+       var there = link.href.replace(/#.*$/, "");
+@@ -128,23 +72,160 @@ RUNTIME_JS = """\
+         link.classList.add("is-active");
+       }
+     });
++  }"""
++
++_STATE_CORE_JS = """  function createState(initial) {
++    var state = Object.assign({}, initial);
++    var listeners = [];
++    return {
++      get: function (key) { return state[key]; },
++      set: function (key, value) {
++        state[key] = value;
++        listeners.forEach(function (fn) { fn(); });
++      },
++      subscribe: function (fn) { listeners.push(fn); }
++    };
+   }
+ 
+-  document.addEventListener("DOMContentLoaded", function () {
+-    wireBehaviors();
+-    highlightActiveNavLink();
+-  });
+-})();
+-"""
++  function renderBindings(store) {
++    document.querySelectorAll("[data-ark-bind]").forEach(function (el) {
++      var key = el.getAttribute("data-ark-bind");
++      el.textContent = store.get(key);
++    });
++  }
++
++  function initState() {
++    var raw = document.body.getAttribute("data-ark-state");
++    if (!raw) return null;
++    var store = createState(JSON.parse(raw));
++    store.subscribe(function () { renderBindings(store); });
++    return store;
++  }
++
++  function wireActions(store) {
++    if (!store) return;
++    document.querySelectorAll('[data-ark-on-click^="action:"]').forEach(function (el) {
++      var actionName = el.getAttribute("data-ark-on-click").slice("action:".length);
++      var stateKey = el.getAttribute("data-ark-action-state");
++      var argsRaw = el.getAttribute("data-ark-action-args");
++      var args = argsRaw ? JSON.parse(argsRaw) : {};
++      var action = actions[actionName];
++      if (!action) return;
++      el.addEventListener("click", function (event) {
++        event.preventDefault();
++        action(store, stateKey, args);
++      });
++    });
++  }"""
++
++
++def _walk(node: IRNode):
++    yield node
++    for child in node.children:
++        if isinstance(child, IRNode):
++            yield from _walk(child)
++
++
++def _collect_usage(ir: WebsiteIR) -> tuple[set[str], set[str], bool]:
++    """
++    Inspect the site's IR for what the runtime actually needs to ship:
++    which named behaviors are referenced, which actions are referenced,
++    and whether any page declares state at all.
++    """
++    used_behaviors: set[str] = set()
++    used_actions: set[str] = set()
++    has_state = any(page.state for page in ir.pages)
++
++    for page in ir.pages:
++        for node in _walk(page.root):
++            on_click = node.props.get("on_click")
++            if isinstance(on_click, str):
++                used_behaviors.add(on_click)
++            elif isinstance(on_click, ActionRef):
++                used_actions.add(on_click.action)
++
++    return used_behaviors, used_actions, has_state
++
++
++def _behaviors_block(used_behaviors: set[str]) -> str | None:
++    if not used_behaviors:
++        return None
++    fragments = [
++        BEHAVIOR_FRAGMENTS[name] for name in sorted(used_behaviors) if name in BEHAVIOR_FRAGMENTS
++    ]
++    if not fragments:
++        return None
++    entries = ",\n".join(fragments)
++    return (
++        "  var behaviors = {\n" + entries + "\n  };\n\n"
++        "  function wireBehaviors() {\n"
++        '    document.querySelectorAll("[data-ark-on-click]").forEach(function (el) {\n'
++        '      var name = el.getAttribute("data-ark-on-click");\n'
++        "      var behavior = behaviors[name];\n"
++        "      if (!behavior) return;\n"
++        '      el.addEventListener("click", function (event) {\n'
++        "        event.preventDefault();\n"
++        "        behavior(el);\n"
++        "      });\n"
++        "    });\n"
++        "  }"
++    )
++
++
++def _actions_block(used_actions: set[str]) -> str:
++    fragments = [
++        ACTION_FRAGMENTS[name] for name in sorted(used_actions) if name in ACTION_FRAGMENTS
++    ]
++    entries = ",\n".join(fragments)
++    actions_obj = "  var actions = {\n" + entries + "\n  };\n\n" if fragments else "  var actions = {};\n\n"
++    return actions_obj + _STATE_CORE_JS
++
++
++def _build_runtime_js(ir: WebsiteIR) -> str:
++    used_behaviors, used_actions, has_state = _collect_usage(ir)
++
++    parts: list[str] = [
++        "// Generated by ARKlight -- v0.0035 runtime.",
++        "// Implements only the named behaviors and Action.*(...) references",
++        "// this site actually uses -- see arklight.ir.schema.BEHAVIOR_REGISTRY",
++        "// and ACTION_REGISTRY. No other JavaScript runs on this site.",
++        "(function () {",
++        '  "use strict";',
++        "",
++    ]
++
++    behaviors_block = _behaviors_block(used_behaviors)
++    if behaviors_block:
++        parts.append(behaviors_block)
++        parts.append("")
++
++    if has_state:
++        parts.append(_actions_block(used_actions))
++        parts.append("")
++
++    parts.append(_NAV_HIGHLIGHT_JS)
++    parts.append("")
++
++    ready_calls = []
++    if behaviors_block:
++        ready_calls.append("    wireBehaviors();")
++    ready_calls.append("    highlightActiveNavLink();")
++    if has_state:
++        ready_calls.append("    var store = initState();")
++        ready_calls.append("    if (store) { renderBindings(store); }")
++        ready_calls.append("    wireActions(store);")
++
++    parts.append('  document.addEventListener("DOMContentLoaded", function () {')
++    parts.extend(ready_calls)
++    parts.append("  });")
++    parts.append("})();")
++    parts.append("")
++
++    return "\n".join(parts)
+ 
+ 
+ class JSBackend(Backend):
+     name = "js"
+ 
+     def render(self, ir: WebsiteIR) -> dict[str, str]:
+-        # Same shape as CSSBackend: a single constant runtime for now.
+-        # `ir` is accepted (Backend interface) but not yet consulted --
+-        # reserved for a future pass that only emits the behaviors a
+-        # site actually uses.
+-        del ir
+-        return {SCRIPT_PATH: RUNTIME_JS}
++        return {SCRIPT_PATH: _build_runtime_js(ir)}
+diff --git a/arklight/cli/main.py b/arklight/cli/main.py
+index 9c8be8d..cf7ca54 100644
+--- a/arklight/cli/main.py
++++ b/arklight/cli/main.py
+@@ -1,7 +1,7 @@
+ """
+ ARKlight CLI.
+ 
+-    arklight build site.py -o dist
++    arklight build site.py -o ARK
+ 
+ Beginner-friendly by design: one subcommand, sensible defaults
+ (builds AND opens the result in your browser), and error messages that
+@@ -70,7 +70,7 @@ def main(argv: list[str] | None = None) -> int:
+     build_parser = subparsers.add_parser("build", help="Compile a site file to static HTML + CSS.")
+     build_parser.add_argument("entry", help="Path to the Python site file (e.g. site.py)")
+     build_parser.add_argument(
+-        "-o", "--output", default="dist", help="Output directory (default: dist)"
++        "-o", "--output", default="ARK", help="Output directory (default: ARK)"
+     )
+     open_group = build_parser.add_mutually_exclusive_group()
+     open_group.add_argument(
+diff --git a/arklight/compiler/pipeline.py b/arklight/compiler/pipeline.py
+index e7cc887..39e2bea 100644
+--- a/arklight/compiler/pipeline.py
++++ b/arklight/compiler/pipeline.py
+@@ -19,10 +19,15 @@ IR by default (HTML and CSS) and merges their output files -- this is
+ exactly the "Backend Interface" fan-out the architecture doc describes
+ under "Future: CSS, JavaScript, Vue, Svelte": each backend consumes the
+ same IR and contributes its own output files.
++
++`build()` also copies a top-level `assets/` folder (next to the site's
++entry file) into `<output_dir>/assets` automatically, if one exists --
++see `_copy_assets` below.
+ """
+ 
+ from __future__ import annotations
+ 
++import shutil
+ from dataclasses import dataclass
+ from pathlib import Path
+ 
+@@ -35,6 +40,13 @@ from arklight.ir.normalize import normalize_ark_ast
+ from arklight.ir.validate import ValidationError, validate_ark_ast
+ from arklight.parser.loader import SiteLoadError, load_site
+ 
++# Name of the top-level, next-to-`site.py` folder ARKlight auto-copies
++# into the output directory (verbatim, recursively) if it exists. Fixes
++# the "404 images" gotcha documented in docs/DESIGN-NOTES.md: previously
++# a site's `assets/` (images, fonts, favicons, ...) had to be copied by
++# hand with `cp -r assets dist/assets` after every build.
++ASSETS_DIR_NAME = "assets"
++
+ 
+ def default_backends() -> list[Backend]:
+     """The backends a normal `arklight build` runs: HTML + CSS + JS."""
+@@ -115,4 +127,25 @@ def build(
+         dest.write_text(contents, encoding="utf-8")
+         written.append(dest)
+ 
++    written.extend(_copy_assets(entry_path, out_dir))
++
+     return BuildResult(ir=ir, output_files=output_files, written_paths=written)
++
++
++def _copy_assets(entry_path: str | Path, out_dir: Path) -> list[Path]:
++    """
++    Copy a top-level `assets/` folder (sitting next to the site's entry
++    file) into `<output_dir>/assets`, recursively, if one exists.
++
++    This was previously a manual, easy-to-forget step (`cp -r assets
++    dist/assets`) -- a real gap, not a template-only concern, per
++    docs/DESIGN-NOTES.md. No-op (returns an empty list) when there's no
++    `assets/` folder to copy.
++    """
++    assets_src = Path(entry_path).resolve().parent / ASSETS_DIR_NAME
++    if not assets_src.is_dir():
++        return []
++
++    assets_dest = out_dir / ASSETS_DIR_NAME
++    shutil.copytree(assets_src, assets_dest, dirs_exist_ok=True)
++    return sorted(p for p in assets_dest.rglob("*") if p.is_file())
+diff --git a/arklight/ir/build.py b/arklight/ir/build.py
+index dfa2818..e14306e 100644
+--- a/arklight/ir/build.py
++++ b/arklight/ir/build.py
+@@ -38,6 +38,11 @@ class IRNode:
+ class IRPage:
+     route: str
+     root: IRNode
++    # v0.0035: page-scoped reactive state declared via `State(...)`,
++    # extracted from the Page node's children rather than living as a
++    # prop on some other node -- state belongs to the page, the same
++    # way `title` does. Empty for pages that declare no state.
++    state: dict[str, Any] = field(default_factory=dict)
+ 
+ 
+ @dataclass
+@@ -58,6 +63,22 @@ def _ark_node_to_ir_node(node: ARKNode) -> IRNode:
+     return IRNode(type=node.type, props=dict(node.props), children=children)
+ 
+ 
++def _extract_page_state(page: ARKNode) -> tuple[dict[str, Any], list]:
++    """
++    Split a validated Page node's children into (state, remaining
++    children). `State(...)` nodes are declarations, not renderable
++    content -- they must never reach the HTML backend as a child.
++    """
++    state: dict[str, Any] = {}
++    remaining: list = []
++    for child in page.children:
++        if isinstance(child, ARKNode) and child.type == "State":
++            state[child.props["name"]] = child.props.get("initial")
++        else:
++            remaining.append(child)
++    return state, remaining
++
++
+ def build_website_ir(site_name: str, pages: dict[str, ARKNode]) -> WebsiteIR:
+     """
+     Build the Website IR from a normalized + validated ARK AST.
+@@ -65,7 +86,9 @@ def build_website_ir(site_name: str, pages: dict[str, ARKNode]) -> WebsiteIR:
+     Callers are expected to have already run `normalize_ark_ast` and
+     `validate_ark_ast` on `pages` before calling this.
+     """
+-    ir_pages = [
+-        IRPage(route=route, root=_ark_node_to_ir_node(page)) for route, page in pages.items()
+-    ]
++    ir_pages = []
++    for route, page in pages.items():
++        state, remaining_children = _extract_page_state(page)
++        root_page = ARKNode(type=page.type, props=page.props, children=remaining_children)
++        ir_pages.append(IRPage(route=route, root=_ark_node_to_ir_node(root_page), state=state))
+     return WebsiteIR(site_name=site_name, pages=ir_pages)
+diff --git a/arklight/ir/schema.py b/arklight/ir/schema.py
+index aafdcc0..b0bddbe 100644
+--- a/arklight/ir/schema.py
++++ b/arklight/ir/schema.py
+@@ -230,4 +230,53 @@ TEXT_ONLY_TYPES = frozenset(
+ # can check `on_click` values against it without importing a backend --
+ # ir/ stays backend-agnostic; arklight.backend.js imports FROM here to
+ # stay in sync instead of the other way around.
+-KNOWN_BEHAVIORS = frozenset({"toggle", "scroll-to", "copy", "dismiss"})
++# v0.0035: behaviors are a registry, not a hardcoded dispatch table.
++#
++# `BehaviorSpec` documents what a behavior needs the same way `NodeSpec`
++# documents what an HTML component needs: `extra_props` are optional
++# extra props (beyond the universal `on_click`/`behavior_target` pair)
++# a behavior reads -- e.g. `toggle`'s `toggle_class`.
++@dataclass
++class BehaviorSpec:
++    extra_props: tuple[str, ...] = field(default_factory=tuple)
++
++
++BEHAVIOR_REGISTRY: dict[str, BehaviorSpec] = {
++    "toggle": BehaviorSpec(extra_props=("toggle_class",)),
++    "scroll-to": BehaviorSpec(),
++    "copy": BehaviorSpec(),
++    "dismiss": BehaviorSpec(extra_props=("toggle_class",)),
++}
++
++# Derived, not hand-maintained -- Validation's existing
++# `on_click in KNOWN_BEHAVIORS` check doesn't need to change shape.
++KNOWN_BEHAVIORS = frozenset(BEHAVIOR_REGISTRY)
++
++
++# v0.0035: a real `State` primitive with a closed *action* vocabulary,
++# on top of (not instead of) the named-behavior vocabulary above.
++# `State("count", 0)` declared inside `Page(...)` and `Bind("count")`
++# used wherever a literal value is accepted give components a way to
++# read reactive state; `Action.set/increment/toggle_bool` (structured
++# `ActionRef` objects, see arklight.ast.nodes) give them a closed way
++# to *change* it from `on_click=`. `ActionSpec.args` documents the
++# keyword arguments a given action's `ActionRef.args` dict is expected
++# to carry (e.g. `increment`'s `delta`), the same role `extra_props`
++# plays for `BehaviorSpec` above.
++#
++# Still a closed, described vocabulary, same discipline as
++# `BEHAVIOR_REGISTRY`: adding a new action later is a new registry
++# entry plus a new JS fragment in `arklight/backend/js/actions/`, never
++# a string of JS or Python handed to the browser to execute.
++@dataclass
++class ActionSpec:
++    args: tuple[str, ...] = field(default_factory=tuple)
++
++
++ACTION_REGISTRY: dict[str, ActionSpec] = {
++    "set": ActionSpec(args=("value",)),
++    "increment": ActionSpec(args=("delta",)),
++    "toggle_bool": ActionSpec(),
++}
++
++KNOWN_ACTIONS = frozenset(ACTION_REGISTRY)
+diff --git a/arklight/ir/validate.py b/arklight/ir/validate.py
+index 3c7b0b5..8a850bd 100644
+--- a/arklight/ir/validate.py
++++ b/arklight/ir/validate.py
+@@ -13,32 +13,73 @@ Checks performed:
+ 2. Required props for that type are present (e.g. `Link` needs `href`,
+    `Image` needs `src`).
+ 3. Node types that require plain-text-only children (e.g. `Text`,
+-   `Button`) don't contain nested component nodes.
+-4. `on_click`, if present, names a known behavior and is paired with a
+-   `target` selector (arklight.ir.schema.KNOWN_BEHAVIORS).
+-5. The tree's root is a `Page` node.
+-6. Recurses into every child.
++   `Button`) don't contain nested component nodes -- except `Bind(...)`,
++   which is a value reference, not a component (see below).
++4. `on_click`, if present, is either a known behavior name (paired with
++   a `behavior_target` selector -- arklight.ir.schema.KNOWN_BEHAVIORS)
++   or an `Action.*(...)` reference (arklight.ir.schema.ACTION_REGISTRY)
++   whose `state` targets a `State(...)` declared on the same page.
++5. `State(...)` may only appear as a direct child of `Page(...)` --
++   state belongs to the page, not to an arbitrary nested component --
++   and every `Bind(...)` anywhere on the page must name a `State(...)`
++   actually declared there.
++6. The tree's root is a `Page` node.
++7. Recurses into every child.
+ """
+ 
+ from __future__ import annotations
+ 
+-from arklight.ast.nodes import ARKNode
+-from arklight.ir.schema import KNOWN_BEHAVIORS, SCHEMA
++from arklight.ast.nodes import ActionRef, ARKNode
++from arklight.ir.schema import ACTION_REGISTRY, KNOWN_BEHAVIORS, SCHEMA
+ 
+ 
+ class ValidationError(Exception):
+     """Raised when an ARK AST tree fails validation."""
+ 
+ 
+-def _validate_behavior_props(node: ARKNode, *, path: str) -> None:
++def _validate_bind(node: ARKNode, *, path: str, page_state: frozenset[str]) -> None:
++    name = node.props.get("name")
++    if not isinstance(name, str) or not name:
++        raise ValidationError(f"Bind(...) at {path} needs a non-empty string name.")
++    if name not in page_state:
++        known = ", ".join(sorted(page_state)) or "(none declared)"
++        raise ValidationError(
++            f"Bind({name!r}) at {path} references state that isn't declared "
++            f"on this page. State declared on this page: {known}."
++        )
++
++
++def _validate_action(action: ActionRef, *, path: str, page_state: frozenset[str]) -> None:
++    if action.action not in ACTION_REGISTRY:
++        known = ", ".join(sorted(ACTION_REGISTRY))
++        raise ValidationError(
++            f"on_click at {path} uses unknown action {action.action!r}. "
++            f"Known actions are: {known}."
++        )
++    if action.state not in page_state:
++        known = ", ".join(sorted(page_state)) or "(none declared)"
++        raise ValidationError(
++            f"on_click at {path} ({action.action!r}) targets state "
++            f"{action.state!r}, which isn't declared on this page. State "
++            f"declared on this page: {known}."
++        )
++
++
++def _validate_behavior_props(node: ARKNode, *, path: str, page_state: frozenset[str]) -> None:
+     on_click = node.props.get("on_click")
+     if on_click is None:
+         return
++
++    if isinstance(on_click, ActionRef):
++        _validate_action(on_click, path=path, page_state=page_state)
++        return
++
+     if on_click not in KNOWN_BEHAVIORS:
+         known = ", ".join(sorted(KNOWN_BEHAVIORS))
+         raise ValidationError(
+             f"{node.type!r} at {path} has on_click={on_click!r}, which isn't a "
+-            f"recognized behavior. Known behaviors are: {known}."
++            f"recognized behavior or Action.*(...) reference. Known behaviors "
++            f"are: {known}."
+         )
+     if "behavior_target" not in node.props:
+         raise ValidationError(
+@@ -48,7 +89,33 @@ def _validate_behavior_props(node: ARKNode, *, path: str) -> None:
+         )
+ 
+ 
+-def validate_node(node: ARKNode, *, path: str = "root") -> None:
++def _validate_state_declaration(node: ARKNode, *, path: str, parent_is_page: bool) -> None:
++    if not parent_is_page:
++        raise ValidationError(
++            f"State(...) at {path} may only be declared as a direct child of "
++            f"Page(...) -- state belongs to the page, not to a nested "
++            f"component. Move it up to the top level of Page(...)."
++        )
++    name = node.props.get("name")
++    if not isinstance(name, str) or not name:
++        raise ValidationError(f"State(...) at {path} needs a non-empty string name.")
++
++
++def validate_node(
++    node: ARKNode,
++    *,
++    path: str = "root",
++    page_state: frozenset[str] = frozenset(),
++    parent_is_page: bool = False,
++) -> None:
++    if node.type == "Bind":
++        _validate_bind(node, path=path, page_state=page_state)
++        return
++
++    if node.type == "State":
++        _validate_state_declaration(node, path=path, parent_is_page=parent_is_page)
++        return
++
+     spec = SCHEMA.get(node.type)
+     if spec is None:
+         known = ", ".join(sorted(SCHEMA))
+@@ -63,7 +130,7 @@ def validate_node(node: ARKNode, *, path: str = "root") -> None:
+                 f"{node.type!r} at {path} is missing required prop {prop_name!r}."
+             )
+ 
+-    _validate_behavior_props(node, path=path)
++    _validate_behavior_props(node, path=path, page_state=page_state)
+ 
+     if not spec.allow_children and node.children:
+         raise ValidationError(f"{node.type!r} at {path} must not have children.")
+@@ -71,10 +138,14 @@ def validate_node(node: ARKNode, *, path: str = "root") -> None:
+     if spec.text_only_children:
+         for i, child in enumerate(node.children):
+             if isinstance(child, ARKNode):
++                if child.type == "Bind":
++                    _validate_bind(child, path=f"{path}/children[{i}]", page_state=page_state)
++                    continue
+                 raise ValidationError(
+-                    f"{node.type!r} at {path} can only contain text, but found a "
+-                    f"nested {child.type!r} component at {path}/children[{i}]. "
+-                    f"Move the {child.type!r} outside of {node.type!r}."
++                    f"{node.type!r} at {path} can only contain text (or "
++                    f"Bind(...)), but found a nested {child.type!r} component "
++                    f"at {path}/children[{i}]. Move the {child.type!r} outside "
++                    f"of {node.type!r}."
+                 )
+             if not isinstance(child, str):
+                 raise ValidationError(
+@@ -85,7 +156,12 @@ def validate_node(node: ARKNode, *, path: str = "root") -> None:
+ 
+     for i, child in enumerate(node.children):
+         if isinstance(child, ARKNode):
+-            validate_node(child, path=f"{path}/{child.type}[{i}]")
++            validate_node(
++                child,
++                path=f"{path}/{child.type}[{i}]",
++                page_state=page_state,
++                parent_is_page=(node.type == "Page"),
++            )
+         elif not isinstance(child, str):
+             raise ValidationError(
+                 f"{node.type!r} at {path} has an unexpected child of type "
+@@ -93,13 +169,31 @@ def validate_node(node: ARKNode, *, path: str = "root") -> None:
+             )
+ 
+ 
++def _collect_declared_state(page: ARKNode, route: str) -> frozenset[str]:
++    names: set[str] = set()
++    for child in page.children:
++        if isinstance(child, ARKNode) and child.type == "State":
++            name = child.props.get("name")
++            if not isinstance(name, str) or not name:
++                raise ValidationError(
++                    f"State(...) on page {route!r} needs a non-empty string name."
++                )
++            if name in names:
++                raise ValidationError(
++                    f"State {name!r} is declared more than once on page {route!r}."
++                )
++            names.add(name)
++    return frozenset(names)
++
++
+ def validate_page(route: str, page: ARKNode) -> None:
+     if page.type != "Page":
+         raise ValidationError(
+             f"Page function for route {route!r} must return Page(...) as its "
+             f"root node, got {page.type!r} instead."
+         )
+-    validate_node(page, path=f"page:{route}")
++    page_state = _collect_declared_state(page, route)
++    validate_node(page, path=f"page:{route}", page_state=page_state, parent_is_page=False)
+ 
+ 
+ def validate_ark_ast(pages: dict[str, ARKNode]) -> None:
+diff --git a/pyproject.toml b/pyproject.toml
+index b96e591..31472a2 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
+ 
+ [project]
+ name = "arklight"
+-version = "0.003"
++version = "0.0035"
+ description = "A Python-first compiler for building beautiful static websites."
+ readme = "README.md"
+ requires-python = ">=3.10"
+diff --git a/tests/test_assets.py b/tests/test_assets.py
+new file mode 100644
+index 0000000..5bdb86b
+--- /dev/null
++++ b/tests/test_assets.py
+@@ -0,0 +1,65 @@
++"""
++`arklight build` auto-copies a top-level `assets/` folder (next to the
++site's entry file) into `<output_dir>/assets`. Previously this was a
++manual, easy-to-forget `cp -r assets dist/assets` step -- see
++docs/DESIGN-NOTES.md.
++"""
++
++from pathlib import Path
++
++from arklight.compiler.pipeline import build
++
++SIMPLE_SITE = """
++from arklight import *
++site = Site()
++
++@site.page("/")
++def home():
++    return Page(Heading("Hi"))
++"""
++
++
++def _write_site(tmp_path: Path) -> Path:
++    path = tmp_path / "site.py"
++    path.write_text(SIMPLE_SITE)
++    return path
++
++
++def test_build_copies_top_level_assets_folder(tmp_path):
++    site_path = _write_site(tmp_path)
++    assets_dir = tmp_path / "assets"
++    assets_dir.mkdir()
++    (assets_dir / "logo.svg").write_text("<svg></svg>")
++    (assets_dir / "images").mkdir()
++    (assets_dir / "images" / "hero.png").write_text("fake-png-bytes")
++
++    out_dir = tmp_path / "ARK"
++    result = build(site_path, out_dir)
++
++    assert (out_dir / "assets" / "logo.svg").read_text() == "<svg></svg>"
++    assert (out_dir / "assets" / "images" / "hero.png").exists()
++    assert out_dir / "assets" / "logo.svg" in result.written_paths
++
++
++def test_build_without_assets_folder_does_not_create_one(tmp_path):
++    site_path = _write_site(tmp_path)
++    out_dir = tmp_path / "ARK"
++
++    build(site_path, out_dir)
++
++    assert not (out_dir / "assets").exists()
++
++
++def test_build_assets_overwrite_on_rebuild(tmp_path):
++    site_path = _write_site(tmp_path)
++    assets_dir = tmp_path / "assets"
++    assets_dir.mkdir()
++    (assets_dir / "logo.svg").write_text("v1")
++
++    out_dir = tmp_path / "ARK"
++    build(site_path, out_dir)
++    assert (out_dir / "assets" / "logo.svg").read_text() == "v1"
++
++    (assets_dir / "logo.svg").write_text("v2")
++    build(site_path, out_dir)
++    assert (out_dir / "assets" / "logo.svg").read_text() == "v2"
+diff --git a/tests/test_cli.py b/tests/test_cli.py
+index ba631db..b1b75c6 100644
+--- a/tests/test_cli.py
++++ b/tests/test_cli.py
+@@ -84,6 +84,19 @@ def test_cli_build_open_by_default_launches_browser(tmp_path):
+     mock_open.assert_called_once()
+ 
+ 
++def test_cli_build_default_output_dir_is_ark(tmp_path, capsys, monkeypatch):
++    site_path = write_site(tmp_path)
++    monkeypatch.chdir(tmp_path)
++
++    with patch("arklight.cli.main.webbrowser.open"):
++        exit_code = main(["build", str(site_path), "--no-open"])
++
++    assert exit_code == 0
++    assert (tmp_path / "ARK" / "index.html").exists()
++    captured = capsys.readouterr()
++    assert "-> ARK/" in captured.out
++
++
+ def test_cli_build_failure_returns_nonzero(tmp_path, capsys):
+     bad_path = tmp_path / "site.py"
+     bad_path.write_text("from arklight import *\nsite = Site()\n")  # no pages
+diff --git a/tests/test_js_backend.py b/tests/test_js_backend.py
+index cb34e51..3dda8d1 100644
+--- a/tests/test_js_backend.py
++++ b/tests/test_js_backend.py
+@@ -1,53 +1,116 @@
+-from arklight.api import Page, Text
++from arklight.api import Action, Bind, Button, Page, State, Text
++from arklight.ast.nodes import ActionRef
+ from arklight.backend.js.render import JSBackend, SCRIPT_PATH
+ from arklight.ir.build import build_website_ir
+ from arklight.ir.normalize import normalize_ark_ast
+ from arklight.ir.validate import validate_ark_ast
+ 
+ 
+-def _ir():
+-    pages = {"/": Page(Text("hi"))}
++def _ir(pages):
+     normalized = normalize_ark_ast(pages)
+     validate_ark_ast(normalized)
+     return build_website_ir("site", normalized)
+ 
+ 
++def _plain_ir():
++    return _ir({"/": Page(Text("hi"))})
++
++
+ def test_js_backend_returns_script_path():
+-    output = JSBackend().render(_ir())
++    output = JSBackend().render(_plain_ir())
+     assert set(output.keys()) == {SCRIPT_PATH}
+ 
+ 
+-def test_js_runtime_implements_known_behaviors():
+-    js = JSBackend().render(_ir())[SCRIPT_PATH]
++def test_js_runtime_ships_no_behaviors_when_none_are_used():
++    # v0.0035: JSBackend only concatenates the behavior fragments a
++    # site's IR actually references -- a page with no on_click at all
++    # gets none of them.
++    js = JSBackend().render(_plain_ir())[SCRIPT_PATH]
++    assert "toggle:" not in js
++    assert '"scroll-to":' not in js
++    assert "copy:" not in js
++    assert "dismiss:" not in js
++    assert "wireBehaviors" not in js
++
++
++def test_js_runtime_includes_only_the_behavior_actually_used():
++    pages = {"/": Page(Button("Show", on_click="toggle", behavior_target="#panel"))}
++    js = JSBackend().render(_ir(pages))[SCRIPT_PATH]
+     assert "toggle:" in js
+-    assert '"scroll-to":' in js
+     assert "data-ark-on-click" in js
+     assert "data-ark-target" in js
+     assert "data-ark-toggle-class" in js
++    # Behaviors that aren't referenced on this site don't ship.
++    assert '"scroll-to":' not in js
++    assert "copy:" not in js
++    assert "dismiss:" not in js
+ 
+ 
+-def test_js_runtime_highlights_active_nav_link():
+-    js = JSBackend().render(_ir())[SCRIPT_PATH]
++def test_js_runtime_highlights_active_nav_link_unconditionally():
++    js = JSBackend().render(_plain_ir())[SCRIPT_PATH]
+     assert "highlightActiveNavLink" in js
+     assert "is-active" in js
+ 
+ 
+ def test_js_runtime_has_no_eval_or_new_function():
+     # Sanity check that the shipped runtime doesn't execute arbitrary
+-    # strings -- it only dispatches to the fixed `behaviors` object.
+-    js = JSBackend().render(_ir())[SCRIPT_PATH]
++    # strings -- it only dispatches to the fixed `behaviors`/`actions`
++    # objects.
++    js = JSBackend().render(_plain_ir())[SCRIPT_PATH]
+     assert "eval(" not in js
+     assert "new Function(" not in js
+ 
+ 
+-def test_js_runtime_implements_copy_and_dismiss():
+-    js = JSBackend().render(_ir())[SCRIPT_PATH]
++def test_js_runtime_implements_copy_and_dismiss_when_used():
++    pages = {
++        "/": Page(
++            Button("Copy", on_click="copy", behavior_target="#snippet"),
++            Button("Close", on_click="dismiss", behavior_target="#banner"),
++        )
++    }
++    js = JSBackend().render(_ir(pages))[SCRIPT_PATH]
+     assert "copy:" in js
+     assert "dismiss:" in js
+     assert "navigator.clipboard" in js
++    assert "toggle:" not in js
+ 
+ 
+-def test_js_runtime_still_has_no_eval_or_new_function_after_extension():
+-    js = JSBackend().render(_ir())[SCRIPT_PATH]
++def test_js_runtime_omits_state_core_when_no_page_declares_state():
++    js = JSBackend().render(_plain_ir())[SCRIPT_PATH]
++    assert "createState" not in js
++    assert "data-ark-state" not in js
++    assert "wireActions" not in js
++
++
++def test_js_runtime_includes_state_core_and_used_actions_only():
++    pages = {
++        "/": Page(
++            State("count", 0),
++            Text(Bind("count")),
++            Button("+1", on_click=Action.increment("count")),
++        )
++    }
++    js = JSBackend().render(_ir(pages))[SCRIPT_PATH]
++    assert "createState" in js
++    assert "increment:" in js
++    # `set` / `toggle_bool` weren't referenced on this site.
++    assert "toggle_bool:" not in js
++    assert "\n    set: function (store, key, args) {" not in js
+     assert "eval(" not in js
+     assert "new Function(" not in js
++
++
++def test_action_ref_targets_survive_into_ir():
++    pages = {
++        "/": Page(
++            State("count", 0),
++            Button("Reset", on_click=Action.set("count", 0)),
++        )
++    }
++    ir = _ir(pages)
++    button = ir.pages[0].root.children[0]
++    on_click = button.props["on_click"]
++    assert isinstance(on_click, ActionRef)
++    assert on_click.action == "set"
++    assert on_click.state == "count"
++    assert on_click.args == {"value": 0}
+diff --git a/tests/test_stateful_js.py b/tests/test_stateful_js.py
+new file mode 100644
+index 0000000..f701fcb
+--- /dev/null
++++ b/tests/test_stateful_js.py
+@@ -0,0 +1,122 @@
++"""
++v0.0035: stateful JS -- State/Bind/Action across validation, IR build,
++and the HTML/JS backends.
++"""
++
++import pytest
++
++from arklight.api import Action, Bind, Button, Container, Page, State, Text
++from arklight.ast.nodes import ActionRef
++from arklight.backend.html.render import HTMLBackend
++from arklight.ir.build import build_website_ir
++from arklight.ir.normalize import normalize_ark_ast
++from arklight.ir.validate import ValidationError, validate_ark_ast
++
++
++def _ir(pages):
++    normalized = normalize_ark_ast(pages)
++    validate_ark_ast(normalized)
++    return build_website_ir("site", normalized)
++
++
++# ---------------------------------------------------------------------------
++# Validation
++# ---------------------------------------------------------------------------
++
++
++def test_bind_to_declared_state_passes_validation():
++    tree = Page(State("count", 0), Text(Bind("count")))
++    validate_ark_ast(normalize_ark_ast({"/": tree}))  # no raise
++
++
++def test_bind_to_undeclared_state_raises():
++    tree = Page(Text(Bind("count")))
++    with pytest.raises(ValidationError, match="isn't declared on this page"):
++        validate_ark_ast(normalize_ark_ast({"/": tree}))
++
++
++def test_state_nested_inside_container_raises():
++    tree = Page(Container(State("count", 0)))
++    with pytest.raises(ValidationError, match="direct child of Page"):
++        validate_ark_ast(normalize_ark_ast({"/": tree}))
++
++
++def test_duplicate_state_name_raises():
++    tree = Page(State("count", 0), State("count", 1))
++    with pytest.raises(ValidationError, match="declared more than once"):
++        validate_ark_ast(normalize_ark_ast({"/": tree}))
++
++
++def test_action_targeting_undeclared_state_raises():
++    tree = Page(Button("+1", on_click=Action.increment("count")))
++    with pytest.raises(ValidationError, match="isn't declared on this page"):
++        validate_ark_ast(normalize_ark_ast({"/": tree}))
++
++
++def test_action_does_not_require_behavior_target():
++    tree = Page(State("count", 0), Button("+1", on_click=Action.increment("count")))
++    validate_ark_ast(normalize_ark_ast({"/": tree}))  # no raise -- actions target state, not the DOM
++
++
++def test_state_is_scoped_per_page():
++    pages = {
++        "/": Page(State("count", 0), Text(Bind("count"))),
++        "/about": Page(Button("+1", on_click=Action.increment("count"))),
++    }
++    with pytest.raises(ValidationError, match="isn't declared on this page"):
++        validate_ark_ast(normalize_ark_ast(pages))
++
++
++# ---------------------------------------------------------------------------
++# IR build
++# ---------------------------------------------------------------------------
++
++
++def test_state_extracted_into_ir_page_state():
++    pages = {"/": Page(State("count", 0), Text(Bind("count")))}
++    ir = _ir(pages)
++    assert ir.pages[0].state == {"count": 0}
++
++
++def test_state_node_does_not_appear_as_a_renderable_child():
++    pages = {"/": Page(State("count", 0), Text("hi"))}
++    ir = _ir(pages)
++    child_types = [c.type for c in ir.pages[0].root.children]
++    assert child_types == ["Text"]
++
++
++def test_page_without_state_has_empty_state_dict():
++    pages = {"/": Page(Text("hi"))}
++    ir = _ir(pages)
++    assert ir.pages[0].state == {}
++
++
++# ---------------------------------------------------------------------------
++# HTML backend
++# ---------------------------------------------------------------------------
++
++
++def test_html_backend_renders_bind_with_initial_value():
++    pages = {"/": Page(State("count", 0), Text(Bind("count")))}
++    html = HTMLBackend().render(_ir(pages))["index.html"]
++    assert '<span data-ark-bind="count">0</span>' in html
++
++
++def test_html_backend_hydrates_body_state_as_json():
++    pages = {"/": Page(State("count", 0), Text(Bind("count")))}
++    html = HTMLBackend().render(_ir(pages))["index.html"]
++    assert 'data-ark-state="{&quot;count&quot;: 0}"' in html
++
++
++def test_html_backend_omits_body_state_when_no_state_declared():
++    pages = {"/": Page(Text("hi"))}
++    html = HTMLBackend().render(_ir(pages))["index.html"]
++    assert "data-ark-state" not in html
++
++
++def test_html_backend_renders_action_ref_attributes():
++    pages = {"/": Page(State("count", 0), Button("+1", on_click=Action.increment("count")))}
++    html = HTMLBackend().render(_ir(pages))["index.html"]
++    assert 'data-ark-on-click="action:increment"' in html
++    assert 'data-ark-action-state="count"' in html
++    assert 'data-ark-action-args="{&quot;delta&quot;: 1}"' in html

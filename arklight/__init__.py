@@ -74,10 +74,14 @@ from arklight.api import (
     Video,
     Audio,
     Source,
+    State,
+    Bind,
+    Action,
+    ActionRef,
     ARKNode,
 )
 
-__version__ = "0.003"
+__version__ = "0.0035"
 
 __all__ = [
     "Site",
@@ -136,6 +140,10 @@ __all__ = [
     "Video",
     "Audio",
     "Source",
+    "State",
+    "Bind",
+    "Action",
+    "ActionRef",
     "ARKNode",
     "__version__",
 ]
