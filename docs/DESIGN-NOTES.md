@@ -527,12 +527,11 @@ simplification noted inline: stdlib `zipfile` turned out to handle the
 offset math itself (see "Packing algorithm" below), so no manual ZIP
 header patching was needed after all.
 
-**v1 scope, confirmed at implementation time:** only `.html`/`.css`/
-`.js` files are inlined/packed. Any other file in the build directory
-(most notably `assets/`) is intentionally left out and reported as
-skipped -- see "Scope and non-goals for v1" below, which was expanded
-slightly from the original draft to make this explicit rather than
-implied.
+**v1 archive scope, confirmed at implementation time:** only `.html`/
+`.css`/`.js` files are read as text (needed to inline the entry page).
+Everything else in the build directory -- most notably `assets/` -- is
+still carried into the archive, just as raw bytes; see "v0.037: sealed
+bundles" below for when that carry-over, plus sealing, shipped.
 
 ### Problem this solves
 
@@ -648,19 +647,15 @@ ignoring the HTML prefix.
 
 ### Scope and non-goals for v1
 
-- **Only `.html`/`.css`/`.js` files are packed.** Even though a normal
-  `arklight build` may also produce an `assets/` folder (images,
+- **Only `.html`/`.css`/`.js` files are read as text.** Even though a
+  normal `arklight build` may also produce an `assets/` folder (images,
   audio, video, or anything else copied in from a top-level `assets/`
-  next to the entry file), `arklight pack` v1 deliberately does not
-  inline or include those in the `.ark` bundle -- it reports them as
-  skipped instead. A site that references `assets/` content will have
-  broken references in the bundle's inlined entry page (and in the
-  extracted ZIP's `index.html`, until those files are added back
-  manually) until asset carry-over ships in a later version. This was
-  an explicit scope call, not an oversight: it keeps this milestone to
-  exactly "html/css/js carry-over," with asset support and its own
-  edge cases (binary files, large media, MIME types) deferred rather
-  than folded in.
+  next to the entry file), those files are handled as opaque bytes,
+  not text -- `arklight pack` never opens, parses, or transforms them.
+  (v1's original draft deferred asset carry-over entirely and reported
+  those files as skipped; that carry-over shipped in v0.037 -- see
+  below -- so this bullet now just documents the byte-vs-text
+  distinction, not an exclusion.)
 - **Packaging only, over already-built output.** No changes to
   `normalize.py`/`validate.py`/`build.py`/the `Backend` interface/the
   IR. This is not a new backend in the `Backend.render(ir) ->
@@ -710,7 +705,117 @@ ignoring the HTML prefix.
   but worth re-checking against whichever Android browsers/versions
   get tested before calling this done.
 
-## Why Python specifically, independent of popularity
+## v0.037: sealed bundles (IMPLEMENTED)
+
+### Problem this solves
+
+v1's `.ark` bundle carries a real, standard ZIP as its archive half --
+by design, for maximum tool compatibility. The flip side: *any*
+archive tool, a "rename to `.zip`", or a hex editor can open it,
+inspect every page/asset inside, and splice in modified files before
+handing the bundle to someone else, with nothing detecting the change.
+For a bundle meant to be handed out as a single trusted artifact (a
+demo build, a client deliverable, a kiosk build), that's a real gap:
+nothing stops casual copying or tampering.
+
+### What changed
+
+`arklight pack` now **seals the archive half by default**: the ZIP
+bytes are encrypted (see `arklight/packer/seal.py`) before being
+appended after the inlined front-matter page, so the polyglot's second
+half is no longer a parseable ZIP to a generic tool at all -- just
+opaque bytes. `arklight unpack` (new command) reverses this. The
+original v1 plain-ZIP-tail behavior is kept as an explicit opt-out
+(`sealed=False` / `--plain`), not removed -- some use cases genuinely
+want the extracted build freely re-editable without ARKlight
+installed, and that should stay one flag away, not lost.
+
+### Cipher construction (stdlib only, no new dependency)
+
+This project ships zero runtime dependencies (`pyproject.toml` has no
+`[project] dependencies` at all) -- pulling in `cryptography` or
+`pyzipper` just for this one feature would break that invariant for
+every user of the package, not just people who seal bundles. The
+construction instead uses only `hmac`/`hashlib`/`secrets`:
+
+- **Keystream:** HMAC-SHA256 counter mode -- block *i* is
+  `HMAC-SHA256(key, salt || i)`, blocks concatenated and trimmed to the
+  plaintext's length, then XORed against it. This is a standard,
+  minimal way to turn a MAC into a stream cipher when a dedicated AEAD
+  primitive isn't available in the stdlib.
+- **Authentication:** `HMAC-SHA256(key, salt || ciphertext)`, checked
+  with `hmac.compare_digest` (constant-time) *before* the decrypted
+  bytes are ever handed to `zipfile` -- a wrong passphrase or a
+  tampered/corrupted archive is rejected outright, not silently
+  half-decrypted into garbage that `zipfile` then chokes on with a
+  confusing error.
+- **Key derivation, passphrase mode:** PBKDF2-HMAC-SHA256, 200,000
+  iterations, random 16-byte salt per bundle.
+
+### Two key modes -- and being honest about what each actually protects
+
+- **Embedded-key mode (default, no `--passphrase`).** A fresh random
+  32-byte key is generated per bundle and stored, unencrypted, inside
+  the sealed blob, so `arklight unpack` always works with zero extra
+  input -- the common case (share a demo, prevent casual poking)
+  doesn't require anyone to manage a secret. **This is not
+  encryption-grade confidentiality.** The key ships with the file by
+  construction; anyone who has (or writes) an ARKlight-compatible
+  unsealer can always open it. What it *does* provide: a generic
+  archive tool, a "rename to `.zip`", or a hex-editor guess can't read
+  or splice the contents, and the random salt/key mean there's no
+  fixed byte pattern to fingerprint or strip in bulk. Framed
+  accurately in both the README and the CLI's own pack output
+  ("SEALED (embedded key) -- opaque to generic archive tools... For
+  real secrecy... use --passphrase") rather than oversold as
+  "encrypted" without qualification.
+- **Passphrase mode (`--passphrase`).** The key is derived from the
+  passphrase and never stored anywhere in the file. This *is* real
+  confidentiality -- nobody without the passphrase, including someone
+  running ARKlight's own `unpack` code, can recover the plaintext. The
+  same passphrase must be supplied to `arklight unpack` later; there is
+  deliberately no recovery mechanism (a backdoor here would defeat the
+  point).
+
+### What sealing does *not* protect, and why that's inherent, not a bug
+
+The inlined front-matter page -- the actual page a browser renders
+when the `.ark` file is opened -- is always plain HTML/CSS/JS,
+sealed or not. This can't be otherwise: the polyglot only works
+*because* an HTML parser can read that half directly, and a browser
+has no decryption step in its page-load path to give it a key to. Only
+the *archive* half (other routes, `assets/`, and a second, un-inlined
+copy of the entry page) is protected. In other words: sealing stops
+someone from opening the bundle file and pulling out its other
+pages/assets/originals -- it was never going to stop view-source on the
+one page currently on screen, and nothing marketed here claims it
+does.
+
+### Boundary detection: locating the archive half without a shared offset
+
+`unpack` has to find where the front-matter page ends and the
+archive (sealed or plain) begins, given only the bundle's raw bytes --
+it doesn't have `pack()`'s in-memory `prefix_bytes` to compare against.
+It locates this by searching for the literal `</html>\n` the HTML
+backend always emits to close every page (`arklight/backend/html/
+render.py`) -- exactly matching `pack()`'s `prefix_bytes` byte-for-byte,
+including the trailing newline that's easy to miss (an off-by-one here
+silently corrupts every unseal by one byte, since HMAC/keystream output
+is position-sensitive; caught by round-trip tests before this shipped,
+not after).
+
+### Tests
+
+`tests/test_seal.py` -- the cipher/MAC primitives in isolation: round-
+trip (embedded-key and passphrase modes), empty payload, tamper
+detection, wrong-passphrase detection, missing-passphrase detection,
+and that two seals of the same payload differ (no fixed byte pattern).
+`tests/test_pack.py` -- sealed-by-default pack/unpack round-trips
+(including with `assets/`), `--plain` opt-out still produces a real
+ZIP, CLI wiring for both `pack` and the new `unpack` subcommand,
+tampered-bundle rejection end-to-end.
+
+
 
 Python's raw proficiency advantage for LLM-assisted coding is well
 documented (HumanEval, MBPP, and most standard coding benchmarks are

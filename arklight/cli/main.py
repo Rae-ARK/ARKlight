@@ -4,6 +4,7 @@ ARKlight CLI.
     arklight new my-site
     arklight build site.py -o ARK
     arklight pack ARK -o site.ark
+    arklight unpack site.ark -o ARK
 
 Beginner-friendly by design: a handful of subcommands, sensible
 defaults (builds AND opens the result in your browser), and error
@@ -22,7 +23,7 @@ from arklight import __version__
 from arklight.cli.scaffold import ScaffoldError, new_project
 from arklight.cli.templates import TEMPLATES
 from arklight.compiler.pipeline import BuildResult, CompileError, build
-from arklight.packer.bundle import PackError, pack
+from arklight.packer.bundle import PackError, pack, unpack
 
 
 def open_in_browser(result: BuildResult, output_dir: str | Path) -> bool:
@@ -68,7 +69,12 @@ def _cmd_build(args: argparse.Namespace) -> int:
 
 def _cmd_pack(args: argparse.Namespace) -> int:
     try:
-        result = pack(args.build_dir, args.output)
+        result = pack(
+            args.build_dir,
+            args.output,
+            sealed=not args.plain,
+            passphrase=args.passphrase,
+        )
     except PackError as exc:
         print(f"ARKlight pack failed: {exc}", file=sys.stderr)
         return 1
@@ -77,13 +83,40 @@ def _cmd_pack(args: argparse.Namespace) -> int:
     for path in result.packed_paths:
         print(f"  {path}")
 
-    if result.skipped_paths:
+    if not result.sealed:
         print(
-            f"Skipped {len(result.skipped_paths)} non-html/css/js file(s) "
-            f"(asset bundling lands in a future version):"
+            "Archive half is PLAIN -- openable/inspectable/editable by any "
+            "generic ZIP tool. Drop --plain (the default) to seal it instead."
         )
-        for path in result.skipped_paths:
-            print(f"  {path}")
+    elif result.passphrase_protected:
+        print(
+            "Archive half is SEALED with your passphrase -- keep it, "
+            "`arklight unpack` will need the same one to open this bundle."
+        )
+    else:
+        print(
+            "Archive half is SEALED (embedded key) -- opaque to generic archive "
+            "tools, but `arklight unpack` can always open it with no extra input. "
+            "For real secrecy against someone who also has ARKlight, use --passphrase."
+        )
+
+    return 0
+
+
+def _cmd_unpack(args: argparse.Namespace) -> int:
+    try:
+        result = unpack(args.bundle, args.output, passphrase=args.passphrase)
+    except PackError as exc:
+        print(f"ARKlight unpack failed: {exc}", file=sys.stderr)
+        return 1
+
+    kind = "sealed" if result.was_sealed else "plain"
+    print(
+        f"ARKlight v{__version__} unpacked {len(result.extracted_paths)} file(s) "
+        f"from a {kind} bundle -> {result.output_dir}/"
+    )
+    for path in result.extracted_paths:
+        print(f"  {path}")
 
     return 0
 
@@ -137,13 +170,47 @@ def main(argv: list[str] | None = None) -> int:
     build_parser.set_defaults(func=_cmd_build)
 
     pack_parser = subparsers.add_parser(
-        "pack", help="Pack a build directory into a single .ark bundle (HTML/ZIP polyglot)."
+        "pack",
+        help="Pack a build directory into a single .ark bundle (sealed by default).",
     )
     pack_parser.add_argument("build_dir", help="Path to an `arklight build` output directory (e.g. ARK)")
     pack_parser.add_argument(
         "-o", "--output", default="site.ark", help="Output bundle path (default: site.ark)"
     )
+    pack_parser.add_argument(
+        "--plain",
+        action="store_true",
+        default=False,
+        help=(
+            "Leave the archive half a plain, generically-openable ZIP "
+            "(the original v1 behavior) instead of sealing it. Off by default."
+        ),
+    )
+    pack_parser.add_argument(
+        "--passphrase",
+        default=None,
+        help=(
+            "Seal with a passphrase-derived key instead of an embedded one, for "
+            "real confidentiality (the same passphrase is required to unpack later). "
+            "Ignored with --plain. Note: shell history/process listings may expose "
+            "a passphrase passed this way."
+        ),
+    )
     pack_parser.set_defaults(func=_cmd_pack)
+
+    unpack_parser = subparsers.add_parser(
+        "unpack", help="Extract a .ark bundle's archive half back into a build directory."
+    )
+    unpack_parser.add_argument("bundle", help="Path to a .ark bundle produced by `arklight pack`")
+    unpack_parser.add_argument(
+        "-o", "--output", default="ARK", help="Output directory (default: ARK)"
+    )
+    unpack_parser.add_argument(
+        "--passphrase",
+        default=None,
+        help="Passphrase the bundle was sealed with (only needed for passphrase-sealed bundles).",
+    )
+    unpack_parser.set_defaults(func=_cmd_unpack)
 
     new_parser = subparsers.add_parser(
         "new", help="Scaffold a new ARKlight project from a built-in template."

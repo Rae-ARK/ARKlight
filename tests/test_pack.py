@@ -5,7 +5,7 @@ import pytest
 
 from arklight.cli.main import main
 from arklight.compiler.pipeline import build
-from arklight.packer.bundle import PackError, pack
+from arklight.packer.bundle import PackError, pack, unpack
 
 SIMPLE_SITE = """
 from arklight import *
@@ -48,6 +48,16 @@ def test_pack_produces_a_bundle_file(tmp_path):
     assert "about.html" in result.packed_paths
 
 
+def test_pack_is_sealed_by_default(tmp_path):
+    out_dir = build_dir(tmp_path)
+    bundle_path = tmp_path / "site.ark"
+
+    result = pack(out_dir, bundle_path)
+
+    assert result.sealed is True
+    assert result.passphrase_protected is False
+
+
 def test_bundle_front_matter_is_self_contained_html(tmp_path):
     out_dir = build_dir(tmp_path)
     bundle_path = tmp_path / "site.ark"
@@ -68,10 +78,33 @@ def test_bundle_front_matter_is_self_contained_html(tmp_path):
     assert "body" in front_matter  # from the default stylesheet
 
 
-def test_bundle_is_still_a_valid_zip_of_the_original_build(tmp_path):
+def test_sealed_bundle_archive_half_is_not_a_valid_zip(tmp_path):
+    """The whole point of sealing: a generic archive tool can't open it."""
     out_dir = build_dir(tmp_path)
     bundle_path = tmp_path / "site.ark"
     pack(out_dir, bundle_path)
+
+    with pytest.raises(zipfile.BadZipFile):
+        zipfile.ZipFile(bundle_path)
+
+
+def test_sealed_bundle_does_not_contain_plaintext_page_source(tmp_path):
+    """The un-inlined about.html (only present in the archive half) should
+    not appear as readable text anywhere in a sealed bundle."""
+    out_dir = build_dir(tmp_path)
+    bundle_path = tmp_path / "site.ark"
+    pack(out_dir, bundle_path)
+
+    data = bundle_path.read_bytes()
+    assert b"About" not in data  # the <h1>About</h1> text from about.html
+
+
+def test_pack_plain_opt_out_produces_a_real_zip_tail(tmp_path):
+    out_dir = build_dir(tmp_path)
+    bundle_path = tmp_path / "site.ark"
+    result = pack(out_dir, bundle_path, sealed=False)
+
+    assert result.sealed is False
 
     with zipfile.ZipFile(bundle_path) as zf:
         assert zf.testzip() is None
@@ -119,6 +152,92 @@ def test_pack_raises_on_incomplete_build_dir(tmp_path):
         pack(incomplete, tmp_path / "site.ark")
 
 
+# -- unpack ---------------------------------------------------------------
+
+
+def test_unpack_roundtrips_a_sealed_embedded_key_bundle(tmp_path):
+    out_dir = build_dir(tmp_path)
+    (out_dir / "assets").mkdir()
+    (out_dir / "assets" / "logo.png").write_bytes(b"\x89PNG fake")
+
+    bundle_path = tmp_path / "site.ark"
+    pack(out_dir, bundle_path)
+
+    restored_dir = tmp_path / "restored"
+    result = unpack(bundle_path, restored_dir)
+
+    assert result.was_sealed is True
+    assert set(result.extracted_paths) == {
+        "index.html", "about.html", "styles.css", "arklight.js", "assets/logo.png",
+    }
+    assert (restored_dir / "index.html").exists()
+    assert (restored_dir / "assets" / "logo.png").read_bytes() == b"\x89PNG fake"
+
+
+def test_unpack_roundtrips_a_plain_bundle(tmp_path):
+    out_dir = build_dir(tmp_path)
+    bundle_path = tmp_path / "site.ark"
+    pack(out_dir, bundle_path, sealed=False)
+
+    restored_dir = tmp_path / "restored"
+    result = unpack(bundle_path, restored_dir)
+
+    assert result.was_sealed is False
+    assert (restored_dir / "index.html").exists()
+
+
+def test_unpack_roundtrips_a_passphrase_sealed_bundle(tmp_path):
+    out_dir = build_dir(tmp_path)
+    bundle_path = tmp_path / "site.ark"
+    result = pack(out_dir, bundle_path, passphrase="correct horse battery staple")
+    assert result.passphrase_protected is True
+
+    restored_dir = tmp_path / "restored"
+    unpacked = unpack(bundle_path, restored_dir, passphrase="correct horse battery staple")
+
+    assert unpacked.was_sealed is True
+    assert (restored_dir / "index.html").exists()
+
+
+def test_unpack_passphrase_sealed_bundle_without_passphrase_fails(tmp_path):
+    out_dir = build_dir(tmp_path)
+    bundle_path = tmp_path / "site.ark"
+    pack(out_dir, bundle_path, passphrase="correct horse battery staple")
+
+    with pytest.raises(PackError, match="passphrase"):
+        unpack(bundle_path, tmp_path / "restored")
+
+
+def test_unpack_passphrase_sealed_bundle_with_wrong_passphrase_fails(tmp_path):
+    out_dir = build_dir(tmp_path)
+    bundle_path = tmp_path / "site.ark"
+    pack(out_dir, bundle_path, passphrase="correct horse battery staple")
+
+    with pytest.raises(PackError, match="Integrity check failed"):
+        unpack(bundle_path, tmp_path / "restored", passphrase="wrong guess")
+
+
+def test_unpack_rejects_tampered_sealed_bundle(tmp_path):
+    out_dir = build_dir(tmp_path)
+    bundle_path = tmp_path / "site.ark"
+    pack(out_dir, bundle_path)
+
+    data = bytearray(bundle_path.read_bytes())
+    data[-1] ^= 0xFF  # flip a bit in the ciphertext tail
+    bundle_path.write_bytes(bytes(data))
+
+    with pytest.raises(PackError, match="Integrity check failed"):
+        unpack(bundle_path, tmp_path / "restored")
+
+
+def test_unpack_raises_on_missing_bundle(tmp_path):
+    with pytest.raises(PackError, match="not found"):
+        unpack(tmp_path / "nope.ark", tmp_path / "restored")
+
+
+# -- CLI --------------------------------------------------------------------
+
+
 def test_cli_pack_success(tmp_path, capsys):
     out_dir = build_dir(tmp_path)
     bundle_path = tmp_path / "site.ark"
@@ -130,6 +249,7 @@ def test_cli_pack_success(tmp_path, capsys):
     captured = capsys.readouterr()
     assert "packed" in captured.out
     assert str(bundle_path) in captured.out
+    assert "SEALED" in captured.out
 
 
 def test_cli_pack_default_output_is_site_ark(tmp_path, monkeypatch):
@@ -142,6 +262,17 @@ def test_cli_pack_default_output_is_site_ark(tmp_path, monkeypatch):
     assert (tmp_path / "site.ark").exists()
 
 
+def test_cli_pack_plain_flag_produces_a_real_zip(tmp_path):
+    out_dir = build_dir(tmp_path)
+    bundle_path = tmp_path / "site.ark"
+
+    exit_code = main(["pack", str(out_dir), "-o", str(bundle_path), "--plain"])
+
+    assert exit_code == 0
+    with zipfile.ZipFile(bundle_path) as zf:
+        assert zf.testzip() is None
+
+
 def test_cli_pack_failure_returns_nonzero(tmp_path, capsys):
     missing_dir = tmp_path / "nope"
 
@@ -150,3 +281,23 @@ def test_cli_pack_failure_returns_nonzero(tmp_path, capsys):
     assert exit_code == 1
     captured = capsys.readouterr()
     assert "ARKlight pack failed" in captured.err
+
+
+def test_cli_unpack_roundtrip(tmp_path):
+    out_dir = build_dir(tmp_path)
+    bundle_path = tmp_path / "site.ark"
+    main(["pack", str(out_dir), "-o", str(bundle_path)])
+
+    restored_dir = tmp_path / "restored"
+    exit_code = main(["unpack", str(bundle_path), "-o", str(restored_dir)])
+
+    assert exit_code == 0
+    assert (restored_dir / "index.html").exists()
+
+
+def test_cli_unpack_failure_returns_nonzero(tmp_path, capsys):
+    exit_code = main(["unpack", str(tmp_path / "nope.ark")])
+
+    assert exit_code == 1
+    captured = capsys.readouterr()
+    assert "ARKlight unpack failed" in captured.err

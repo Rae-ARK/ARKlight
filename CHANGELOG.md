@@ -80,6 +80,49 @@ the reasoning behind leaving these out of this addendum:
 - `Action.set_from_input` / binding state to `input`/`change` events.
 - Debounced/throttled actions.
 
+## [0.037] -- Sealed ARK Bundles
+
+Full writeup in `docs/DESIGN-NOTES.md` ("v0.037: sealed bundles").
+
+### Added
+
+- `arklight.packer.seal` -- new stdlib-only (`hmac`/`hashlib`/
+  `secrets`) sealing primitive: `seal(payload, *, passphrase=None)` /
+  `unseal(blob, *, passphrase=None)`, an HMAC-SHA256 counter-mode
+  stream cipher with an HMAC-SHA256 authentication tag
+  (encrypt-then-MAC). `SealError` on missing/wrong passphrase or a
+  failed integrity check.
+- `arklight pack` now **seals the archive half by default**. Without
+  `--passphrase`, a random embedded key travels with the bundle (blocks
+  generic archive tools, not a secret from ARKlight itself -- see
+  DESIGN-NOTES for the honest framing); with `--passphrase`, the key is
+  derived via PBKDF2-HMAC-SHA256 and never stored, for real
+  confidentiality.
+- `--plain` flag on `arklight pack` -- opts back into the original v1
+  plain-ZIP-tail behavior.
+- `arklight unpack <bundle.ark> -o OUTPUT_DIR [--passphrase ...]` --
+  new CLI subcommand and `arklight.packer.bundle.unpack()` Python API,
+  reversing `pack()`. Auto-detects sealed vs. plain bundles.
+- `arklight.packer.bundle.UnpackResult` -- `output_dir`,
+  `extracted_paths`, `was_sealed`.
+- `PackResult` gained `sealed` and `passphrase_protected` fields.
+- `tests/test_seal.py` (new) and expanded `tests/test_pack.py` --
+  round-trips for both key modes, tamper/wrong-passphrase rejection,
+  `--plain` opt-out, CLI wiring for `pack`/`unpack`.
+
+### Changed
+
+- **`assets/` (and any other non-html/css/js file) is now carried into
+  the archive**, closing the v1 scope gap `docs/DESIGN-NOTES.md`
+  explicitly flagged as deferred. `PackResult.skipped_paths` is always
+  empty now; kept on the dataclass for backward compatibility rather
+  than removed.
+- The archive is now built entirely in memory (`io.BytesIO`) before a
+  single `write_bytes()` call, rather than writing prefix bytes to disk
+  and appending to that same file handle -- needed so the sealing step
+  has a complete in-memory ZIP blob to encrypt; produces byte-identical
+  plain bundles to before.
+
 ## [0.036] -- ARK Bundle spec v1
 
 Full writeup in `docs/DESIGN-NOTES.md` ("v0.036: ARK Bundle spec v1").

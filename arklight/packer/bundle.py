@@ -62,7 +62,8 @@ _SCRIPT_RE = re.compile(
 
 
 class PackError(Exception):
-    """Raised when a build directory can't be packed into a .ark bundle."""
+    """Raised when a build directory can't be packed into a .ark bundle,
+    or a .ark bundle can't be unpacked back out."""
 
 
 @dataclass
@@ -70,6 +71,15 @@ class PackResult:
     output_path: Path
     packed_paths: list[str] = field(default_factory=list)
     skipped_paths: list[str] = field(default_factory=list)
+    sealed: bool = True
+    passphrase_protected: bool = False
+
+
+@dataclass
+class UnpackResult:
+    output_dir: Path
+    extracted_paths: list[str] = field(default_factory=list)
+    was_sealed: bool = False
 
 
 def _inline_entry_page(entry_html: str, css: str, js: str) -> str:
@@ -102,7 +112,13 @@ def _inline_entry_page(entry_html: str, css: str, js: str) -> str:
     return inlined
 
 
-def pack(build_dir: str | Path, output_path: str | Path) -> PackResult:
+def pack(
+    build_dir: str | Path,
+    output_path: str | Path,
+    *,
+    sealed: bool = True,
+    passphrase: str | None = None,
+) -> PackResult:
     """
     Pack the ARKlight build output in `build_dir` into a `.ark` bundle
     at `output_path`.
@@ -111,7 +127,24 @@ def pack(build_dir: str | Path, output_path: str | Path) -> PackResult:
     (i.e. it contains index.html, styles.css, and arklight.js at its
     root). Raises PackError with a clear message if it doesn't look
     like one.
+
+    `sealed` (default True) encrypts the archive half so a generic
+    archive tool can't open or splice it -- see `arklight.packer.seal`
+    for the format and the honest limits of embedded-key mode (no
+    `passphrase` given). Pass `sealed=False` to get the original v1
+    plain-ZIP-tail bundle instead, fully openable by any archive tool.
+
+    `passphrase`, if given, is only valid with `sealed=True`: it
+    switches sealing from embedded-key mode (convenient, not secret)
+    to passphrase-derived-key mode (real confidentiality -- the same
+    passphrase must be supplied to `unpack()` later).
     """
+    if passphrase is not None and not sealed:
+        raise PackError(
+            "`passphrase` only applies to sealed bundles -- pass sealed=True "
+            "(the default), or drop the passphrase for a plain bundle."
+        )
+
     build_dir = Path(build_dir)
     output_path = Path(output_path)
 

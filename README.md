@@ -27,18 +27,18 @@ produces `ARK/index.html` -- plain, dependency-free HTML.
 
 ## Status
 
-**v0.036 — ARK Bundle (v1 scope).** `arklight pack <build-dir> -o
-site.ark` packs an existing `arklight build` output directory into a
-single `.ark` file -- an HTML/ZIP polyglot that renders directly in a
-browser (double-click, no server, no unzip step) and, opened with any
-archive tool instead, extracts to the exact same `index.html`/
-`styles.css`/`arklight.js` files a normal build already produces. v1
-scope carries over `.html`/`.css`/`.js` files only; anything else in
-the build directory (most notably an `assets/` folder) is reported as
-skipped rather than packed -- that's deferred to a future version. See
-"ARK Bundle" below and
+**v0.037 — Sealed ARK Bundles.** `arklight pack <build-dir> -o
+site.ark` packs an existing `arklight build` output directory
+(including any `assets/` folder) into a single `.ark` file -- an HTML/
+archive polyglot that renders directly in a browser (double-click, no
+server, no unzip step). The archive half is now **encrypted by
+default** (stdlib-only, see `arklight.packer.seal`), so a generic
+archive tool can't casually open or splice it; `arklight unpack
+site.ark -o ARK` reverses this. Add `--passphrase` for real
+confidentiality, or `--plain` to opt back into the original
+freely-openable ZIP tail. See "ARK Bundle" below and
 [`docs/DESIGN-NOTES.md`](./docs/DESIGN-NOTES.md) ("v0.036: ARK Bundle
-spec v1") for the full format writeup.
+spec v1" and "v0.037: sealed bundles") for the full format writeup.
 
 **v0.0035 — Stateful JS.** Named client-side behaviors
 (`on_click="toggle"`, `"scroll-to"`, `"copy"`, `"dismiss"`) are now a
@@ -87,20 +87,36 @@ arklight build examples/hello_site/site.py -o ARK
 ```
 
 ```bash
-arklight pack <build-dir> [-o OUTPUT.ark]
+arklight pack <build-dir> [-o OUTPUT.ark] [--plain] [--passphrase PASSPHRASE]
 ```
 
 - `build-dir` -- an existing `arklight build` output directory (e.g.
   `ARK`).
 - `-o, --output` -- output bundle path, default `site.ark`.
-- Packs the build directory into a single `.ark` file: an HTML/ZIP
-  polyglot (see "ARK Bundle" below). v1 only carries over `.html`/
-  `.css`/`.js` files; any other file found (e.g. `assets/`) is printed
-  as skipped, not packed.
+- Packs the build directory into a single `.ark` file: an HTML/archive
+  polyglot (see "ARK Bundle" below), carrying over every file in
+  `build-dir` including `assets/`.
+- **Sealed by default** -- the archive half is encrypted, opaque to
+  generic archive tools. `--passphrase PASSPHRASE` derives the key from
+  a passphrase instead of an embedded one, for real confidentiality
+  (the same passphrase is then required to unpack). `--plain` skips
+  sealing entirely and produces a plain, freely-openable ZIP tail
+  (the original v1 behavior).
+
+```bash
+arklight unpack <bundle.ark> [-o OUTPUT_DIR] [--passphrase PASSPHRASE]
+```
+
+- `bundle.ark` -- a `.ark` file produced by `arklight pack`.
+- `-o, --output` -- output directory, default `ARK`.
+- Extracts the archive half back into a normal build directory.
+  Auto-detects sealed vs. plain bundles; `--passphrase` is only needed
+  if the bundle was sealed with one.
 
 ```bash
 arklight build examples/hello_site/site.py -o ARK --no-open
 arklight pack ARK -o hello_site.ark
+arklight unpack hello_site.ark -o restored
 ```
 
 ## Compiler pipeline
@@ -332,44 +348,51 @@ Any keyword prop passed to a component that isn't recognized (e.g.
 `id`, `class`, `href`, `src`, `style`, ...) is emitted as a `data-*`
 HTML attribute, so nothing you write is silently dropped.
 
-## ARK Bundle (`.ark`) -- v0.036 (v1 scope, implemented)
+## ARK Bundle (`.ark`) -- v0.037 (sealed by default, implemented)
 
 A build's output (`index.html`, `styles.css`, `arklight.js`, `assets/`)
 is a folder of separate files. `arklight pack` (see CLI section above)
 packages that output as a single `.ark` file:
 
-- The raw build files are stored as-is inside a standard ZIP archive
-  -- no new file format, no re-encoding; nothing about how the HTML/
-  CSS/JS backends generate files changes for this feature.
+- The raw build files -- including an `assets/` folder, if present --
+  are stored as-is inside an archive; no new file format, no
+  re-encoding, nothing about how the HTML/CSS/JS backends generate
+  files changes for this feature.
 - The bundle is a **polyglot**: a fully self-contained, inlined
-  rendering of the entry page is placed *before* the ZIP data, so the
-  exact same bytes are simultaneously a valid, directly-renderable
-  HTML document and a valid ZIP archive. Opening `.ark` in a browser
-  renders the page immediately -- no unzip step, no temp files, no
-  server, the same way an image viewer doesn't "extract" a `.png`
-  before displaying it. Opening the same file with any archive tool
-  (`unzip`, 7-Zip, a phone's file manager) extracts the original build
-  output untouched.
+  rendering of the entry page is placed *before* the archive data, so
+  the same file opens directly as a rendered page in a browser (no
+  unzip step, no temp files, no server -- the same way an image viewer
+  doesn't "extract" a `.png` before displaying it) regardless of what
+  the archive half contains.
+- **Sealed by default.** The archive half is encrypted (see
+  `arklight.packer.seal`, stdlib `hmac`/`hashlib`/`secrets` only, no
+  crypto dependency) so a generic archive tool, "rename to `.zip`", or
+  hex editor sees only opaque bytes -- it can't be casually opened,
+  inspected, or spliced/tampered with. `arklight unpack site.ark -o
+  ARK` reverses this. Without a `--passphrase`, the encryption key
+  travels embedded in the bundle so `arklight unpack` always works with
+  no extra input -- this blocks generic tools, but is **not** secrecy
+  from someone who also has ARKlight (the key is right there in the
+  file). Pass `--passphrase` for real confidentiality: the key is then
+  derived from it (PBKDF2-HMAC-SHA256) and never stored, and the same
+  passphrase is required to unpack.
+- **`--plain` opts back into the original v1 behavior**: a real,
+  generically-openable ZIP tail, freely inspectable/re-editable by any
+  archive tool without ARKlight installed at all.
 - This is a packaging step that runs *after* `arklight build`, over
   files the existing pipeline already produces -- `arklight.packer`
   only reads already-written build output and never imports the
   parser/ir/backend internals.
-- **v1 scope:** only `.html`/`.css`/`.js` files are inlined/packed.
-  Anything else found in the build directory -- most notably an
-  `assets/` folder with images, audio, video, or other file types -- is
-  reported as skipped (printed by the CLI, and available as
-  `PackResult.skipped_paths` from the Python API) rather than silently
-  dropped or packed. Carrying those over is the very next planned
-  version.
-- **Planned after that:** an `--encrypt`/password flag so the ZIP
-  payload isn't inspectable without a password -- packaging-level, not
-  a pipeline change; see `docs/DESIGN-NOTES.md` for the open questions
-  that milestone still needs to resolve (crypto library choice, since
-  stdlib `zipfile` can't *write* encrypted archives).
+- **Known limit, sealed or not:** only the *archive* half is protected.
+  The *inlined front-matter page* -- what a browser actually renders --
+  is always plain HTML/CSS/JS, because that's what makes the polyglot
+  openable as a web page at all; view-source on the page you're
+  currently looking at was never in scope to hide. Sealing protects the
+  *other* pages/assets bundled alongside it, not the one on screen.
 
 See [`docs/DESIGN-NOTES.md`](./docs/DESIGN-NOTES.md) ("v0.036: ARK
-Bundle spec v1") for the full byte layout, packing algorithm, and known
-caveats.
+Bundle spec v1" and "v0.037: sealed bundles") for the full byte layout,
+packing algorithm, cipher construction, and known caveats.
 
 ## Repository layout
 
@@ -438,13 +461,13 @@ pytest
 - [ ] v0.010 -- Components (user-defined, reusable)
 - [x] v0.036 -- ARK Bundle spec v1 (single-file `.ark` packaging of a
       site's build output via `arklight pack`; see `docs/DESIGN-NOTES.md`
-      ("v0.036: ARK Bundle spec v1"). v1 scope is html/css/js carry-over
-      only)
-- [ ] not yet scheduled -- ARK Bundle v2: carry `assets/` (images,
-      audio, video, anything else) into the bundle too
-- [ ] not yet scheduled -- ARK Bundle v3: `--encrypt` flag on
-      `arklight pack` so the ZIP payload isn't inspectable without a
-      password
+      ("v0.036: ARK Bundle spec v1"))
+- [x] v0.037 -- Sealed ARK Bundles (`assets/`/all files now carried
+      into the archive; archive half encrypted by default via
+      `arklight.packer.seal`, stdlib-only; `--passphrase` for real
+      confidentiality, `--plain` to opt back into a freely-openable
+      ZIP tail; new `arklight unpack` command; see
+      `docs/DESIGN-NOTES.md` ("v0.037: sealed bundles"))
 - [ ] v0.100 -- Alternate backends (Vue, Svelte) -- **note:** the
       Backend interface is ready for this today; the IR isn't yet.
       See [`docs/DESIGN-NOTES.md`](./docs/DESIGN-NOTES.md) for why a
