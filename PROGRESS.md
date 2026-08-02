@@ -4,7 +4,65 @@ Living document tracking what's implemented, key decisions made along
 the way, and what's queued up next. Update this file at the end of
 every work session, not just at milestone boundaries.
 
-## Current milestone: v0.003 -- JavaScript helpers
+## Current milestone: v0.0035 -- Stateful JS
+
+**Status: DONE.** This entry was missing from PROGRESS.md/CHANGELOG.md
+even though the code shipped -- `pyproject.toml` and
+`arklight/__init__.py` both already read `0.0035`, and the README
+"Status" section already described this milestone in the present
+tense. Docs are being brought back in sync with the code here rather
+than the other way around; nothing described below required new
+implementation work.
+
+### What's implemented
+
+- [x] `KNOWN_BEHAVIORS` (a flat `frozenset`) replaced by
+      `BEHAVIOR_REGISTRY: dict[str, BehaviorSpec]`
+      (`arklight/ir/schema.py`) -- `KNOWN_BEHAVIORS` stays as a derived
+      `frozenset(BEHAVIOR_REGISTRY)` so Validation's existing check
+      didn't need to change shape.
+- [x] `arklight/backend/js/behaviors/` -- one file per behavior
+      (`toggle.py`, `scroll_to.py`, `copy.py`, `dismiss.py`), each a
+      `JS_FRAGMENT` string; `JSBackend.render()` concatenates only the
+      fragments a given site's IR actually references.
+- [x] `arklight/backend/js/actions/` -- one file per closed action
+      (`set.py`, `increment.py`, `toggle_bool.py`), driven by a new
+      `ACTION_REGISTRY` (same registry pattern as behaviors), so a
+      future `Action.append_to_list`/etc. is a new registry entry, not
+      a `JSBackend` rewrite.
+- [x] New API in `arklight/api.py`: `State(name, initial)` (declares
+      page-scoped reactive state, stored on the IR's `Page` node),
+      `Bind(name)` (references a declared `State(...)` wherever a
+      literal prop value is accepted today, e.g. `Text(Bind("count"))`),
+      and `Action.set`/`Action.increment`/`Action.toggle_bool`
+      (structured `ActionRef` objects for `on_click=`, never an
+      arbitrary JS/Python string).
+- [x] Validation extended: every `Bind(...)`/`Action.*(...)` must
+      reference a `State(...)` actually declared on that page, same
+      "catch it at compile time" guarantee the rest of Validation
+      already provides.
+- [x] `JSBackend` emits, only for pages that declare `state`, a small
+      fixed reactive core (`createState` closure, `data-ark-bind`
+      re-render wiring, an action dispatcher walking
+      `ACTION_REGISTRY`) -- still no `eval`, no `new Function`, no
+      string ever executed as code.
+- [x] `tests/test_stateful_js.py` -- 14 tests covering the new API,
+      validation, and generated runtime (130 tests total, all
+      passing).
+
+### Deliberate design choices worth remembering later
+
+- Explicit scope boundary honored: this milestone added **capability,
+  not vocabulary** -- no new named behaviors, just the registry
+  refactor plus the `State`/`Bind`/`Action` primitives, exactly as
+  scoped in `docs/DESIGN-NOTES.md` ("v0.0035: stateful JS --
+  capability, not vocabulary").
+- This is the reactivity/IR-state milestone `docs/DESIGN-NOTES.md`
+  named as the real prerequisite for v0.100 (alternate backends) to
+  mean more than static HTML wearing a different file extension --
+  worth revisiting that section before scoping v0.100 for real.
+
+## Previous milestone: v0.003 -- JavaScript helpers
 
 **Status: DONE.** Also folded in a round of research (Alpine.js/htmx,
 Reflex, Mitosis) and a written positioning/design-notes doc, per
@@ -342,21 +400,32 @@ python3 -m pytest -q
   output (`/x/index.html`) was considered but deferred -- easy to add
   as a backend option later without touching earlier stages.
 
-## Next up: v0.0035 -- Stateful JS (PLANNING)
+## Next up: v0.036 -- ARK Bundle spec v1 (PLANNING)
 
 Not started -- design only so far. Full writeup in
-`docs/DESIGN-NOTES.md` ("v0.0035 / v0.004 design"). Short version:
-this is the reactivity/IR-state milestone `docs/DESIGN-NOTES.md` has
-been naming as the real prerequisite for v0.100 to mean anything, and
-matches the breadcrumb already in the v0.003 commit history ("Next is
-adding states in V0.0035").
+`docs/DESIGN-NOTES.md` ("v0.036: ARK Bundle spec v1"). Short version:
+a single-file `.ark` packaging format for a site's existing build
+output (`index.html`/`styles.css`/`arklight.js`/`assets/`), so it can
+be shared and opened like a native document -- no local server, no
+Python environment, no separate player app on desktop *or* Android.
 
-Explicit scope boundary for this milestone: **capability, not
-vocabulary.** Two registry-driven refactors (behaviors, and a new
-closed *action* vocabulary for state mutation), not a pile of new
-named behaviors -- new vocabulary is meant to be added later, as data,
-once the mechanism exists. No implementation yet; waiting on go-ahead
-before writing code.
+Key design decision: the bundle is an **HTML/ZIP polyglot** -- the raw
+build files are stored untouched inside a standard ZIP, with a fully
+self-contained, inlined rendering of the entry page placed *before*
+the ZIP data. The same bytes are simultaneously a directly-renderable
+HTML document (a browser stops parsing at `</html>` and never touches
+the trailing ZIP data -- no extraction, no temp files, same as opening
+a `.mp4` doesn't unpack it first) and a valid ZIP archive (any archive
+tool can extract the original, unmodified build output). Prior art:
+this is the same technique the SingleFile web-archiving tool ships in
+production as `--self-extracting-archive`.
+
+Explicit scope boundary for v1: packaging only, over files the
+existing pipeline already produces. No changes to `normalize.py`/
+`validate.py`/`build.py`/the `Backend` interface/the IR, and
+deliberately a **separate tool**, not folded into the `arklight`
+package (per explicit request -- see `docs/DESIGN-NOTES.md`). No
+implementation yet; waiting on go-ahead before writing code.
 
 ## Then: v0.004 -- CLI scaffolding + responsive/head extension (PLANNING)
 
@@ -440,17 +509,17 @@ scope for the closed-behavior model), the new `<search>` landmark
 (too new/unsettled), `<object>`/`<embed>` (redundant with `IFrame`
 for this project's use cases).
 
-## v0.0035 / v0.004 -- folder scaffolding only (done; logic not started)
+## v0.0035 -- done; v0.004 -- folder scaffolding only (logic not started)
 
-Two empty, docstring-only packages added ahead of the actual work, so
-the eventual diffs for v0.0035 and v0.004 are additive within
-already-existing directories instead of also creating them:
+`arklight/backend/js/behaviors/` and `arklight/backend/js/actions/`
+were originally added as empty, docstring-only packages ahead of the
+actual work; both are now fully populated (see "Current milestone:
+v0.0035" above) -- `arklight/backend/js/render.py` assembles the
+runtime from these fragments instead of one static `RUNTIME_JS`
+string.
 
-- `arklight/backend/js/behaviors/` -- where the registry-driven
-  behavior/action JS fragments described in `docs/DESIGN-NOTES.md`
-  ("v0.0035: stateful JS") will live. Currently just an `__init__.py`
-  explaining the plan; `arklight/backend/js/render.py` is untouched,
-  `RUNTIME_JS` is still one static string.
+Still scaffold-only, logic not started:
+
 - `arklight/cli/templates/` -- where the `simple`/`production`
   templates for `arklight new` (`docs/DESIGN-NOTES.md`, "v0.004: CLI
   scaffolding") will live, with `templates/simple/assets/` and
@@ -470,7 +539,11 @@ go-ahead signal, independent of v0.0035/v0.004 above.
 - [x] v0.001 Python → HTML
 - [x] v0.002 CSS
 - [x] v0.003 JavaScript helpers (+ two vocabulary extension addenda above)
+- [x] v0.0035 Stateful JS (registry-driven behaviors + actions,
+      `State`/`Bind`/`Action.*`)
+- [ ] v0.004 CLI scaffolding + responsive/head extension
 - [ ] v0.010 Components
+- [ ] v0.036 ARK Bundle spec v1 (single-file `.ark` packaging)
 - [ ] v0.100 Alternate backends -- Backend interface ready; IR needs a
       state/event-semantics milestone first (see `docs/DESIGN-NOTES.md`)
 - [ ] v1.0 Stable compiler

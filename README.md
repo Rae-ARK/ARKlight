@@ -252,6 +252,34 @@ Any keyword prop passed to a component that isn't recognized (e.g.
 `id`, `class`, `href`, `src`, `style`, ...) is emitted as a `data-*`
 HTML attribute, so nothing you write is silently dropped.
 
+## ARK Bundle (`.ark`) -- v0.036 (PLANNING, not yet implemented)
+
+A build's output (`index.html`, `styles.css`, `arklight.js`, `assets/`)
+is today a folder of separate files. v0.036 is a spec (design only --
+see [`docs/DESIGN-NOTES.md`](./docs/DESIGN-NOTES.md), "v0.036: ARK
+Bundle spec v1") for packaging that same output as a single `.ark`
+file:
+
+- The raw build files are stored as-is inside a standard ZIP archive
+  -- no new file format, no re-encoding, nothing HTML-backend/CSS-
+  backend/JS-backend needs to change to produce them.
+- The bundle is a **polyglot**: a fully self-contained, inlined
+  rendering of the entry page is placed *before* the ZIP data, so the
+  exact same bytes are simultaneously a valid, directly-renderable
+  HTML document and a valid ZIP archive. Opening `.ark` in a browser
+  renders the page immediately -- no unzip step, no temp files, no
+  server, the same way an image viewer doesn't "extract" a `.png`
+  before displaying it. Opening the same file with any archive tool
+  extracts the original build output untouched.
+- This is a packaging step that runs *after* `arklight build`, over
+  files the existing pipeline already produces -- it doesn't touch
+  `normalize.py`/`validate.py`/`build.py`/the `Backend` interface, and
+  is planned as a separate tool, not a new pipeline stage baked into
+  the `arklight` package itself.
+
+See the design doc for the full byte layout, packing algorithm, and
+known caveats.
+
 ## Repository layout
 
 ```
@@ -265,8 +293,12 @@ arklight-framework/
       base.py          Backend interface
       html/            HTML backend (the only backend in v0.001)
       js/
-        behaviors/     Reserved for v0.0035 (empty scaffold; see
-                        docs/DESIGN-NOTES.md)
+        behaviors/     v0.0035 behavior fragments (toggle, scroll-to,
+                        copy, dismiss) -- one file per
+                        BEHAVIOR_REGISTRY entry
+        actions/       v0.0035 action fragments (set, increment,
+                        toggle_bool) -- one file per ACTION_REGISTRY
+                        entry
     compiler/          Pipeline orchestration
     cli/               `arklight` command-line entry point
       templates/       Reserved for v0.004 `arklight new` (empty
@@ -298,9 +330,10 @@ pytest
 - [x] v0.001 -- Python → HTML
 - [x] v0.002 -- CSS
 - [x] v0.003 -- JavaScript helpers
-- [ ] v0.0035 -- Stateful JS (registry-driven behaviors + actions;
-      design complete, see `docs/DESIGN-NOTES.md`, implementation not
-      started)
+- [x] v0.0035 -- Stateful JS (registry-driven behaviors + actions;
+      `arklight.ir.schema.BEHAVIOR_REGISTRY` / `ACTION_REGISTRY`,
+      `State`/`Bind`/`Action.*`; see `docs/DESIGN-NOTES.md` for the
+      full design writeup and `CHANGELOG.md` for what shipped)
 - [ ] v0.004 -- `arklight new` CLI scaffolding (simple + production
       templates), CSS `@media` support, structured `<head>` extension
       (design complete, implementation not started)
@@ -309,6 +342,9 @@ pytest
       in `docs/DESIGN-NOTES.md`, explicitly waiting on a go-ahead
       before implementation starts
 - [ ] v0.010 -- Components (user-defined, reusable)
+- [ ] v0.036 -- ARK Bundle spec v1 (single-file `.ark` packaging of a
+      site's build output; design complete, see `docs/DESIGN-NOTES.md`
+      ("v0.036: ARK Bundle spec v1"), implementation not started)
 - [ ] v0.100 -- Alternate backends (Vue, Svelte) -- **note:** the
       Backend interface is ready for this today; the IR isn't yet.
       See [`docs/DESIGN-NOTES.md`](./docs/DESIGN-NOTES.md) for why a

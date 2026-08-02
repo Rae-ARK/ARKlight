@@ -5,6 +5,75 @@ follows [Keep a Changelog](https://keepachangelog.com/); versions
 follow the milestone scheme from ARCHITECTURE.md rather than strict
 SemVer.
 
+## [Unreleased] -- v0.036: ARK Bundle spec v1 (PLANNING)
+
+Design only -- nothing in this section is implemented yet. Full
+writeup in `docs/DESIGN-NOTES.md` ("v0.036: ARK Bundle spec v1").
+
+### Planned
+
+- A single-file `.ark` packaging format: a site's existing build
+  output (`index.html`/`styles.css`/`arklight.js`/`assets/`) stored
+  unmodified inside a standard ZIP archive, with a fully
+  self-contained, inlined rendering of the entry page prepended before
+  the ZIP data -- an HTML/ZIP polyglot, so the same file is both a
+  directly-renderable HTML document (double-click / open in a browser,
+  desktop or Android, no unzip step, no temp files, no local server)
+  and a valid ZIP archive (any archive tool extracts the original
+  build output untouched).
+- Scoped as a packaging step over already-built output, and as a
+  separate tool rather than new logic inside the `arklight` package --
+  no changes planned to `normalize.py`/`validate.py`/`build.py`/the
+  `Backend` interface/the IR.
+
+## [0.0035] -- Stateful JS
+
+This entry documents what actually shipped in the commits titled "v0.0035
+is done" -- it was missing from this file even though
+`pyproject.toml`/`arklight/__init__.py` already read `0.0035` and the
+README's "Status" section already described it. See
+`docs/DESIGN-NOTES.md` ("v0.0035: stateful JS -- capability, not
+vocabulary") for the full design rationale.
+
+### Added
+
+- `arklight.ir.schema.BEHAVIOR_REGISTRY: dict[str, BehaviorSpec]`,
+  replacing the flat `KNOWN_BEHAVIORS` frozenset from v0.003 as the
+  source of truth (`KNOWN_BEHAVIORS` is now a derived view over it, so
+  Validation's existing check didn't need to change shape).
+- `arklight/backend/js/behaviors/` -- `JSBackend`'s runtime is now
+  assembled from small per-behavior JS fragments (`toggle.py`,
+  `scroll_to.py`, `copy.py`, `dismiss.py`) instead of one hand-written
+  string; only the fragments a given site's IR actually references are
+  emitted.
+- `arklight.ir.schema.ACTION_REGISTRY` and `arklight/backend/js/actions/`
+  (`set.py`, `increment.py`, `toggle_bool.py`) -- the same registry
+  pattern applied to a new closed *action* vocabulary for state
+  mutation.
+- New public API in `arklight.api`: `State(name, initial)` (page-scoped
+  reactive state, stored on the IR's `Page` node), `Bind(name)`
+  (references a declared `State(...)` from anywhere a literal prop
+  value is accepted, e.g. `Text(Bind("count"))`), and
+  `Action.set(name, value)` / `Action.increment(name, delta=1)` /
+  `Action.toggle_bool(name)` (structured `ActionRef` objects for
+  `on_click=` -- never an arbitrary JS/Python string).
+- Validation: every `Bind(...)`/`Action.*(...)` must reference a
+  `State(...)` actually declared on that page, or the build fails at
+  compile time with a specific message.
+- `JSBackend`: pages that declare `state` get one additional small
+  fixed reactive core (a `createState` closure, a `data-ark-bind`
+  re-render wiring pass, and an action dispatcher walking
+  `ACTION_REGISTRY`) appended to the runtime. Pages with no
+  `State(...)` get none of this. Still no `eval`, no `new Function`, no
+  string ever executed as code.
+- `tests/test_stateful_js.py` -- 14 new tests (130 total).
+
+### Notes
+
+- Explicit scope boundary honored: capability, not vocabulary -- no
+  new named behaviors were added in this milestone, only the registry
+  refactor plus the `State`/`Bind`/`Action` primitives.
+
 ## [0.003] -- JavaScript helpers (+ two vocabulary extension addenda)
 
 ### Addendum 2: even more vocabulary

@@ -115,7 +115,14 @@ arklight-framework/
 - v0.003 JavaScript helpers (also covers a later vocabulary extension:
   semantic layout, forms, tables, media; intrinsic responsive layout
   utilities; `copy`/`dismiss` behaviors -- see CHANGELOG.md)
+- v0.0035 Stateful JS (registry-driven behaviors + actions;
+  `State`/`Bind`/`Action.*` -- see CHANGELOG.md/PROGRESS.md)
+- v0.004 CLI scaffolding + responsive/head extension (design complete,
+  see docs/DESIGN-NOTES.md; not yet implemented)
 - v0.010 Components
+- v0.036 ARK Bundle spec v1 (single-file `.ark` packaging of a site's
+  build output; design complete, see docs/DESIGN-NOTES.md; not yet
+  implemented)
 - v0.100 Alternate backends
 - v1.0 Stable compiler
 

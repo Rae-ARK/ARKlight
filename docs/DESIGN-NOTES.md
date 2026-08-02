@@ -426,6 +426,165 @@ behavior/action registries) lands first and independently; **v0.004**
 (scaffolding + responsive/head) does not depend on it and could
 technically land first if that's preferred once implementation starts.
 
+## v0.036: ARK Bundle spec v1 (PLANNING -- not yet implemented)
+
+Nothing in this section is implemented. Written up front, same
+discipline as the v0.0035/v0.004 design above, so the format is agreed
+on before code exists.
+
+### Problem this solves
+
+`arklight build` already produces a working static site
+(`index.html`, `styles.css`, `arklight.js`, `assets/`), but it's a
+*folder* -- sharing it means zipping it by hand, hosting it somewhere,
+or walking someone through opening `index.html` from a specific
+relative path so its sibling `styles.css`/`arklight.js` resolve
+correctly. There's no single artifact someone can be handed, double-
+click, and get the exact same page a normal deploy would show, on
+either a desktop OS or Android, with nothing installed.
+
+### Format: an HTML/ZIP polyglot, not a new file format
+
+A `.ark` bundle is:
+
+```
+[ 1. Self-contained entry page                                    ]
+   A single HTML document -- the compiled entry page (index.html),
+   but with its <link rel="stylesheet"> and <script src="arklight.js">
+   replaced by the actual CSS/JS content inlined directly in <style>/
+   <script> tags. Ends in a normal </html>.
+[ 2. ZIP payload                                                   ]
+   A standard ZIP archive containing the *original, unmodified* build
+   output: index.html, styles.css, arklight.js, assets/... -- exactly
+   what `arklight build` already writes to disk, byte-for-byte.
+```
+
+This works because the two formats each tolerate the other's presence
+in a specific, well-documented way:
+
+- **HTML parsers** stop at `</html>` and ignore anything after it (the
+  same reason a saved webpage with trailing junk bytes still renders
+  correctly).
+- **ZIP readers** don't scan from byte 0 -- they seek to the End Of
+  Central Directory record near the end of the file and follow offsets
+  from there, and the format explicitly permits the first entry to
+  start at a nonzero offset (this is exactly how self-extracting
+  `.exe` archives already work: arbitrary bytes before the ZIP data,
+  ignored by the ZIP reader).
+
+Concatenate part 1 directly before part 2, and the result is
+simultaneously a fully valid, renderable HTML document *and* a fully
+valid ZIP archive -- not a disguised extension, not a custom container
+format ARKlight invents, just two existing, widely-supported formats
+occupying the same bytes. This is not a novel trick: the SingleFile
+web-archiving tool already ships this exact technique in production as
+its `--self-extracting-archive` output format.
+
+### What "raw files inside the zip acting as a single frontend application" means
+
+The ZIP payload is not a separate, alternate copy of the site -- it's
+the same `index.html`/`styles.css`/`arklight.js`/`assets/` files
+`arklight build` already produces, unmodified. Extracting the bundle
+with any archive tool reproduces exactly the folder a normal build
+already gives you: open `index.html` from that extracted folder and
+it works precisely as it does today, because nothing about how the
+HTML/CSS/JS backends generate those files changes for this milestone.
+The "single frontend application" framing describes the *bundle's*
+behavior (one file, two equally valid ways to consume it), not a new
+runtime or a new IR concept -- there is no JSON intermediate
+representation shipped inside the bundle, and no code, embedded or
+otherwise, that ARKlight didn't already generate for a normal build.
+
+### Why there's no "extraction" step to reason about for normal use
+
+Opening a `.ark` bundle in a browser (double-click, or `Open With ->
+Browser`, on desktop or Android) never invokes anything zip-related:
+the browser's HTML tokenizer reads from the start of the file and
+simply never reaches the ZIP bytes trailing after `</html>`. No temp
+directory is created, nothing is written to disk, and there is nothing
+to clean up afterwards -- behaviorally identical to how a video player
+reads an `.mp4` container directly rather than unpacking frames to
+disk first, or how opening a `.png` doesn't "extract" the image.
+
+The ZIP payload only becomes relevant if a person deliberately opens
+the same file with an archive tool instead of a browser (`unzip`,
+7-Zip, a phone's file-manager "Extract" action). That extraction is
+performed by *that* tool, on the user's terms, to a location of their
+choosing -- ARKlight isn't running any code at that point and has
+nothing to clean up either way.
+
+### Packing algorithm (for the future implementation)
+
+1. Run the existing build pipeline unchanged; obtain the entry page's
+   final rendered HTML plus the CSS/JS backend outputs already
+   produced.
+2. Render a variant of the entry page with `<link
+   rel="stylesheet" href="styles.css">` and `<script src="arklight.js"
+   defer>` replaced by their inlined contents (`<style>...</style>` /
+   `<script>...</script>`). Every other file (other routes, other
+   assets) is untouched.
+3. Write that inlined HTML document's bytes first.
+4. Write ZIP local file headers + data for every file in the build
+   output (including the *original*, non-inlined `index.html`), with
+   each entry's offset shifted by the length of step 3's HTML bytes.
+5. Write the ZIP central directory and End-Of-Central-Directory
+   record last, with offsets pointing at the shifted positions from
+   step 4.
+
+Python's stdlib `zipfile` module doesn't support "write arbitrary bytes
+before the archive" directly, so this needs either a small amount of
+manual ZIP-header patching after using `zipfile` normally, or writing
+the local file headers by hand -- a bounded, self-contained piece of
+code, not a change to any existing pipeline stage.
+
+### Scope and non-goals for v1
+
+- **Packaging only, over already-built output.** No changes to
+  `normalize.py`/`validate.py`/`build.py`/the `Backend` interface/the
+  IR. This is not a new backend in the `Backend.render(ir) ->
+  {path: contents}` sense -- it runs *after* all backends have already
+  produced their files.
+- **A separate tool, not new logic inside the `arklight` package** --
+  explicit requirement from the person requesting this, matching how
+  `arklight build`'s output is the input to this step rather than a
+  new pipeline stage fused into it. Likely shape: a standalone script
+  or CLI (`ark-pack <build-dir> -o bundle.ark`) that only ever reads
+  already-written build output, never the compiler internals.
+- **No native player app, on Android or elsewhere.** The browser
+  already installed on the device is the only runtime this format
+  needs. No embedded JSON IR, no server-driven-UI renderer, no
+  Jetpack Compose bridge, no embedded Python -- all of that would
+  reintroduce exactly the "runtime Python execution" and "feature
+  creep beyond the milestone roadmap" non-goals this project already
+  rejects (see "Non-goals" in `README.md`).
+- **Single entry page for v1.** The polyglot/inlining treatment
+  applies to one page (the bundle's "front door"); a multi-page site's
+  other routes ship inside the ZIP payload as ordinary linked HTML
+  files, same as a normal build, reachable once extracted. Whether a
+  future version inlines *every* route as its own polyglot, or adds
+  some other multi-page bundling scheme, is explicitly deferred --
+  not assumed in scope here.
+- **File-association / double-click behavior on a given OS is out of
+  scope.** Whether `.ark` opens in a browser by default depends on
+  that OS's file-type associations, same as any other extension;
+  shipping the bundle as `.html` instead sidesteps this entirely with
+  zero configuration, at the cost of the branded extension. This
+  spec doesn't attempt to register file associations on the user's
+  behalf.
+
+### Known caveats
+
+- macOS's built-in Archive Utility has a documented bug decompressing
+  these polyglot archives directly (double-click "Extract"); the
+  `unzip` CLI (or most third-party archive tools) handles them
+  correctly. Worth a one-line note in user-facing docs once this
+  ships.
+- Some mobile browsers (documented for iOS Safari specifically) open
+  locally-provided HTML files in a restricted viewer that disables
+  JavaScript -- irrelevant to this project's stated Android target,
+  but worth re-checking against whichever Android browsers/versions
+  get tested before calling this done.
+
 ## Why Python specifically, independent of popularity
 
 Python's raw proficiency advantage for LLM-assisted coding is well
