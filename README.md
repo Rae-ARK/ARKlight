@@ -51,6 +51,15 @@ system. Design complete, implementation not started. See
 [`docs/DESIGN-NOTES.md`](./docs/DESIGN-NOTES.md) ("v0.044: JS backend
 capability expansion -- reactive core parity with Vue 3").
 
+**In progress alongside it: reactive-core vdom staging (Stage 1 of
+8).** A narrower, separately-tracked initiative on the *mechanism*
+under `State`/`Bind` rather than new page-facing capability -- Stage 1
+(vendoring a real diff/patch engine, [snabbdom](https://github.com/snabbdom/snabbdom)'s
+bare core, in place of the old `textContent`-overwrite re-render pass)
+is done; Stage 2 (reactive class binding) is next, feeding into
+`v0.044` above. See [`docs/DESIGN-NOTES.md`](./docs/DESIGN-NOTES.md)
+("Reactive-core vdom staging").
+
 **Queued right behind it: v0.048 -- CSS `@media` queries +
 `<head>`/`<header>` extension.** Design complete, implementation not
 started. See [`docs/DESIGN-NOTES.md`](./docs/DESIGN-NOTES.md) ("v0.048:

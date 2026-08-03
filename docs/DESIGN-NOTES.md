@@ -529,6 +529,74 @@ behavior/action registries) lands first and independently; **v0.048**
 as v0.004a) does not depend on it and could technically land first if
 that's preferred once implementation starts.
 
+## Reactive-core vdom staging: Stage 1 of 8 (Stage 1 IMPLEMENTED, Stages 2-8 PLANNING)
+
+A separate, narrower initiative from `v0.044` below, tracked with its
+own "Stage N" numbering rather than a `v0.0XX` id because it isn't new
+page-facing capability -- it's staged work on the *mechanism*
+underneath the existing `State`/`Bind`/`Action.*` runtime, done ahead
+of (and in support of) `v0.044`'s registries actually needing a real
+diff/patch algorithm once list rendering and conditional show/hide
+land. Each stage is independent and additive, same discipline as every
+other section in this file.
+
+**Stage 1 -- vdom core (IMPLEMENTED).** Vendored
+[snabbdom](https://github.com/snabbdom/snabbdom) 3.6.4's bare core
+(`init`, `h`, `vnode`, `htmlDomApi` -- none of its optional
+`attributes`/`class`/`dataset`/`eventlisteners`/`props`/`style`
+modules) into `arklight/backend/js/vdom.py`, MIT-attributed. The
+state runtime's `renderBindings` pass, which previously did a raw
+`el.textContent = ...` on every `store.subscribe` notification, now
+constructs a text vnode via `snabbdom.h` and calls a vendored
+`patch()` instead. No page-facing API changed -- `State`/`Bind`
+behave identically from a site author's point of view -- and pages
+that declare no `State(...)` still ship zero vdom code, same
+only-ship-what's-used guarantee `v0.003`'s named-behavior runtime
+established. This exists purely to give the stages below (and
+`v0.044`'s eventual list-rendering/conditional-rendering registries) a
+real diffing engine to build on instead of each hand-rolling one.
+
+**Stage 2 -- reactive class binding (PLANNING, next up).** The first
+of `v0.044`'s seven planned sub-systems, pulled forward because it
+directly exercises Stage 1's vdom (attribute/class diffing, not just
+text) rather than only text-node patching. Sketched API:
+
+```python
+State("active", False)
+Container(class_name="card", bind_class=Bind.when("active", "is-active"))
+```
+
+`Bind.when(state_key, class_name)` would produce a `ClassBindSpec`
+(mirrors `ActionRef`'s shape); `IRNode.props["bind_class"]` carries it
+through Normalization/Validation unchanged (validated the same way
+`Bind` already is: the referenced state key must exist on that page).
+The JS backend would emit `data-ark-bind-class="<class>"` +
+`data-ark-bind-class-state="<key>"` on the element; the runtime's
+`renderBindings` pass would build a `class` prop into that element's
+vnode (`is-active` present/absent based on the bound state's
+truthiness) and let the vendored `patch()` diff it in -- toggling the
+class without touching the element's other static classes, and
+without a second, separate class-toggling code path alongside the
+vdom one Stage 1 just added.
+computed/derived state, two-way input binding, watch effects,
+conditional show/hide, per-item list rendering -- same designs
+already written up in `v0.044` below; landing them as Stage 3 through
+7 here (in the same "easiest/most-requested first" order `v0.044`
+already suggests) means they get built directly against Stage 1's
+vdom rather than the old textContent pass.
+
+**Stage 8 -- `State` persistence to browser storage (PLANNING).**
+Opt-in `localStorage` persistence for individual state keys --
+`State("count", 0, persist=True)` -- so a value survives a page
+reload. Sketched here, not yet built: `initState()` would read a
+`localStorage["ark:<page-path>:<key>"]` value (if present and
+JSON-parseable) as an override on top of the server-rendered initial
+value, and `store.subscribe` would gain one more fixed subscriber that
+writes persisted keys back out on every change, wrapped in its own
+`try/catch` (private-browsing/quota errors must degrade to "state
+just doesn't persist," never a hard failure) -- same defensive
+discipline `arkNotify` already applies elsewhere in this runtime.
+
 ## v0.044: JS backend capability expansion -- reactive core parity with Vue 3 (PLANNING)
 
 Requested directly by the maintainer: "add all kinds [of] cool JS

@@ -22,6 +22,7 @@ table, see [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md).
 | v0.036   | ARK Bundle spec v1 (`arklight pack`)                         | DONE    |
 | v0.037   | Sealed ARK Bundles (encrypted by default, `arklight unpack`) | DONE    |
 | v0.041   | CLI/pipeline/JS runtime hardening + stateful JS addenda I/II | DONE    |
+| vdom-1   | Reactive-core vdom staging, Stage 1 of 8: vendored snabbdom bare core swapped into `State`'s re-render pass | DONE |
 | v0.044   | JS backend capability expansion (reactive core parity with Vue 3) | PLANNED |
 | v0.048   | CSS `@media` queries + `<head>`/`<header>` extension         | PLANNED |
 | v0.010   | User-defined components                                     | PLANNED |
@@ -45,6 +46,33 @@ go-ahead before implementation starts on any of these:
   `arklight.ir.schema.SCHEMA`, the same source of truth every compiler
   stage already reads from. Read-only reflection, no new data format.
 - **`arklight --help`** -- standard CLI usage/help text.
+
+## Reactive-core vdom staging -- Stage 1: vdom core integration (DONE)
+
+Separate initiative from `v0.044` below, not a `v0.0XX`-numbered
+milestone -- it's staged work on the *mechanism* under `State`/`Bind`,
+tracked as "Stage 1 of 8" in `docs/DESIGN-NOTES.md` ("Reactive-core
+vdom staging"). Vendored snabbdom 3.6.4's bare core (`init`, `h`,
+`vnode`, `htmlDomApi`; none of its optional modules) into the new
+`arklight/backend/js/vdom.py`, MIT-attributed, and swapped the state
+runtime's `renderBindings` pass from a raw `el.textContent = ...`
+assignment to a real vdom `patch()` call. Verified with the full
+existing test suite (unchanged, 260 passed) plus a live jsdom smoke
+test confirming the same DOM node is reused (no remount) across
+repeated state updates. No page-facing API change; pages without
+`State(...)` still ship none of the vendored code.
+
+Chose to vendor only the four core files (`init`/`h`/`vnode`/
+`htmldomapi`), not any of snabbdom's optional modules
+(`attributes`/`class`/`dataset`/`eventlisteners`/`props`/`style`) --
+those add capability this stage doesn't need yet (Stage 2, reactive
+class binding, will want a minimal hand-written class-diff instead of
+pulling in the whole `classModule`, to keep with the closed-registry
+discipline the rest of the JS backend already follows). Next queued:
+Stage 2 (reactive class binding), then Stages 3-7 (the rest of
+`v0.044`'s sub-systems, built against this vdom instead of the old
+textContent pass), then Stage 8 (`localStorage` persistence for
+`State`).
 
 ## v0.044 -- JS backend capability expansion: reactive core parity with Vue 3 (PLANNED)
 
