@@ -1,6 +1,8 @@
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from arklight.cli.main import main, open_in_browser
 from arklight.compiler.pipeline import build
 
@@ -155,3 +157,23 @@ def test_cli_search_unrelated_query_says_nothing_close(capsys):
 
     captured = capsys.readouterr()
     assert "nothing close enough" in captured.out
+
+
+def test_cli_no_command_prints_help_and_exits_zero(capsys):
+    exit_code = main([])
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "usage: arklight" in captured.out
+    assert "search" in captured.out
+    assert "build" in captured.out
+
+
+def test_cli_help_flag_lists_every_subcommand(capsys):
+    with pytest.raises(SystemExit) as exc_info:
+        main(["--help"])
+
+    assert exc_info.value.code == 0
+    captured = capsys.readouterr()
+    for subcommand in ("build", "pack", "unpack", "pwa", "new", "search"):
+        assert subcommand in captured.out

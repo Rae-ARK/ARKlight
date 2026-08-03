@@ -27,25 +27,23 @@ produces `ARK/index.html` -- plain, dependency-free HTML.
 
 ## Status
 
-**Current release: v0.041 -- CLI, pipeline & JS runtime hardening.**
-`main()` now wraps subcommand dispatch in a catch-all so unhandled
-errors print a clear message and exit `1` instead of a raw traceback;
-`build()`'s file writes/asset copy are guarded against filesystem
-failures; and the generated `arklight.js` runtime gained an
-`arkNotify()` on-page notice plus `try`/`catch` guards throughout, so
-one bad element or a clipboard failure can't take the rest of a page's
-interactivity down with it. This release also folds in the stateful-JS
-vocabulary addenda (`Action.decrement`, `Action.reset`,
-`Action.append`, `Action.remove`). Full detail in
-[`CHANGELOG.md`](./CHANGELOG.md); narrative/decision log in
-[`PROGRESS.md`](./PROGRESS.md).
+**Current release: v0.042 -- extra CSS features + CLI discoverability.**
+`Site.style(name, {css-property: value})` registers a real, named,
+reusable CSS class instead of repeating a `style={...}` dict on every
+node that needs it -- use it anywhere via `class_name="name"`, same
+mechanism the built-in utility classes already use. Two long-open CLI
+gaps also closed: `arklight search <name>` looks up a built-in
+component's schema (required props, children rules, whether it's a
+`Bind(...)`-able target) with typo-tolerant "did you mean"
+suggestions when the name doesn't match; and a bare `arklight` (no
+subcommand) now prints full help and exits `0` instead of an argparse
+error. Full detail in [`CHANGELOG.md`](./CHANGELOG.md); narrative/
+decision log in [`PROGRESS.md`](./PROGRESS.md).
 
 **Next up: v0.048 -- CSS `@media` queries + `<head>`/`<header>`
 extension.** Design complete, implementation not started. See
 [`docs/DESIGN-NOTES.md`](./docs/DESIGN-NOTES.md) ("v0.048: CSS media
-queries + `<head>` extension"). Custom CSS class authoring and an
-`arklight --search <name>` schema lookup are sketched but not yet
-scheduled to a version.
+queries + `<head>` extension").
 
 See [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for the full
 milestone roadmap.
@@ -112,6 +110,25 @@ arklight build examples/hello_site/site.py -o ARK --no-open
 arklight pack ARK -o hello_site.ark
 arklight unpack hello_site.ark -o restored
 ```
+
+```bash
+arklight search <name>
+```
+
+- `name` -- a built-in component name, e.g. `Picture`.
+- Prints that component's schema: required props, whether it allows
+  children, and whether it's a `Bind(...)`-able target (i.e.
+  `text_only_children`). Case-insensitive exact match wins; if nothing
+  matches, prints up to 5 typo-tolerant "did you mean" suggestions
+  (or says plainly that nothing was close enough).
+
+```bash
+arklight search Picture
+arklight search pictur   # -> "Did you mean: Picture, PictureSource?"
+```
+
+`arklight --help` (or a bare `arklight` with no subcommand) prints the
+full list of subcommands with a short description of each.
 
 ## Compiler pipeline
 
@@ -193,6 +210,29 @@ Container(..., style={"background": "#f5f5ff", "padding": "1rem"})
 is rendered as an inline `style` attribute. Built-in utility classes
 from the default stylesheet: `.nav`, `.card`, `.muted`, `.page`,
 `.hidden` (pairs with the `toggle` behavior below).
+
+### Custom CSS classes
+
+`style={...}` is per-node and `class_name="..."` alone only reaches
+the fixed utility classes above -- neither lets you define a *new*,
+reusable class. `site.style(name, rules)` does:
+
+```python
+site = Site()
+site.style("pull-quote", {"font-style": "italic", "border-left": "4px solid purple"})
+
+@site.page("/")
+def home():
+    return Page(Text("A quote worth repeating.", class_name="pull-quote"))
+```
+
+`rules` is a plain `{css-property: value}` dict -- the same shape as
+the per-node `style={...}` prop, never a raw CSS string, so this
+doesn't reopen the "no arbitrary CSS/HTML strings" boundary the rest
+of ARKlight holds. Registered classes are appended to the generated
+stylesheet after the fixed defaults, so they can override base rules
+by cascade order. Calling `site.style()` again with an already-used
+name overwrites its rules (last call wins).
 
 ### Responsive layout, without `@media` (platform-independent by construction)
 
@@ -441,6 +481,6 @@ pytest
 Full milestone table (with status) lives in
 [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) -- kept as the single
 canonical copy rather than duplicated here, in `PROGRESS.md`, and in
-`CHANGELOG.md`. Short version: v0.001 through v0.041 are done; v0.048
+`CHANGELOG.md`. Short version: v0.001 through v0.042 are done; v0.048
 (CSS `@media` + `<head>`/`<header>` extension) is next; v0.010
 (components) and v0.100 (alternate backends) are further out.

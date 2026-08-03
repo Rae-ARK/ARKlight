@@ -104,3 +104,29 @@ def test_build_creates_output_directory(tmp_path):
     out_dir = tmp_path / "nested" / "dist"
     build(path, out_dir)
     assert (out_dir / "index.html").exists()
+
+
+def test_build_writes_custom_style_classes_to_stylesheet(tmp_path):
+    site_path = write_site(
+        tmp_path,
+        """
+from arklight import *
+
+site = Site()
+site.style("pull-quote", {"font-style": "italic"})
+
+@site.page("/")
+def home():
+    return Page(Text("A quote", class_name="pull-quote"))
+""",
+    )
+    out_dir = tmp_path / "ARK"
+
+    build(site_path, out_dir)
+
+    css = (out_dir / "styles.css").read_text(encoding="utf-8")
+    html = (out_dir / "index.html").read_text(encoding="utf-8")
+
+    assert ".pull-quote {" in css
+    assert "font-style: italic;" in css
+    assert 'class="pull-quote"' in html

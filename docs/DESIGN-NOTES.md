@@ -466,12 +466,14 @@ arklight new <name> [--template simple|production] [--dir PATH]
   file contents (f-strings), consistent with "no runtime dependencies
   beyond the build backend."
 
-**Also planned, not yet implemented, not yet scheduled to a specific
-sub-version -- explicitly waiting on a go-ahead before implementation
-starts:** two CLI helpers oriented at discoverability once the
-component vocabulary is ~80+ names deep (a real problem `arklight new`
-alone doesn't solve -- scaffolding gets someone started, it doesn't
-help them remember `Picture`'s required props six months later):
+**Update -- both now implemented as v0.042, see the "v0.042" section
+below for the final design (which differs slightly from what's
+sketched here: this is left in place per this file's own convention of
+correcting in place rather than deleting):** two CLI helpers oriented
+at discoverability once the component vocabulary is ~80+ names deep (a
+real problem `arklight new` alone doesn't solve -- scaffolding gets
+someone started, it doesn't help them remember `Picture`'s required
+props six months later):
 
 - `arklight --help` -- standard CLI usage/help text (subcommands,
   flags, short description of each).
@@ -484,8 +486,7 @@ help them remember `Picture`'s required props six months later):
   format, no new source of truth, just a formatter over `SCHEMA`.
 
 Both are additive CLI surface only; neither touches the compiler
-pipeline, the IR, or any backend. Held back from implementation until
-explicitly signaled, independent of the state of v0.0035/v0.004a/v0.048 above.
+pipeline, the IR, or any backend.
 
 ### v0.048: CSS media queries + `<head>` extension
 
@@ -528,24 +529,107 @@ behavior/action registries) lands first and independently; **v0.048**
 as v0.004a) does not depend on it and could technically land first if
 that's preferred once implementation starts.
 
-### Explicitly not part of v0.048: custom CSS class authoring (PLANNING -- not yet designed)
+## v0.042: extra CSS features + CLI discoverability (IMPLEMENTED)
 
-Raised alongside the `@media`/`<head>` request but a distinct, bigger
-problem: today every class a site can use (`.nav`, `.card`, `.stack`,
-...) comes from the one fixed `BASE_CSS` constant in
-`arklight/backend/css/render.py` -- there is no per-node CSS
-generation, so a site author cannot define a brand-new class with its
-own rules, only opt into ones ARKlight already ships. Real support
-would mean either (a) a way to pass a dict of custom rules into
-`CSSBackend` that get emitted as real classes, or (b) collecting
-`style={...}` props into generated classes instead of inline styles,
-per the note already in `arklight/backend/css/render.py`'s module
-docstring. Both keep the "no arbitrary CSS/HTML strings" boundary the
-rest of the project holds -- structured input in, real CSS out, same
-shape as the `@media`/`<head>` design above. No implementation
-decision yet; noted here so it isn't silently folded into v0.048's
-scope. Held for a separate go-ahead, same as `arklight --search`
-above.
+Two initiatives that were originally raised alongside the `@media`/
+`<head>` request (v0.048 above) but scoped out of it as a distinct,
+smaller problem: not reaching new capability ARKlight lacks (that's
+v0.048), but cutting boilerplate/repetition in capability that already
+sort of exists, plus closing the two CLI-discoverability gaps noted
+above. Both are now implemented.
+
+### Custom CSS class authoring
+
+Before this, every class a site could use (`.nav`, `.card`, `.stack`,
+...) came from the one fixed `BASE_CSS` constant in
+`arklight/backend/css/render.py` -- there was no per-node CSS
+generation, so a site author couldn't define a brand-new class with
+its own rules, only opt into ones ARKlight already shipped. Of the two
+options this file originally weighed -- (a) a way to pass a dict of
+custom rules in that get emitted as real classes, or (b) collecting
+repeated `style={...}` props into auto-generated classes behind the
+scenes -- **(a) shipped; (b) was not pursued** (it addresses output
+duplication, not authoring boilerplate, and was judged a smaller win
+for the complexity added).
+
+Final shape: **`Site.style(name: str, rules: dict[str, str]) -> None`**
+(`arklight/api.py`). `name` must be a valid, single CSS class
+identifier (letters/digits/hyphens/underscores, no leading digit) --
+validated at call time via a compiled regex, raising `ValueError` with
+a specific message otherwise (matching this project's "clear error
+over raw traceback" ethos elsewhere in the CLI/pipeline). `rules` must
+be a non-empty `{css-property: value}` dict of non-empty strings --
+same shape as the existing per-node `style={...}` prop, so nothing new
+to learn, and still a plain dict rather than a raw CSS string, keeping
+the "no arbitrary CSS/HTML strings" boundary intact (same shape as the
+`@media`/`<head>` design in v0.048 above). Calling `site.style()` again
+with a name already registered overwrites it (last call wins) rather
+than erroring or silently merging -- lets a site redefine a class as
+it's built up without a separate "update" method.
+
+Plumbing: `Site.custom_styles: dict[str, dict[str, str]]` is threaded
+through `build_website_ir()` (new optional `custom_styles=` keyword,
+backward-compatible with every existing call site) onto a new
+`WebsiteIR.custom_styles` field, which `CSSBackend.render()` reads and
+renders as real `.name { prop: value; }` blocks -- sorted by class
+name, and by property name within each class, for deterministic output
+across builds -- appended after `BASE_CSS` so custom classes can
+override base rules purely by cascade order (last-defined-wins, no
+extra specificity tricks needed). `class_name="name"` then just works
+for a custom name the same way it already did for `.nav`/`.card`,
+since the HTML backend's `class_name` handling was already a generic
+prop-to-attribute passthrough with no knowledge of which class names
+are "real."
+
+Not pursued in this pass, left as a possible follow-up: `arklight
+search` (below) currently only searches component schema, not
+`BASE_CSS`'s or a site's registered custom class names.
+
+### `arklight search <name>`
+
+Implemented in a new `arklight/cli/search.py`, wired into
+`arklight/cli/main.py` as a `search` subcommand. Matches the original
+design almost exactly: read-only reflection over `SCHEMA`, no new data
+format. Case-insensitive exact match wins outright and prints required
+props, whether children are allowed, and whether the component is a
+`Bind(...)`-able target (surfaced as "children: text only (Bind(...)
+is also allowed here)" -- the same condition the validator checks:
+`spec.text_only_children`).
+
+When there's no exact match, falls back to typo-tolerant "did you
+mean" suggestions (up to 5) instead of just failing -- not in the
+original design note above, added because a schema-lookup tool that
+only works when you already remember the exact name solves less of the
+"~80+ names deep, hard to recall" problem than a fuzzy one does.
+Implementation is stdlib-only (`difflib.get_close_matches`-style
+`SequenceMatcher` ratio scoring, blended with a small camelCase-aware
+tokenizer for multi-word matches like `"tbl-row"` -> `TableRow`) -- no
+new runtime dependency, consistent with the rest of ARKlight. The
+technique was adapted from a similar stdlib-only fuzzy-search utility
+in the `ARKlight-Playground` companion repo's dev-tooling backend, not
+copied verbatim (different corpus -- component names here, file paths
+there -- so the scoring was retuned rather than reused as-is). A
+genuinely unrelated query (no close whole-name match and no shared
+token) returns a plain "nothing close enough to suggest" message
+rather than forcing a guess.
+
+### `arklight --help` / bare `arklight`
+
+`--help` itself needed no new code -- argparse already generates it
+from each subcommand's existing `help=` string. The actual gap: running
+`arklight` with **no** subcommand used to hit argparse's `required=True`
+constraint on the subparsers and print a terser `error: the following
+arguments are required: command` instead of the same usage/help text.
+Fixed by dropping `required=True` and explicitly checking `args.command
+is None` in `main()`, printing `parser.print_help()` and returning `0`
+in that case -- a first-time user typing just `arklight` now sees how
+to get started instead of a bare error.
+
+### Not part of this pass
+
+`@keyframes`/`@font-face` (still explicitly deferred under v0.048
+above), and searching utility/custom class names alongside component
+schema in `arklight search` (noted above as a possible follow-up).
 
 ## v0.036: ARK Bundle spec v1 (IMPLEMENTED)
 

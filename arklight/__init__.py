@@ -120,7 +120,7 @@ from arklight.api import (
     ARKNode,
 )
 
-__version__ = "0.041"
+__version__ = "0.042"
 
 __all__ = [
     "Site",

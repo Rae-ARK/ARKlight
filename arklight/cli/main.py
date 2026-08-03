@@ -197,7 +197,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="arklight", description="Python-first static site compiler.")
     parser.add_argument("--version", action="version", version=f"arklight {__version__}")
 
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    subparsers = parser.add_subparsers(dest="command", required=False)
 
     build_parser = subparsers.add_parser("build", help="Compile a site file to static HTML + CSS.")
     build_parser.add_argument("entry", help="Path to the Python site file (e.g. site.py)")
@@ -322,6 +322,16 @@ def main(argv: list[str] | None = None) -> int:
     search_parser.set_defaults(func=_cmd_search)
 
     args = parser.parse_args(argv)
+
+    if args.command is None:
+        # `arklight` with no subcommand -- print the same usage/help
+        # text `arklight --help` shows (subcommands, flags, short
+        # description of each) rather than argparse's terser
+        # "error: the following arguments are required: command".
+        # A first-time user typing just `arklight` should see how to
+        # get started, not a bare error.
+        parser.print_help()
+        return 0
 
     try:
         return args.func(args)

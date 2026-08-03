@@ -11,9 +11,69 @@ Nothing shipped yet. Next up is **v0.048** (CSS `@media` queries +
 structured `<head>`/`<header>` extension) -- see the "Planned" section
 of [`PROGRESS.md`](./PROGRESS.md) and [`docs/DESIGN-NOTES.md`](./docs/DESIGN-NOTES.md)
 ("v0.048: CSS media queries + `<head>` extension") for the design.
-Custom CSS class authoring and an `arklight --search <name>` schema
-lookup are sketched but not yet scheduled to a version -- also in
-`PROGRESS.md`.
+
+## [0.042] -- Extra CSS features: custom classes, `arklight search`, `arklight --help`
+
+Goal was cutting boilerplate/nesting in the styling API and closing
+two long-open CLI discoverability gaps -- not new `@media`/`<head>`
+capability (that's still v0.048). Full design context in
+[`docs/DESIGN-NOTES.md`](./docs/DESIGN-NOTES.md) ("v0.042: extra CSS
+features").
+
+### Added
+
+- **`Site.style(name, rules)`** (`arklight/api.py`) -- registers a
+  real, named, reusable CSS class from a plain `{css-property: value}`
+  dict. `class_name="name"` anywhere in the site then picks up the
+  rules from the generated stylesheet, instead of repeating a
+  `style={...}` dict on every node that needs it. Validated at
+  registration time: `name` must be a safe, single CSS class
+  identifier (letters/digits/hyphens/underscores, no leading digit);
+  `rules` must be a non-empty dict of non-empty string
+  properties/values. Deliberately **not** a raw CSS string -- same
+  "no arbitrary CSS/HTML strings" boundary the rest of the project
+  holds. Calling `site.style()` again with a name already registered
+  overwrites it (last call wins).
+- **`WebsiteIR.custom_styles`** (`arklight/ir/build.py`) -- threads
+  `Site.custom_styles` through `build_website_ir()` (new optional
+  keyword arg, backward-compatible) so `CSSBackend` can see what a
+  site registered.
+- **`CSSBackend`** (`arklight/backend/css/render.py`) now renders
+  `ir.custom_styles` as real `.name { prop: value; }` blocks, sorted
+  by class name (and by property within each class) for deterministic
+  output, appended after the fixed `BASE_CSS` stylesheet so custom
+  classes can override base rules by cascade order.
+- **`arklight search <name>`** (`arklight/cli/search.py`,
+  `arklight/cli/main.py`) -- read-only schema lookup against
+  `arklight.ir.schema.SCHEMA`: required props, whether children are
+  allowed, and whether the component is a `Bind(...)`-able target
+  (i.e. `text_only_children`). Exact match (case-insensitive) wins
+  outright; otherwise falls back to typo-tolerant "did you mean"
+  suggestions via stdlib `difflib` + a camelCase-aware tokenizer --
+  no external dependency, no new data format, no compiler-pipeline
+  changes.
+- **`arklight --help` / bare `arklight`** (`arklight/cli/main.py`) --
+  `--help` already worked via argparse's built-in flag (every
+  subcommand already carried a `help=` description), but running
+  `arklight` with **no** subcommand used to print argparse's terser
+  "error: the following arguments are required: command" instead of
+  the same usage/help text. Subparsers are no longer `required=True`;
+  a bare `arklight` now prints full help and exits `0`.
+
+### Notes
+
+- Custom classes and the fixed `BASE_CSS` utility classes (`.nav`,
+  `.card`, `.stack`, ...) share the same `class_name=` mechanism --
+  nothing new needed on the HTML backend side, since `class_name` was
+  already a generic prop-to-`class`-attribute passthrough.
+  `arklight search` does not currently search `BASE_CSS`'s utility
+  class names, only component schema -- noted as a possible follow-up,
+  not scoped for this pass.
+- Test coverage: `tests/test_api_style.py` (new),
+  `tests/test_css_backend.py` (extended),
+  `tests/test_pipeline_end_to_end.py` (extended),
+  `tests/test_search.py` (new), `tests/test_cli.py` (extended) --
+  251 tests passing.
 
 ## [0.041] -- CLI, pipeline & JS runtime hardening + stateful JS vocabulary addenda
 

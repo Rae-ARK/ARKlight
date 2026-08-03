@@ -73,3 +73,75 @@ def test_css_backend_has_no_media_or_container_queries():
 
     assert "@media" not in code_only
     assert "@container" not in code_only
+
+
+def test_css_backend_renders_custom_style_class():
+    pages = {"/": Page(Text("hi"))}
+    normalized = normalize_ark_ast(pages)
+    validate_ark_ast(normalized)
+    ir = build_website_ir(
+        "site",
+        normalized,
+        custom_styles={"pull-quote": {"font-style": "italic", "padding": "1em"}},
+    )
+
+    css = CSSBackend().render(ir)[STYLESHEET_PATH]
+
+    assert ".pull-quote {" in css
+    assert "font-style: italic;" in css
+    assert "padding: 1em;" in css
+
+
+def test_css_backend_custom_styles_appear_after_base_css():
+    pages = {"/": Page(Text("hi"))}
+    normalized = normalize_ark_ast(pages)
+    validate_ark_ast(normalized)
+    ir = build_website_ir("site", normalized, custom_styles={"brand": {"color": "orange"}})
+
+    css = CSSBackend().render(ir)[STYLESHEET_PATH]
+
+    # Custom classes come last so they can override base rules by
+    # cascade order (both target selectors of equal specificity).
+    assert css.index(".brand {") > css.index("body {")
+
+
+def test_css_backend_multiple_custom_classes_sorted_for_determinism():
+    pages = {"/": Page(Text("hi"))}
+    normalized = normalize_ark_ast(pages)
+    validate_ark_ast(normalized)
+    ir = build_website_ir(
+        "site",
+        normalized,
+        custom_styles={"zeta": {"color": "red"}, "alpha": {"color": "blue"}},
+    )
+
+    css = CSSBackend().render(ir)[STYLESHEET_PATH]
+
+    assert css.index(".alpha {") < css.index(".zeta {")
+
+
+def test_css_backend_no_custom_styles_block_when_none_registered():
+    pages = {"/": Page(Text("hi"))}
+    normalized = normalize_ark_ast(pages)
+    validate_ark_ast(normalized)
+    ir = build_website_ir("site", normalized)
+
+    css = CSSBackend().render(ir)[STYLESHEET_PATH]
+
+    assert "Custom classes" not in css
+
+
+def test_css_backend_custom_style_properties_sorted_within_class():
+    pages = {"/": Page(Text("hi"))}
+    normalized = normalize_ark_ast(pages)
+    validate_ark_ast(normalized)
+    ir = build_website_ir(
+        "site",
+        normalized,
+        custom_styles={"box": {"z-index": "1", "color": "red"}},
+    )
+
+    css = CSSBackend().render(ir)[STYLESHEET_PATH]
+    block = css[css.index(".box {") : css.index(".box {") + 60]
+
+    assert block.index("color:") < block.index("z-index:")
