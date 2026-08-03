@@ -59,6 +59,17 @@ assignment. Behavior is unchanged from the outside -- this only swaps
 the re-render mechanism for a real diff/patch algorithm, so later
 stages (list rendering, conditional show/hide, attribute binding) have
 a diffing engine to build on instead of each hand-rolling one.
+
+Stage 2 adds reactive class binding: `bind_class=Bind.when("active",
+"is-active")` toggles a class as `active`'s truthiness changes,
+compiled to `data-ark-bind-class="<class>"` +
+`data-ark-bind-class-state="<key>"`. This one deliberately does *not*
+go through the vdom core -- the bare vendored core has no class
+module, and re-deriving an element's vdom selector to add/remove a
+class would make `patch()` treat it as a different vnode and remount
+the element (dropping any already-wired listeners) -- so it's a
+direct, one-line `classList.toggle` instead, run in its own pass
+(`renderClassBindings`) alongside `renderBindings`.
 """
 
 from __future__ import annotations
@@ -142,12 +153,27 @@ _STATE_CORE_JS = """  function createState(initial) {
     });
   }
 
+  function renderClassBindings(store) {
+    // Stage 2 ("Reactive-core vdom staging"): a direct classList
+    // toggle, not routed through the vendored vdom -- the bare core
+    // doesn't carry snabbdom's optional classModule, and re-deriving
+    // the element's selector to include/exclude the class would make
+    // patch() treat it as a different vnode (sameVnode compares `sel`)
+    // and remount the element, dropping any listeners already wired to
+    // it. A one-line classList.toggle has none of that risk.
+    document.querySelectorAll("[data-ark-bind-class]").forEach(function (el) {
+      var className = el.getAttribute("data-ark-bind-class");
+      var key = el.getAttribute("data-ark-bind-class-state");
+      el.classList.toggle(className, !!store.get(key));
+    });
+  }
+
   function initState() {
     var raw = document.body.getAttribute("data-ark-state");
     if (!raw) return null;
     try {
       var store = createState(JSON.parse(raw));
-      store.subscribe(function () { renderBindings(store); });
+      store.subscribe(function () { renderBindings(store); renderClassBindings(store); });
       return store;
     } catch (err) {
       arkNotify("This page's saved state couldn't be loaded -- interactive features on this page may not work.");
@@ -294,7 +320,7 @@ def _build_runtime_js(ir: WebsiteIR) -> str:
     ready_calls.append("    highlightActiveNavLink();")
     if has_state:
         ready_calls.append("    var store = initState();")
-        ready_calls.append("    if (store) { renderBindings(store); }")
+        ready_calls.append("    if (store) { renderBindings(store); renderClassBindings(store); }")
         ready_calls.append("    wireActions(store);")
 
     parts.append('  document.addEventListener("DOMContentLoaded", function () {')

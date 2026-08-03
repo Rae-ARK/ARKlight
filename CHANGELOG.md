@@ -7,6 +7,17 @@ SemVer.
 
 ## [Unreleased]
 
+**Stage 2 of the vdom staging: reactive class binding.**
+`Bind.when("active", "is-active")` + `bind_class=` toggles a CSS class
+as a `State(...)` value's truthiness changes (`ClassBindSpec`,
+validated the same way `Action.*`/`Bind` already are). HTML backend
+pre-fills the class from the initial state value; the JS runtime uses
+a small direct `classList.toggle` pass (`renderClassBindings`) rather
+than routing through Stage 1's vdom `patch()`, since the vendored bare
+core has no class module and doing so would remount the element on
+every toggle. 10 new tests (`tests/test_class_binding.py`); no
+page-facing change to `State`/`Bind`/`Action.*`.
+
 **Stage 1 of a staged reactive-core expansion: vendored vdom core.**
 Pages that declare `State(...)` now re-render their `data-ark-bind`
 elements through a vendored [snabbdom](https://github.com/snabbdom/snabbdom)

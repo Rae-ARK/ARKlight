@@ -17,7 +17,7 @@ from __future__ import annotations
 import re
 from typing import Any, Callable
 
-from arklight.ast.nodes import ActionRef, ARKNode, node
+from arklight.ast.nodes import ActionRef, ARKNode, ClassBindSpec, node
 
 # v0.042: custom CSS class names must look like a real, single CSS class
 # identifier -- letters/digits/hyphens/underscores, not starting with a
@@ -207,6 +207,25 @@ def Bind(name: str) -> ARKNode:
     with state -- never a template string evaluated at runtime.
     """
     return ARKNode(type="Bind", props={"name": name}, children=[])
+
+
+def _bind_when(state: str, class_name: str) -> ClassBindSpec:
+    """
+    Reactive class binding (Stage 2 of "Reactive-core vdom staging" --
+    see docs/DESIGN-NOTES.md): `bind_class=Bind.when("active", "is-active")`
+    toggles `class_name` on/off as `state`'s truthiness changes,
+    without ever touching the element's other static classes. A small
+    structured `ClassBindSpec`, not a string -- validated against the
+    page's declared `State(...)` names at compile time, same discipline
+    `Action.*(...)` already established for `on_click=`.
+
+        State("active", False)
+        Container(class_name="card", bind_class=Bind.when("active", "is-active"))
+    """
+    return ClassBindSpec(state=state, class_name=class_name)
+
+
+Bind.when = _bind_when
 
 
 class Action:

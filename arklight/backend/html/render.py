@@ -49,7 +49,7 @@ import json
 import posixpath
 from html import escape
 
-from arklight.ast.nodes import ActionRef
+from arklight.ast.nodes import ActionRef, ClassBindSpec
 from arklight.backend.base import Backend
 from arklight.backend.css.render import STYLESHEET_PATH
 from arklight.backend.js.render import SCRIPT_PATH
@@ -285,7 +285,24 @@ def _relative_asset_path(asset_path: str, *, current_route: str, route_to_path: 
     return posixpath.relpath(asset_path, current_dir)
 
 
-def _attr_string(props: dict, *, current_route: str, route_to_path: dict[str, str]) -> str:
+def _attr_string(
+    props: dict, *, current_route: str, route_to_path: dict[str, str], page_state: dict | None = None
+) -> str:
+    props = dict(props)  # local copy -- may splice the initial bound class in below
+
+    bind_class = props.get("bind_class")
+    if isinstance(bind_class, ClassBindSpec) and page_state is not None:
+        # Stage 2 ("Reactive-core vdom staging"): pre-fill the class the
+        # same way `_render_bind` pre-fills bound text, so the page
+        # reflects its initial state correctly with JS disabled -- the
+        # shipped runtime just keeps this in sync after that.
+        if page_state.get(bind_class.state):
+            existing = props.get("class_name")
+            classes = existing.split() if isinstance(existing, str) and existing else []
+            if bind_class.class_name not in classes:
+                classes.append(bind_class.class_name)
+            props["class_name"] = " ".join(classes)
+
     parts = []
     for key, value in props.items():
         if key == "level":
@@ -302,6 +319,14 @@ def _attr_string(props: dict, *, current_route: str, route_to_path: dict[str, st
             parts.append(f' data-ark-action-state="{escape(value.state, quote=True)}"')
             if value.args:
                 parts.append(f' data-ark-action-args="{escape(json.dumps(value.args), quote=True)}"')
+            continue
+
+        if key == "bind_class" and isinstance(value, ClassBindSpec):
+            # Stage 2: the runtime reads these two to know which class
+            # to toggle and which state key drives it -- the initial
+            # value (if any) was already folded into `class_name` above.
+            parts.append(f' data-ark-bind-class="{escape(value.class_name, quote=True)}"')
+            parts.append(f' data-ark-bind-class-state="{escape(value.state, quote=True)}"')
             continue
 
         if key in BEHAVIOR_PROP_ATTRS:
@@ -376,7 +401,7 @@ def _render_node(node: IRNode, *, current_route: str, route_to_path: dict[str, s
         return _render_bind(node, page_state=page_state)
 
     tag = _tag_for(node)
-    attrs = _attr_string(node.props, current_route=current_route, route_to_path=route_to_path)
+    attrs = _attr_string(node.props, current_route=current_route, route_to_path=route_to_path, page_state=page_state)
 
     if tag in VOID_TAGS:
         return f"<{tag}{attrs} />"

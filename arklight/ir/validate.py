@@ -25,11 +25,15 @@ Checks performed:
    actually declared there.
 6. The tree's root is a `Page` node.
 7. Recurses into every child.
+8. `bind_class`, if present, is a `Bind.when(...)` reference
+   (arklight.ast.nodes.ClassBindSpec) whose `state` targets a
+   `State(...)` declared on the same page (Stage 2 of "Reactive-core
+   vdom staging" -- see docs/DESIGN-NOTES.md).
 """
 
 from __future__ import annotations
 
-from arklight.ast.nodes import ActionRef, ARKNode
+from arklight.ast.nodes import ActionRef, ARKNode, ClassBindSpec
 from arklight.ir.schema import ACTION_REGISTRY, KNOWN_BEHAVIORS, SCHEMA
 
 
@@ -62,6 +66,26 @@ def _validate_action(action: ActionRef, *, path: str, page_state: frozenset[str]
             f"on_click at {path} ({action.action!r}) targets state "
             f"{action.state!r}, which isn't declared on this page. State "
             f"declared on this page: {known}."
+        )
+
+
+def _validate_class_bind(node: ARKNode, *, path: str, page_state: frozenset[str]) -> None:
+    bind_class = node.props.get("bind_class")
+    if bind_class is None:
+        return
+    if not isinstance(bind_class, ClassBindSpec):
+        raise ValidationError(
+            f"{node.type!r} at {path} has bind_class={bind_class!r}, which isn't "
+            f"a Bind.when(...) reference."
+        )
+    if not bind_class.class_name:
+        raise ValidationError(f"Bind.when(...) at {path} needs a non-empty class_name.")
+    if bind_class.state not in page_state:
+        known = ", ".join(sorted(page_state)) or "(none declared)"
+        raise ValidationError(
+            f"bind_class at {path} (Bind.when({bind_class.state!r}, ...)) "
+            f"targets state {bind_class.state!r}, which isn't declared on this "
+            f"page. State declared on this page: {known}."
         )
 
 
@@ -131,6 +155,7 @@ def validate_node(
             )
 
     _validate_behavior_props(node, path=path, page_state=page_state)
+    _validate_class_bind(node, path=path, page_state=page_state)
 
     if not spec.allow_children and node.children:
         raise ValidationError(f"{node.type!r} at {path} must not have children.")

@@ -529,7 +529,7 @@ behavior/action registries) lands first and independently; **v0.048**
 as v0.004a) does not depend on it and could technically land first if
 that's preferred once implementation starts.
 
-## Reactive-core vdom staging: Stage 1 of 8 (Stage 1 IMPLEMENTED, Stages 2-8 PLANNING)
+## Reactive-core vdom staging: Stage 1 of 8 (Stages 1-2 IMPLEMENTED, Stages 3-8 PLANNING)
 
 A separate, narrower initiative from `v0.044` below, tracked with its
 own "Stage N" numbering rather than a `v0.0XX` id because it isn't new
@@ -556,28 +556,35 @@ established. This exists purely to give the stages below (and
 `v0.044`'s eventual list-rendering/conditional-rendering registries) a
 real diffing engine to build on instead of each hand-rolling one.
 
-**Stage 2 -- reactive class binding (PLANNING, next up).** The first
-of `v0.044`'s seven planned sub-systems, pulled forward because it
-directly exercises Stage 1's vdom (attribute/class diffing, not just
-text) rather than only text-node patching. Sketched API:
+**Stage 2 -- reactive class binding (IMPLEMENTED).** The first of
+`v0.044`'s seven planned sub-systems, pulled forward because it
+directly exercises Stage 1's vdom-adjacent machinery rather than only
+text-node patching. New API:
 
 ```python
 State("active", False)
 Container(class_name="card", bind_class=Bind.when("active", "is-active"))
 ```
 
-`Bind.when(state_key, class_name)` would produce a `ClassBindSpec`
-(mirrors `ActionRef`'s shape); `IRNode.props["bind_class"]` carries it
-through Normalization/Validation unchanged (validated the same way
-`Bind` already is: the referenced state key must exist on that page).
-The JS backend would emit `data-ark-bind-class="<class>"` +
-`data-ark-bind-class-state="<key>"` on the element; the runtime's
-`renderBindings` pass would build a `class` prop into that element's
-vnode (`is-active` present/absent based on the bound state's
-truthiness) and let the vendored `patch()` diff it in -- toggling the
-class without touching the element's other static classes, and
-without a second, separate class-toggling code path alongside the
-vdom one Stage 1 just added.
+`Bind.when(state_key, class_name)` produces a `ClassBindSpec` (mirrors
+`ActionRef`'s shape), validated the same way `Bind`/`Action.*` already
+are: the referenced state key must exist on that page, and
+`class_name` must be non-empty. The HTML backend pre-fills the class
+at build time from the state's initial value (same
+progressive-enhancement guarantee `Bind`'s text gives), and emits
+`data-ark-bind-class="<class>"` + `data-ark-bind-class-state="<key>"`
+for the runtime to pick up.
+
+On the JS side this deliberately does *not* go through the vendored
+vdom `patch()`: the bare core carries none of snabbdom's optional
+modules (no `classModule`), and folding the class into an element's
+vdom *selector* would make `patch()` see a different vnode on every
+toggle (`sameVnode` compares `sel`) and remount the element, silently
+dropping any listener already wired to it (e.g. an `on_click=Action.*`
+on that same element). Instead, `renderClassBindings` is a small,
+separate, hand-written pass doing a direct `el.classList.toggle(...)`
+-- correct, and honest about the vendored core's actual scope rather
+than pretending a bare core can do everything a full framework can.
 computed/derived state, two-way input binding, watch effects,
 conditional show/hide, per-item list rendering -- same designs
 already written up in `v0.044` below; landing them as Stage 3 through

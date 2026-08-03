@@ -23,6 +23,7 @@ table, see [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md).
 | v0.037   | Sealed ARK Bundles (encrypted by default, `arklight unpack`) | DONE    |
 | v0.041   | CLI/pipeline/JS runtime hardening + stateful JS addenda I/II | DONE    |
 | vdom-1   | Reactive-core vdom staging, Stage 1 of 8: vendored snabbdom bare core swapped into `State`'s re-render pass | DONE |
+| vdom-2   | Reactive-core vdom staging, Stage 2 of 8: reactive class binding (`Bind.when(...)`/`bind_class=`) | DONE |
 | v0.044   | JS backend capability expansion (reactive core parity with Vue 3) | PLANNED |
 | v0.048   | CSS `@media` queries + `<head>`/`<header>` extension         | PLANNED |
 | v0.010   | User-defined components                                     | PLANNED |
@@ -73,6 +74,27 @@ Stage 2 (reactive class binding), then Stages 3-7 (the rest of
 `v0.044`'s sub-systems, built against this vdom instead of the old
 textContent pass), then Stage 8 (`localStorage` persistence for
 `State`).
+
+## Reactive-core vdom staging -- Stage 2: reactive class binding (DONE)
+
+`Bind.when("active", "is-active")` (a `ClassBindSpec`, mirroring
+`ActionRef`'s shape) plus a `bind_class=` prop, validated the same way
+`Bind`/`Action.*` already are (unknown `state` target, or an empty
+`class_name`, both fail the build). HTML backend pre-fills the class
+at build time from `State`'s initial value, same as `Bind`'s text
+already does, so the page is correct with JS disabled. 10 new tests in
+`tests/test_class_binding.py`; full suite (270) green.
+
+Decided *against* routing this through Stage 1's vendored vdom, even
+though that was the original plan sketched when Stage 1 landed: the
+bare core has no class module, and encoding the class into an
+element's vdom selector would make `patch()`'s `sameVnode` check see a
+different vnode on every toggle and remount the element -- silently
+dropping any `on_click` listener already wired to it. Went with a
+small, separate, hand-written `renderClassBindings` pass
+(`el.classList.toggle(...)`) instead -- correct, and more honest about
+what a *bare* vdom core actually covers than stretching it to do
+something it wasn't built for. Next queued: Stage 3 (event modifiers).
 
 ## v0.044 -- JS backend capability expansion: reactive core parity with Vue 3 (PLANNED)
 

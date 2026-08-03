@@ -27,6 +27,25 @@ from typing import Any
 
 
 @dataclass(frozen=True)
+class ClassBindSpec:
+    """
+    A reference to a state-driven CSS class toggle -- e.g.
+    `Bind.when("active", "is-active")`. Used as a `bind_class=` prop
+    value (alongside a component's ordinary `class_name=`) once a page
+    declares `State(...)`.
+
+    Mirrors `ActionRef`'s shape: a small structured object, not a
+    string, validated against the page's declared `State(...)` names at
+    compile time (an unknown `state` target fails the build) and never
+    a class-name string built by concatenation at runtime. See
+    docs/DESIGN-NOTES.md ("Reactive-core vdom staging", Stage 2).
+    """
+
+    state: str
+    class_name: str
+
+
+@dataclass(frozen=True)
 class ActionRef:
     """
     A reference to a closed-vocabulary, state-mutating action -- e.g.
