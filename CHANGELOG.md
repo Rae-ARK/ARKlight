@@ -5,7 +5,24 @@ follows [Keep a Changelog](https://keepachangelog.com/); versions
 follow the milestone scheme from ARCHITECTURE.md rather than strict
 SemVer.
 
-## [Unreleased] -- JS runtime error-handling hardening
+## [Unreleased]
+
+Nothing shipped yet. Next up is **v0.048** (CSS `@media` queries +
+structured `<head>`/`<header>` extension) -- see the "Planned" section
+of [`PROGRESS.md`](./PROGRESS.md) and [`docs/DESIGN-NOTES.md`](./docs/DESIGN-NOTES.md)
+("v0.048: CSS media queries + `<head>` extension") for the design.
+Custom CSS class authoring and an `arklight --search <name>` schema
+lookup are sketched but not yet scheduled to a version -- also in
+`PROGRESS.md`.
+
+## [0.041] -- CLI, pipeline & JS runtime hardening + stateful JS vocabulary addenda
+
+Four change sets that landed together and are released as one version.
+Each keeps its own "Added"/"Notes" detail below; this line is only
+here so the version-history reader doesn't have to guess why 0.041
+covers four unrelated-sounding headings.
+
+## [0.041] -- JS runtime error-handling hardening
 
 Follow-up to "CLI & pipeline error-handling hardening" directly below
 -- that pass covered the Python/CLI side; this covers the generated
@@ -60,7 +77,7 @@ directly).
   `undefined` just renders as the text "undefined", not a throw; the
   nav-highlight loop only ever touches `<a>` elements' own `.href`).
 
-## [Unreleased] -- CLI & pipeline error-handling hardening
+## [0.041] -- CLI & pipeline error-handling hardening
 
 A UX audit of the CLI's error handling (comparing it against how the
 generated client-side JS runtime handles -- or doesn't handle --
@@ -125,7 +142,7 @@ than a raw traceback" -- `arklight/cli/main.py` module docstring).
   **Update:** this follow-up is now done -- see "JS runtime
   error-handling hardening" above.
 
-## [Unreleased] -- Stateful JS vocabulary addendum II
+## [0.041] -- Stateful JS vocabulary addendum II
 
 Full writeup in `docs/DESIGN-NOTES.md` ("v0.0035: stateful-JS
 vocabulary addendum II"). Second growth pass on `ACTION_REGISTRY`,
@@ -166,7 +183,7 @@ Still not an exhaustive vocabulary pass -- see `docs/DESIGN-NOTES.md`:
 - `Action.set_from_input` / binding state to `input`/`change` events.
 - Debounced/throttled actions.
 
-## [Unreleased] -- Stateful JS vocabulary addendum I
+## [0.041] -- Stateful JS vocabulary addendum I
 
 Full writeup in `docs/DESIGN-NOTES.md` ("v0.0035: stateful-JS
 vocabulary addendum"). Grows `ACTION_REGISTRY` (added in v0.0035) with

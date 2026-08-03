@@ -1,4 +1,4 @@
-# ARKlight Architecture v0.001
+# ARKlight Architecture
 
 ## Vision
 
@@ -59,11 +59,11 @@ The IR models website intent rather than HTML.
 ## Backend Interface
 
 Current:
-- HTML
+- HTML (`arklight/backend/html/`)
+- CSS (`arklight/backend/css/`)
+- JavaScript (`arklight/backend/js/`)
 
 Future:
-- CSS
-- JavaScript
 - Vue
 - Svelte
 
@@ -110,23 +110,28 @@ arklight-framework/
 
 ## Milestones
 
-- v0.001 Python → HTML
-- v0.002 CSS
-- v0.003 JavaScript helpers (also covers a later vocabulary extension:
-  semantic layout, forms, tables, media; intrinsic responsive layout
-  utilities; `copy`/`dismiss` behaviors -- see CHANGELOG.md)
-- v0.0035 Stateful JS (registry-driven behaviors + actions;
-  `State`/`Bind`/`Action.*` -- see CHANGELOG.md/PROGRESS.md)
-- v0.004 CLI scaffolding + responsive/head extension (design complete,
-  see docs/DESIGN-NOTES.md; not yet implemented)
-- v0.010 Components
-- v0.036 ARK Bundle spec v1 (single-file `.ark` packaging of a site's
-  build output; implemented -- see docs/DESIGN-NOTES.md/CHANGELOG.md)
-- v0.037 Sealed ARK Bundles (archive half encrypted by default,
-  `assets/`+ all files carried over, new `arklight unpack` command;
-  implemented -- see docs/DESIGN-NOTES.md/CHANGELOG.md)
-- v0.100 Alternate backends
-- v1.0 Stable compiler
+This is the canonical roadmap -- `README.md` and `PROGRESS.md` link
+here rather than keeping their own copies. Status: DONE / PLANNED.
+
+| Version | What | Status |
+|---|---|---|
+| v0.001 | Python → HTML | DONE |
+| v0.002 | CSS (default stylesheet) | DONE |
+| v0.003 | JavaScript helpers, incl. two vocabulary extension addenda (semantic layout, forms, tables, media, intrinsic responsive layout utilities, `copy`/`dismiss` behaviors) | DONE |
+| v0.0035 | Stateful JS -- registry-driven behaviors + actions; `State`/`Bind`/`Action.*` | DONE |
+| v0.004a | CLI scaffolding (`arklight new <name> --template simple\|production`) | DONE |
+| v0.036 | ARK Bundle spec v1 -- single-file `.ark` packaging of a site's build output (`arklight pack`) | DONE |
+| v0.037 | Sealed ARK Bundles -- archive half encrypted by default, `assets/` + all files carried over, `arklight unpack` | DONE |
+| v0.041 | CLI/pipeline/JS runtime error-handling hardening + stateful JS vocabulary addenda I & II (`Action.decrement/reset/append/remove`) | DONE |
+| v0.048 | CSS `@media` queries + structured `<head>`/`<header>` extension -- design complete in `docs/DESIGN-NOTES.md`, implementation not started | PLANNED |
+| v0.010 | User-defined, reusable components | PLANNED |
+| v0.100 | Alternate backends (Vue, Svelte) -- Backend interface ready today; IR needs a state/event-semantics milestone first | PLANNED |
+| v1.0 | Stable compiler | PLANNED |
+
+Not yet assigned a version number, design-sketched but explicitly
+waiting on a go-ahead before implementation starts (see
+`docs/DESIGN-NOTES.md`): custom CSS class authoring beyond the fixed
+utility set, and `arklight --help` / `arklight --search <name>`.
 
 ## Non-goals
 

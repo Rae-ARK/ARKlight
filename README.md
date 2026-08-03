@@ -27,50 +27,28 @@ produces `ARK/index.html` -- plain, dependency-free HTML.
 
 ## Status
 
-**Unreleased — CLI, pipeline & JS runtime error-handling hardening.**
-`main()` now wraps subcommand dispatch in a catch-all, so anything
-outside the CLI's known, typed failure modes prints a clear
-"uncharted territory" notice and exits `1` instead of a raw traceback;
-`build()`'s file writes and asset copy are now guarded against
-filesystem failures (reporting how much of a build completed before a
-failure); and `--passphrase` on the command line now warns at the
-point of use, not just in `--help` text. The generated `arklight.js`
-runtime got the browser-side counterpart: a new `arkNotify()` on-page
-notice, `try`/`catch` guards around state init and per-element
-behavior/action wiring (so one bad element can't take the rest of the
-page's interactivity down with it), and a `.catch()` on the `copy`
-behavior's clipboard promise. Not yet assigned a version number. Full
-detail in [`CHANGELOG.md`](./CHANGELOG.md) ("CLI & pipeline
-error-handling hardening" and "JS runtime error-handling hardening").
+**Current release: v0.041 -- CLI, pipeline & JS runtime hardening.**
+`main()` now wraps subcommand dispatch in a catch-all so unhandled
+errors print a clear message and exit `1` instead of a raw traceback;
+`build()`'s file writes/asset copy are guarded against filesystem
+failures; and the generated `arklight.js` runtime gained an
+`arkNotify()` on-page notice plus `try`/`catch` guards throughout, so
+one bad element or a clipboard failure can't take the rest of a page's
+interactivity down with it. This release also folds in the stateful-JS
+vocabulary addenda (`Action.decrement`, `Action.reset`,
+`Action.append`, `Action.remove`). Full detail in
+[`CHANGELOG.md`](./CHANGELOG.md); narrative/decision log in
+[`PROGRESS.md`](./PROGRESS.md).
 
-**v0.037 — Sealed ARK Bundles.** `arklight pack <build-dir> -o
-site.ark` packs an existing `arklight build` output directory
-(including any `assets/` folder) into a single `.ark` file -- an HTML/
-archive polyglot that renders directly in a browser (double-click, no
-server, no unzip step). The archive half is now **encrypted by
-default** (stdlib-only, see `arklight.packer.seal`), so a generic
-archive tool can't casually open or splice it; `arklight unpack
-site.ark -o ARK` reverses this. Add `--passphrase` for real
-confidentiality, or `--plain` to opt back into the original
-freely-openable ZIP tail. See "ARK Bundle" below and
-[`docs/DESIGN-NOTES.md`](./docs/DESIGN-NOTES.md) ("v0.036: ARK Bundle
-spec v1" and "v0.037: sealed bundles") for the full format writeup.
+**Next up: v0.048 -- CSS `@media` queries + `<head>`/`<header>`
+extension.** Design complete, implementation not started. See
+[`docs/DESIGN-NOTES.md`](./docs/DESIGN-NOTES.md) ("v0.048: CSS media
+queries + `<head>` extension"). Custom CSS class authoring and an
+`arklight --search <name>` schema lookup are sketched but not yet
+scheduled to a version.
 
-**v0.0035 — Stateful JS.** Named client-side behaviors
-(`on_click="toggle"`, `"scroll-to"`, `"copy"`, `"dismiss"`) are now a
-registry (`arklight.ir.schema.BEHAVIOR_REGISTRY`) instead of a
-hardcoded dispatch table, and `JSBackend` ships only the behavior/
-action fragments a given site's IR actually references. On top of
-that, pages can now declare real reactive state -- `State("count", 0)`,
-`Bind("count")`, and a closed `Action.set` / `Action.increment` /
-`Action.toggle_bool` vocabulary for `on_click=` -- compiled to a small,
-fixed, `eval`-free runtime. Still no JavaScript is ever written by
-hand, and no arbitrary JS strings are accepted (see
-[`docs/DESIGN-NOTES.md`](./docs/DESIGN-NOTES.md) for why that boundary
-is deliberate). `arklight build` also now auto-copies a top-level
-`assets/` folder into the output directory. See
-[`PROGRESS.md`](./PROGRESS.md) for what's implemented and what's next,
-and [`CHANGELOG.md`](./CHANGELOG.md) for version history.
+See [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for the full
+milestone roadmap.
 
 ## Install
 
@@ -431,8 +409,8 @@ arklight-framework/
                         entry
     compiler/          Pipeline orchestration
     cli/               `arklight` command-line entry point
-      templates/       Reserved for v0.004 `arklight new` (empty
-                        scaffold; see docs/DESIGN-NOTES.md)
+      templates/       `simple`/`production` scaffolds for
+                        `arklight new` (v0.004a; see docs/DESIGN-NOTES.md)
     packer/            `arklight pack` -- ARK Bundle (.ark) packaging,
                         reads already-built output only, never touches
                         the compiler pipeline
@@ -460,47 +438,9 @@ pytest
 
 ## Roadmap
 
-- [x] v0.001 -- Python → HTML
-- [x] v0.002 -- CSS
-- [x] v0.003 -- JavaScript helpers
-- [x] v0.0035 -- Stateful JS (registry-driven behaviors + actions;
-      `arklight.ir.schema.BEHAVIOR_REGISTRY` / `ACTION_REGISTRY`,
-      `State`/`Bind`/`Action.*`; see `docs/DESIGN-NOTES.md` for the
-      full design writeup and `CHANGELOG.md` for what shipped)
-- [x] v0.004a -- `arklight new` CLI scaffolding (`simple` +
-      `production` templates via `arklight/cli/scaffold.py` and
-      `arklight/cli/templates/`) -- implemented and wired into the
-      CLI (`arklight new <name> --template ...`)
-- [ ] v0.004b -- CSS `@media` support, structured `<head>` extension
-      (`Page(meta=..., links=...)`) -- design complete, implementation
-      not started; the CSS backend still emits a fixed stylesheet with
-      no `@media`/`@container` blocks (see `docs/DESIGN-NOTES.md`)
-- [x] Unreleased -- CLI, pipeline & JS runtime error-handling
-      hardening (top-level catch-all in `arklight/cli/main.py::main()`,
-      `OSError` guards around `build()`'s file writes/asset copy,
-      `--passphrase` runtime warning, duplicate `_cmd_pwa` fix, and a
-      new `arkNotify()` on-page notice plus `try`/`catch` guards
-      throughout the generated `arklight.js` runtime; not yet assigned
-      a version number -- see `CHANGELOG.md`)
-- [ ] not yet scheduled -- `arklight --help` / `arklight --search
-      <name>` (schema lookup for a component by name); design sketched
-      in `docs/DESIGN-NOTES.md`, explicitly waiting on a go-ahead
-      before implementation starts
-- [ ] v0.010 -- Components (user-defined, reusable)
-- [x] v0.036 -- ARK Bundle spec v1 (single-file `.ark` packaging of a
-      site's build output via `arklight pack`; see `docs/DESIGN-NOTES.md`
-      ("v0.036: ARK Bundle spec v1"))
-- [x] v0.037 -- Sealed ARK Bundles (`assets/`/all files now carried
-      into the archive; archive half encrypted by default via
-      `arklight.packer.seal`, stdlib-only; `--passphrase` for real
-      confidentiality, `--plain` to opt back into a freely-openable
-      ZIP tail; new `arklight unpack` command; see
-      `docs/DESIGN-NOTES.md` ("v0.037: sealed bundles"))
-- [ ] v0.100 -- Alternate backends (Vue, Svelte) -- **note:** the
-      Backend interface is ready for this today; the IR isn't yet.
-      See [`docs/DESIGN-NOTES.md`](./docs/DESIGN-NOTES.md) for why a
-      state/event-semantics milestone likely needs to land before this
-      one means more than static HTML wearing a different file
-      extension.
-- [ ] v1.0 -- Stable compiler
-# ARKlight
+Full milestone table (with status) lives in
+[`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) -- kept as the single
+canonical copy rather than duplicated here, in `PROGRESS.md`, and in
+`CHANGELOG.md`. Short version: v0.001 through v0.041 are done; v0.048
+(CSS `@media` + `<head>`/`<header>` extension) is next; v0.010
+(components) and v0.100 (alternate backends) are further out.

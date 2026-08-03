@@ -4,7 +4,48 @@ Living document tracking what's implemented, key decisions made along
 the way, and what's queued up next. Update this file at the end of
 every work session, not just at milestone boundaries.
 
-## Current milestone: [Unreleased] -- JS runtime error-handling hardening
+Detail sections below are kept in reverse-chronological order (newest
+first) and are the narrative record -- what was tried, what was
+rejected, what broke. For the plain version history, see
+[`CHANGELOG.md`](./CHANGELOG.md); for the architecture-level roadmap
+table, see [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md).
+
+## Snapshot
+
+| Version  | What                                                       | Status  |
+|----------|------------------------------------------------------------|---------|
+| v0.001   | Python -> HTML                                              | DONE    |
+| v0.002   | CSS (default stylesheet)                                    | DONE    |
+| v0.003   | JavaScript helpers + two vocabulary addenda                 | DONE    |
+| v0.0035  | Stateful JS (`State`/`Bind`/`Action.*` registries)           | DONE    |
+| v0.004a  | CLI scaffolding (`arklight new`)                             | DONE    |
+| v0.036   | ARK Bundle spec v1 (`arklight pack`)                         | DONE    |
+| v0.037   | Sealed ARK Bundles (encrypted by default, `arklight unpack`) | DONE    |
+| v0.041   | CLI/pipeline/JS runtime hardening + stateful JS addenda I/II | DONE    |
+| v0.048   | CSS `@media` queries + `<head>`/`<header>` extension         | PLANNED |
+| v0.010   | User-defined components                                     | PLANNED |
+| v0.100   | Alternate backends (Vue, Svelte)                             | PLANNED |
+| v1.0     | Stable compiler                                              | PLANNED |
+
+### Planned, not yet scheduled to a version
+
+Design-sketched in `docs/DESIGN-NOTES.md`, explicitly waiting on a
+go-ahead before implementation starts on any of these:
+
+- **Custom CSS class authoring.** Today `class_name=` only ever
+  selects from the fixed set of utility classes the CSS backend ships
+  (`.nav`, `.card`, `.stack`, ...) -- there's no way for a site author
+  to define a *new* class with its own rules; the whole stylesheet is
+  one constant (`arklight/backend/css/render.py`). Real per-node/
+  per-class CSS generation is a bigger design question than v0.048's
+  `@media`/`<head>` scope and isn't folded into it.
+- **`arklight --search <name>`** -- schema lookup for a component by
+  name (required props, children rules) against
+  `arklight.ir.schema.SCHEMA`, the same source of truth every compiler
+  stage already reads from. Read-only reflection, no new data format.
+- **`arklight --help`** -- standard CLI usage/help text.
+
+## v0.041 -- JS runtime error-handling hardening (DONE)
 
 **Status: DONE**, version number not yet assigned. Follow-up to "CLI &
 pipeline error-handling hardening" directly below -- that pass covered
@@ -47,7 +88,7 @@ have no plausible runtime failure mode given their inputs
 "undefined", not a throw; the nav-highlight loop only ever touches
 `<a>` elements' own `.href`), so no guard was added to either.
 
-## Previous milestone: [Unreleased] -- CLI & pipeline error-handling hardening
+## v0.041 -- CLI & pipeline error-handling hardening (DONE)
 
 **Status: DONE**, version number not yet assigned. Prompted by a UX
 audit comparing the CLI's error handling against how the generated
@@ -96,7 +137,7 @@ are likeliest to fail), and a single malformed
 **Update:** this follow-up is now done -- see the "JS runtime
 error-handling hardening" milestone directly above.
 
-## Previous milestone: v0.0035 -- Stateful JS
+## v0.0035 -- Stateful JS (DONE)
 
 **Status: DONE.** This entry was missing from PROGRESS.md/CHANGELOG.md
 even though the code shipped -- `pyproject.toml` and
@@ -154,7 +195,7 @@ implementation work.
   mean more than static HTML wearing a different file extension --
   worth revisiting that section before scoping v0.100 for real.
 
-## Previous milestone: v0.003 -- JavaScript helpers
+## v0.003 -- JavaScript helpers (DONE)
 
 **Status: DONE.** Also folded in a round of research (Alpine.js/htmx,
 Reflex, Mitosis) and a written positioning/design-notes doc, per
@@ -273,7 +314,7 @@ python3 -m pytest -q
   emitting only the referenced behaviors is a natural, non-breaking
   follow-up.
 
-## Previous milestone: v0.002 -- CSS
+## v0.002 -- CSS (DONE)
 
 **Status: DONE.** Along with real CSS support, this pass also fixed
 three "wrinkles" reported after v0.001 landed: the CLI didn't open
@@ -369,7 +410,7 @@ python3 -m pytest -q
   -- rather than treating CSS as a special case bolted onto the HTML
   backend.
 
-## Previous milestone: v0.001 -- Python → HTML
+## v0.001 -- Python → HTML (DONE)
 
 **Status: DONE.** Full pipeline implemented, tested, and verified
 end-to-end against the example from ARCHITECTURE.
@@ -492,7 +533,7 @@ python3 -m pytest -q
   output (`/x/index.html`) was considered but deferred -- easy to add
   as a backend option later without touching earlier stages.
 
-## Done: v0.036 -- ARK Bundle spec v1
+## v0.036 -- ARK Bundle spec v1 (DONE)
 
 Implemented. Full writeup in `docs/DESIGN-NOTES.md` ("v0.036: ARK
 Bundle spec v1"). Short version: `arklight pack <build-dir> -o
@@ -533,28 +574,47 @@ wasn't -- opening the same already-open file handle with
 it directly is sufficient, since `zipfile` computes offsets from the
 handle's current position rather than assuming a byte-0 start.
 
-## Then: v0.004 -- CLI scaffolding (DONE) + responsive/head extension (PLANNING)
+## v0.004a -- CLI scaffolding (DONE)
 
-Originally three pieces, independent of v0.0035. Status as of this
-update:
+`arklight new <name> --template simple|production` --
+**implemented and wired into the CLI** (`arklight/cli/scaffold.py`,
+`arklight/cli/templates/simple.py` and `.../production.py`,
+`_cmd_new` in `arklight/cli/main.py`). This was originally tracked as
+one of three pieces under a combined "v0.004" heading; it's since been
+split out as v0.004a because it shipped well ahead of the other two.
+The stale note further down this file ("v0.0035 -- done; v0.004 --
+folder scaffolding only, logic not started") is superseded by this
+entry -- see the correction inline there.
 
-- [x] `arklight new <name> --template simple|production` --
-  **implemented and wired into the CLI** (`arklight/cli/scaffold.py`,
-  `arklight/cli/templates/simple.py` and `.../production.py`,
-  `_cmd_new` in `arklight/cli/main.py`). The doc note below ("v0.0035
-  -- done; v0.004 -- folder scaffolding only, logic not started") is
-  now stale as a result and is being left in place with this
-  correction rather than rewritten, per this file's own convention of
-  not silently editing history.
+## v0.048 -- CSS `@media` queries + `<head>`/`<header>` extension (PLANNED)
+
+The other two pieces of the old "v0.004" heading, renumbered to their
+own milestone since they didn't land with the scaffolding above and
+are now the next scheduled release. Design is complete and unchanged;
+implementation has not started. Full writeup in
+[`docs/DESIGN-NOTES.md`](./docs/DESIGN-NOTES.md) ("v0.048: CSS media
+queries + `<head>` extension").
+
 - [ ] `responsive_style={...}` prop -> real `@media` blocks in the CSS
-  backend. Still not implemented -- `arklight/backend/css/render.py`
+  backend. Not implemented yet -- `arklight/backend/css/render.py`
   still emits one fixed stylesheet with no `@media`/`@container`
-  blocks.
+  blocks, and `Page`/components never get a `<head>` hook at all.
 - [ ] `Page(meta=..., links=...)` -- a structured, non-arbitrary
-  `<head>` extension point (no raw HTML injection). Still not
-  implemented.
+  `<head>` extension point (no raw HTML injection). Not implemented
+  yet.
+- [ ] Anything else that touches the generated `<header>` element as
+  part of this pass (the element, not the `<head>` extension above --
+  see `docs/DESIGN-NOTES.md` for the distinction once design work
+  starts).
 
-## Later: v0.010 -- Components (user-defined, reusable)
+**Explicitly out of scope for v0.048**, tracked separately below under
+"Planned, not yet scheduled":
+
+- User-authored custom CSS classes/rules beyond the fixed
+  `class_name=` utility set.
+- `arklight --search <name>` component schema lookup.
+
+## v0.010 -- Components (user-defined, reusable) (PLANNED)
 
 Not started. Per `docs/DESIGN-NOTES.md`, this is where "write a plain
 Python function" (today's `nav()` pattern) becomes a real, first-class
@@ -577,7 +637,7 @@ opinionated per-component CSS). Rough questions to resolve first:
   anything beyond static output) -- worth deciding explicitly before
   v0.100, not assuming it falls out of v0.010 or v0.100 automatically.
 
-## v0.003 addendum -- vocabulary extension (done)
+## v0.003 -- vocabulary extension addendum I (DONE)
 
 Not a new milestone/version -- this stays v0.003. Added ~46 more
 built-in components (semantic layout, text-level semantics, forms,
@@ -594,7 +654,7 @@ Also fixed a pre-existing version drift: `pyproject.toml` said
 `0.001` while `arklight/__init__.py` said `0.003`; both now correctly
 read `0.003`.
 
-## v0.003 addendum 2 -- even more vocabulary (done)
+## v0.003 -- vocabulary extension addendum II (DONE)
 
 Still v0.003, same mechanism as addendum 1: 33 more built-in
 components, purely as data in `arklight.ir.schema.SCHEMA` (+
@@ -621,32 +681,35 @@ scope for the closed-behavior model), the new `<search>` landmark
 (too new/unsettled), `<object>`/`<embed>` (redundant with `IFrame`
 for this project's use cases).
 
-## v0.0035 -- done; v0.004 -- folder scaffolding only (logic not started)
+## v0.0035 -- behavior/action fragment refactor (DONE)
+
+**Superseded note, corrected in place (see "v0.004a" above) rather
+than deleted, per this file's own convention of not silently editing
+history:** this entry originally read "v0.0035 -- done; v0.004 --
+folder scaffolding only (logic not started)." The scaffolding logic
+described as not-started below has since shipped as v0.004a.
 
 `arklight/backend/js/behaviors/` and `arklight/backend/js/actions/`
 were originally added as empty, docstring-only packages ahead of the
-actual work; both are now fully populated (see "Current milestone:
-v0.0035" above) -- `arklight/backend/js/render.py` assembles the
-runtime from these fragments instead of one static `RUNTIME_JS`
-string.
+actual work; both are now fully populated (see "v0.0035" above) --
+`arklight/backend/js/render.py` assembles the runtime from these
+fragments instead of one static `RUNTIME_JS` string.
 
-Still scaffold-only, logic not started:
-
-- `arklight/cli/templates/` -- where the `simple`/`production`
-  templates for `arklight new` (`docs/DESIGN-NOTES.md`, "v0.004: CLI
-  scaffolding") will live, with `templates/simple/assets/` and
-  `templates/production/assets/` placeholder directories (just a
-  `.gitkeep` each -- deliberately not copied from Product-Showcase).
-  Nothing is wired into `arklight/cli/main.py` yet; `arklight` still
-  only has the `build` subcommand.
+At the time this entry was written, `arklight/cli/templates/` existed
+only as placeholder directories (`templates/simple/assets/`,
+`templates/production/assets/`, each just a `.gitkeep`) with nothing
+wired into `arklight/cli/main.py` yet. That work is now done -- see
+"v0.004a -- CLI scaffolding (DONE)" above.
 
 Also documented, not implemented, in `docs/DESIGN-NOTES.md`: two CLI
-helpers (`arklight --help`, `arklight --search <name>`) for looking up
-a component's schema by name once the vocabulary is large enough that
-recall becomes the bottleneck. Explicitly held for a separate
-go-ahead signal, independent of v0.0035/v0.004 above.
+helpers, `arklight --help` and `arklight --search <name>`, for looking
+up a component's schema by name once the vocabulary is large enough
+that recall becomes the bottleneck. Still not implemented as of this
+restructure -- see "Planned, not yet scheduled" near the top of this
+file. Explicitly held for a separate go-ahead signal, independent of
+v0.0035/v0.004a/v0.048.
 
-## v0.0035 addendum II -- list actions (append, remove) (done)
+## v0.041 -- stateful JS vocabulary addendum II: list actions (DONE)
 
 Not a new milestone/version -- second growth pass on
 `ACTION_REGISTRY`, same mechanism as addendum I directly below. First
@@ -668,7 +731,7 @@ as derived/computed state, `Action.set_from_input`, and
 debounced/throttled actions -- see `docs/DESIGN-NOTES.md`
 ("v0.0035: stateful-JS vocabulary addendum II").
 
-## v0.0035 addendum I -- decrement, reset (done)
+## v0.041 -- stateful JS vocabulary addendum I: decrement/reset (DONE)
 
 Not a new milestone/version -- same "addendum, not a full milestone"
 treatment as the two v0.003 vocabulary addenda above, applied to
@@ -692,30 +755,9 @@ derived/computed state, `Action.set_from_input` (binding state to
 `input`/`change` events, not just `click`), and debounced/throttled
 actions.
 
-## Milestone checklist (from ARCHITECTURE.md)
+## Milestone checklist
 
-- [x] v0.001 Python → HTML
-- [x] v0.002 CSS
-- [x] v0.003 JavaScript helpers (+ two vocabulary extension addenda above)
-- [x] v0.0035 Stateful JS (registry-driven behaviors + actions,
-      `State`/`Bind`/`Action.*`), plus addenda I & II (decrement,
-      reset, append, remove)
-- [x] v0.004a `arklight new` CLI scaffolding (simple + production
-      templates) -- implemented and wired in
-- [ ] v0.004b CSS `@media` support + structured `<head>` extension --
-      still design-only
-- [ ] v0.010 Components
-- [x] v0.036 ARK Bundle spec v1 (single-file `.ark` packaging via
-      `arklight pack`; html/css/js carry-over only)
-- [x] v0.037 Sealed ARK Bundles (`assets/` carried into the archive,
-      encrypted by default, `--passphrase`/`--plain`, `arklight unpack`)
-      -- previously missing from this checklist despite shipping; added
-      here for accuracy
-- [x] [Unreleased] CLI, pipeline & JS runtime error-handling
-      hardening (top-level catch-all in `main()`, `OSError` guards in
-      `build()`, passphrase warning, `arkNotify()` + `try`/`catch`
-      guards throughout the generated `arklight.js` runtime; version
-      number not yet assigned -- see `CHANGELOG.md`)
-- [ ] v0.100 Alternate backends -- Backend interface ready; IR needs a
-      state/event-semantics milestone first (see `docs/DESIGN-NOTES.md`)
-- [ ] v1.0 Stable compiler
+See the "Snapshot" table at the top of this file for current status,
+and [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for the canonical
+milestone roadmap (kept in sync with this file as the single source of
+truth, rather than a third copy of the same list).

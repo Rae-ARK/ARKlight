@@ -239,24 +239,29 @@ The missing piece for that vision isn't component reuse, it's
 reactivity, and that deserves its own named milestone rather than being
 assumed inside v0.100.
 
-## v0.0035 / v0.004 design: stateful JS, CLI scaffolding, responsive + head extension (PLANNING -- not yet implemented)
+## v0.0035 / v0.048 design: stateful JS, CLI scaffolding, responsive + head extension (v0.0035 + v0.004a DONE, v0.048 PLANNING)
 
 This section is a design doc, written before any of it is built, so the
 shape gets agreed on before code exists (same discipline as the
-Alpine/htmx-vs-Reflex research that preceded v0.003). Nothing below is
-implemented yet -- see PROGRESS.md for what's actually landed.
+Alpine/htmx-vs-Reflex research that preceded v0.003). Status has moved
+on since it was written -- see PROGRESS.md for what's actually landed
+(v0.0035 and the CLI-scaffolding half of what was originally called
+"v0.004" are both DONE; the CSS `@media`/`<head>` half is renumbered
+v0.048 and still PLANNING).
 
-Three initiatives, staged as two named milestones so this doesn't land
-as one undifferentiated grab-bag:
+Three initiatives, originally staged as two named milestones so this
+didn't land as one undifferentiated grab-bag:
 
-- **v0.0035 -- Stateful JS.** The breadcrumb for this already exists in
-  the v0.003 commit history ("Next is adding states in V0.0035"). This
-  is the reactivity/IR-state milestone this document has been calling
-  the real prerequisite for v0.100 (alternate backends) to mean
-  anything.
-- **v0.004 -- CLI scaffolding + responsive/head extension.** Two
-  independent, smaller features that don't depend on state landing
-  first.
+- **v0.0035 -- Stateful JS (DONE).** The breadcrumb for this already
+  exists in the v0.003 commit history ("Next is adding states in
+  V0.0035"). This is the reactivity/IR-state milestone this document
+  has been calling the real prerequisite for v0.100 (alternate
+  backends) to mean anything.
+- **v0.004a -- CLI scaffolding (DONE).** Shipped independently of
+  state landing first.
+- **v0.048 -- responsive/head extension (PLANNING).** The other half
+  of the original "v0.004" grouping; renumbered once v0.004a shipped
+  ahead of it. Still not implemented.
 
 ### v0.0035: stateful JS -- capability, not vocabulary
 
@@ -423,7 +428,7 @@ registry-entry addendum instead of a rendering-pipeline redesign.
   debounced/throttled actions** -- unchanged from addendum I's
   reasoning above; still bigger-than-a-registry-entry design work.
 
-### v0.004: CLI scaffolding (`arklight new`)
+### v0.004a: CLI scaffolding (`arklight new`) -- DONE
 
 ```
 arklight new <name> [--template simple|production] [--dir PATH]
@@ -480,9 +485,14 @@ help them remember `Picture`'s required props six months later):
 
 Both are additive CLI surface only; neither touches the compiler
 pipeline, the IR, or any backend. Held back from implementation until
-explicitly signaled, independent of the state of v0.0035/v0.004 above.
+explicitly signaled, independent of the state of v0.0035/v0.004a/v0.048 above.
 
-### v0.004: CSS media queries + `<head>` extension
+### v0.048: CSS media queries + `<head>` extension
+
+(Renumbered from the original "v0.004" combined heading once the CLI
+scaffolding piece of that heading shipped separately as v0.004a --
+see `PROGRESS.md`/`CHANGELOG.md`. Design below is unchanged from when
+it was first written.)
 
 - `Page(...)` gains optional, *structured* extension points --
   deliberately not a raw HTML-injection escape hatch, to avoid
@@ -513,14 +523,34 @@ explicitly signaled, independent of the state of v0.0035/v0.004 above.
 ### Staging
 
 Land as two tagged milestones, not one commit: **v0.0035** (state +
-behavior/action registries) lands first and independently; **v0.004**
-(scaffolding + responsive/head) does not depend on it and could
-technically land first if that's preferred once implementation starts.
+behavior/action registries) lands first and independently; **v0.048**
+(scaffolding + responsive/head -- scaffolding itself already shipped
+as v0.004a) does not depend on it and could technically land first if
+that's preferred once implementation starts.
+
+### Explicitly not part of v0.048: custom CSS class authoring (PLANNING -- not yet designed)
+
+Raised alongside the `@media`/`<head>` request but a distinct, bigger
+problem: today every class a site can use (`.nav`, `.card`, `.stack`,
+...) comes from the one fixed `BASE_CSS` constant in
+`arklight/backend/css/render.py` -- there is no per-node CSS
+generation, so a site author cannot define a brand-new class with its
+own rules, only opt into ones ARKlight already ships. Real support
+would mean either (a) a way to pass a dict of custom rules into
+`CSSBackend` that get emitted as real classes, or (b) collecting
+`style={...}` props into generated classes instead of inline styles,
+per the note already in `arklight/backend/css/render.py`'s module
+docstring. Both keep the "no arbitrary CSS/HTML strings" boundary the
+rest of the project holds -- structured input in, real CSS out, same
+shape as the `@media`/`<head>` design above. No implementation
+decision yet; noted here so it isn't silently folded into v0.048's
+scope. Held for a separate go-ahead, same as `arklight --search`
+above.
 
 ## v0.036: ARK Bundle spec v1 (IMPLEMENTED)
 
 This section was originally written up front (same discipline as the
-v0.0035/v0.004 design above) before any code existed. v1 is now
+v0.0035/v0.048 design above) before any code existed. v1 is now
 implemented as `arklight pack` (`arklight/packer/bundle.py`) -- the
 packing algorithm below matches what's shipped, with one
 simplification noted inline: stdlib `zipfile` turned out to handle the
