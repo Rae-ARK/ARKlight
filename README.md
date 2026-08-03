@@ -27,18 +27,20 @@ produces `ARK/index.html` -- plain, dependency-free HTML.
 
 ## Status
 
-**Current release: v0.042 -- extra CSS features + CLI discoverability.**
-`Site.style(name, {css-property: value})` registers a real, named,
-reusable CSS class instead of repeating a `style={...}` dict on every
-node that needs it -- use it anywhere via `class_name="name"`, same
-mechanism the built-in utility classes already use. Two long-open CLI
-gaps also closed: `arklight search <name>` looks up a built-in
-component's schema (required props, children rules, whether it's a
-`Bind(...)`-able target) with typo-tolerant "did you mean"
-suggestions when the name doesn't match; and a bare `arklight` (no
-subcommand) now prints full help and exits `0` instead of an argparse
-error. Full detail in [`CHANGELOG.md`](./CHANGELOG.md); narrative/
-decision log in [`PROGRESS.md`](./PROGRESS.md).
+**Current release: v0.043 -- optional `<head>` metadata props +
+backend `postprocess` hook.** `Page(...)` gains five optional props
+beyond the existing `title`: `description`, `favicon`, `og_title`,
+`og_description`, `og_image` (see "Head metadata" below) -- all
+additive, so a page using none of them renders byte-for-byte
+unchanged. Separately, every `Backend` now has an optional
+`postprocess(output_files)` hook, called after all backends'
+`render()` finish, so a *new* backend can transform the combined
+output of `HTMLBackend`/`CSSBackend`/`JSBackend` (build stamps,
+sitemaps, injected analytics, ...) without editing any of their
+source (see "Compiler pipeline" below). v0.042 (extra CSS features +
+CLI discoverability) shipped just before this -- full detail in
+[`CHANGELOG.md`](./CHANGELOG.md); narrative/decision log in
+[`PROGRESS.md`](./PROGRESS.md).
 
 **Next up: v0.048 -- CSS `@media` queries + `<head>`/`<header>`
 extension.** Design complete, implementation not started. See
@@ -522,6 +524,6 @@ pytest
 Full milestone table (with status) lives in
 [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) -- kept as the single
 canonical copy rather than duplicated here, in `PROGRESS.md`, and in
-`CHANGELOG.md`. Short version: v0.001 through v0.042 are done; v0.048
+`CHANGELOG.md`. Short version: v0.001 through v0.043 are done; v0.048
 (CSS `@media` + `<head>`/`<header>` extension) is next; v0.010
 (components) and v0.100 (alternate backends) are further out.

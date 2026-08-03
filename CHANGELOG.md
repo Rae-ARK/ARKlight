@@ -12,6 +12,40 @@ structured `<head>`/`<header>` extension) -- see the "Planned" section
 of [`PROGRESS.md`](./PROGRESS.md) and [`docs/DESIGN-NOTES.md`](./docs/DESIGN-NOTES.md)
 ("v0.048: CSS media queries + `<head>` extension") for the design.
 
+## [0.043] -- Optional `<head>` metadata props + backend `postprocess` hook
+
+Two independent, additive changes: five new optional `Page(...)` props
+for common `<head>` metadata (filling part of the gap ahead of
+v0.048's full `<head>`/`<header>` extension), and a new extension
+point on `Backend` for adding a backend that depends on another
+backend's already-rendered output, without editing that backend's
+source.
+
+### Added
+
+- **`description`, `favicon`, `og_title`, `og_description`,
+  `og_image`** (`arklight/backend/html/render.py`) -- optional
+  `Page(...)` props rendering `<meta name="description">`, `<link
+  rel="icon">`, and Open Graph `<meta property="og:*">` tags,
+  following the same `page.root.props.get(...)` pattern `title`
+  already used. All five are additive: a page that sets none of them
+  renders byte-for-byte identically to before this change. Open Graph
+  tags specifically are opt-in -- they only render once `description`
+  or any `og_*` prop is supplied, so `title`-only pages don't get an
+  unsolicited `og:title`. `favicon`/`og_image` resolve to a relative
+  path the same way the stylesheet/script links already do.
+- **`Backend.postprocess(output_files) -> output_files`**
+  (`arklight/backend/base.py`, `arklight/compiler/pipeline.py`) --
+  optional second pass, called once per backend (same order as
+  `backends=[...]`) after every backend's `render()` has finished,
+  over the *combined* `{path: contents}` dict from all of them.
+  Default implementation is a no-op identity, so `HTMLBackend`,
+  `CSSBackend`, and `JSBackend` needed no changes. Lets a new backend
+  (analytics injection, build stamps, sitemap generation, ...) see and
+  transform what other backends already produced without editing
+  their source -- see `tests/test_pipeline_end_to_end.py` for a
+  worked example.
+
 ## [0.042] -- Extra CSS features: custom classes, `arklight search`, `arklight --help`
 
 Goal was cutting boilerplate/nesting in the styling API and closing

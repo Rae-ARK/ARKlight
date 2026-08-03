@@ -124,6 +124,7 @@ here rather than keeping their own copies. Status: DONE / PLANNED.
 | v0.037 | Sealed ARK Bundles -- archive half encrypted by default, `assets/` + all files carried over, `arklight unpack` | DONE |
 | v0.041 | CLI/pipeline/JS runtime error-handling hardening + stateful JS vocabulary addenda I & II (`Action.decrement/reset/append/remove`) | DONE |
 | v0.042 | Extra CSS features -- `Site.style(name, rules)` custom CSS class authoring, `arklight search <name>` component-schema lookup, `arklight --help`/bare `arklight` help text | DONE |
+| v0.043 | Optional `<head>` metadata props (`description`/`favicon`/`og_*` on `Page(...)`) + `Backend.postprocess(...)` extension hook | DONE |
 | v0.048 | CSS `@media` queries + structured `<head>`/`<header>` extension -- design complete in `docs/DESIGN-NOTES.md`, implementation not started | PLANNED |
 | v0.010 | User-defined, reusable components | PLANNED |
 | v0.100 | Alternate backends (Vue, Svelte) -- Backend interface ready today; IR needs a state/event-semantics milestone first | PLANNED |
