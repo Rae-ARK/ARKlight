@@ -30,3 +30,24 @@ class Backend(ABC):
         itself, which keeps backends trivially testable.
         """
         raise NotImplementedError
+
+    def postprocess(self, output_files: dict[str, str]) -> dict[str, str]:
+        """
+        Optional second pass over the *combined* output of every
+        backend's `render()`, run in `backends=[...]` order after all
+        `render()` calls finish (see `arklight.compiler.pipeline.build`).
+
+        Default is a no-op identity so existing backends (HTMLBackend,
+        CSSBackend, JSBackend) need no changes and behave exactly as
+        before. A new backend can override this to add or transform
+        files that depend on what other backends already produced --
+        e.g. injecting analytics/OG tags computed from data the HTML
+        backend already rendered -- without editing that backend's
+        source. This is the "add a backend" extension point; prefer it
+        over modifying an existing backend's `render()` unless the
+        capability is intrinsic to that backend's own output (e.g. a
+        new *_head_ tag HTMLBackend already knows how to build from
+        Page props -- see `_render_head_meta` in
+        `arklight.backend.html.render`).
+        """
+        return output_files

@@ -318,3 +318,56 @@ def test_aria_prop_convention_renders_as_aria_dash_attribute():
 def test_aria_boolean_true_renders_as_bare_attribute():
     output = render({"/": Page(Container(Text("x"), aria_hidden=True))})
     assert "aria-hidden" in output["index.html"]
+
+
+def test_page_without_head_meta_props_renders_unchanged():
+    # No description/favicon/og_* props supplied -> no new tags at all,
+    # existing sites' output is byte-for-byte unaffected.
+    html = render({"/": Page(Heading("Hi"), title="My Page")})["index.html"]
+    assert "description" not in html
+    assert "og:" not in html
+    assert 'rel="icon"' not in html
+
+
+def test_page_description_renders_as_meta_description():
+    html = render({"/": Page(Heading("Hi"), description="A test page.")})["index.html"]
+    assert '<meta name="description" content="A test page.">' in html
+
+
+def test_page_favicon_renders_as_relative_icon_link():
+    html = render({"/": Page(Heading("Hi"), favicon="assets/favicon.ico")})["index.html"]
+    assert '<link rel="icon" href="assets/favicon.ico">' in html
+
+
+def test_page_favicon_is_relative_from_nested_route():
+    output = render({"/blog/post-one": Page(Heading("Hi"), favicon="assets/favicon.ico")})
+    html = output["blog/post-one.html"]
+    assert '<link rel="icon" href="../assets/favicon.ico">' in html
+
+
+def test_page_og_tags_default_to_title_and_description():
+    html = render(
+        {"/": Page(Heading("Hi"), title="My Page", description="A test page.")}
+    )["index.html"]
+    assert '<meta property="og:title" content="My Page">' in html
+    assert '<meta property="og:description" content="A test page.">' in html
+
+
+def test_page_og_title_overrides_title_fallback():
+    html = render(
+        {"/": Page(Heading("Hi"), title="My Page", og_title="Custom OG Title")}
+    )["index.html"]
+    assert '<meta property="og:title" content="Custom OG Title">' in html
+
+
+def test_page_og_image_renders_and_escapes():
+    html = render({"/": Page(Heading("Hi"), og_image="assets/social.png")})["index.html"]
+    assert '<meta property="og:image" content="assets/social.png">' in html
+
+
+def test_page_description_is_html_escaped():
+    html = render({"/": Page(Heading("Hi"), description='<script>alert("x")</script>')})[
+        "index.html"
+    ]
+    assert "<script>alert" not in html
+    assert "&lt;script&gt;" in html

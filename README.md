@@ -185,6 +185,16 @@ single `build(entry_path, output_dir)` call, which is what the CLI
 uses. By default it runs `[HTMLBackend(), CSSBackend(), JSBackend()]`
 -- pass your own `backends=[...]` list to customize which backends run.
 
+Each backend can also implement `postprocess(output_files) ->
+output_files`, called once per backend (same order as `backends=[...]`)
+*after* every backend's `render()` has run, over the combined
+`{path: contents}` dict from all of them. The default `Backend`
+implementation is a no-op identity, so existing backends need no
+changes. This is the extension point for adding a new backend that
+depends on what other backends already produced (analytics snippets,
+build stamps, sitemap generation, ...) without editing that backend's
+source -- see `tests/test_pipeline_end_to_end.py` for a worked example.
+
 ### Internal links are relative, not root-absolute
 
 `Link("About", href="/about")` refers to the *route* `"/about"`, the
@@ -194,6 +204,37 @@ this to the correct relative file path at build time (`about.html`,
 navigation works whether you open the file directly from disk or
 deploy the `ARK/` folder as-is. External URLs, `#fragments`, and
 `mailto:`/`tel:` links are left untouched.
+
+### Head metadata (title, description, favicon, Open Graph)
+
+`Page(...)` already accepted `title` (falls back to the site name if
+omitted). Five more optional props extend the same pattern -- read
+straight off `Page`'s props, nothing new to import:
+
+```python
+Page(
+    Heading("ARKlight"),
+    title="ARKlight",
+    description="A Python-first compiler for building static websites.",
+    favicon="assets/favicon.ico",
+    og_image="assets/social.png",
+)
+```
+
+| Prop              | Renders as                                    |
+|-------------------|------------------------------------------------|
+| `title`           | `<title>` (already existed)                    |
+| `description`     | `<meta name="description">`                    |
+| `favicon`         | `<link rel="icon">` -- resolved relative, same as the stylesheet/script links |
+| `og_title`        | `<meta property="og:title">` -- defaults to `title` |
+| `og_description`  | `<meta property="og:description">` -- defaults to `description` |
+| `og_image`        | `<meta property="og:image">` -- resolved relative, like `favicon` |
+
+All six are optional and additive: a page that sets none of them
+renders identically to before this feature existed. Open Graph tags
+specifically only appear once `description` or any `og_*` prop is
+supplied, so `title`-only pages (the common case) don't get an
+unsolicited `og:title`.
 
 ### Styling components
 

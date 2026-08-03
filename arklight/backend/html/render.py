@@ -387,6 +387,60 @@ def _render_node(node: IRNode, *, current_route: str, route_to_path: dict[str, s
     return f"<{tag}{attrs}>{inner}</{tag}>"
 
 
+def _render_head_meta(
+    page: IRPage, title: str, *, current_route: str, route_to_path: dict[str, str]
+) -> str:
+    """
+    Optional <head> tags beyond charset/viewport/title/stylesheet, all
+    sourced the same way `title` already is: plain optional props read
+    off the Page(...) node. None of these are in arklight.ir.schema.SCHEMA
+    as required, so omitting them is always valid and existing sites are
+    unaffected -- this only adds tags when a prop is actually supplied.
+
+    Supported props (all optional):
+      description  -- <meta name="description">
+      favicon      -- root-relative asset path, resolved the same way
+                       stylesheet_href/script_src already are
+      og_title, og_description, og_image -- Open Graph tags, emitted
+        only once `description` or any `og_*` prop is supplied (so a
+        page that touches none of this renders exactly as before);
+        og_title/og_description then fall back to title/description
+    """
+    description = page.root.props.get("description")
+    favicon = page.root.props.get("favicon")
+
+    # Open Graph is fully opt-in: only appears once at least one og_*
+    # prop is explicitly supplied, so a page that never touches this
+    # feature renders byte-for-byte identically to before this change.
+    og_title = og_description = og_image = None
+    og_opt_in_keys = ("description", "og_title", "og_description", "og_image")
+    if any(page.root.props.get(key) is not None for key in og_opt_in_keys):
+        og_title = page.root.props.get("og_title", title)
+        og_description = page.root.props.get("og_description", description)
+        og_image = page.root.props.get("og_image")
+
+    tags: list[str] = []
+    if description:
+        tags.append(f'  <meta name="description" content="{escape(str(description), quote=True)}">\n')
+    if favicon:
+        favicon_href = _relative_asset_path(
+            str(favicon), current_route=current_route, route_to_path=route_to_path
+        )
+        tags.append(f'  <link rel="icon" href="{escape(favicon_href, quote=True)}">\n')
+    if og_title:
+        tags.append(f'  <meta property="og:title" content="{escape(str(og_title), quote=True)}">\n')
+    if og_description:
+        tags.append(
+            f'  <meta property="og:description" content="{escape(str(og_description), quote=True)}">\n'
+        )
+    if og_image:
+        og_image_href = _relative_asset_path(
+            str(og_image), current_route=current_route, route_to_path=route_to_path
+        )
+        tags.append(f'  <meta property="og:image" content="{escape(og_image_href, quote=True)}">\n')
+    return "".join(tags)
+
+
 def _render_page(page: IRPage, site_name: str, route_to_path: dict[str, str]) -> str:
     title = page.root.props.get("title", site_name)
     body_inner = _render_children(
@@ -396,6 +450,7 @@ def _render_page(page: IRPage, site_name: str, route_to_path: dict[str, str]) ->
         STYLESHEET_PATH, current_route=page.route, route_to_path=route_to_path
     )
     script_src = _relative_asset_path(SCRIPT_PATH, current_route=page.route, route_to_path=route_to_path)
+    head_meta = _render_head_meta(page, title, current_route=page.route, route_to_path=route_to_path)
     # v0.0035: pages that declare State(...) hydrate the client-side
     # store from here -- a JSON blob of the same initial values the
     # page was rendered with, so client and server never disagree.
@@ -410,6 +465,7 @@ def _render_page(page: IRPage, site_name: str, route_to_path: dict[str, str]) ->
         '  <meta name="viewport" content="width=device-width, initial-scale=1">\n'
         f"  <title>{escape(str(title))}</title>\n"
         f'  <link rel="stylesheet" href="{escape(stylesheet_href, quote=True)}">\n'
+        f"{head_meta}"
         "</head>\n"
         f"<body{body_attrs}>\n{body_inner}\n"
         f'<script src="{escape(script_src, quote=True)}" defer></script>\n'

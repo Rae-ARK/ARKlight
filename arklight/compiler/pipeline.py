@@ -117,6 +117,16 @@ def build(
             raise CompileError(f"Backend {backend.name!r} failed to render: {exc}") from exc
         output_files.update(rendered)
 
+    # Second pass: each backend gets a chance to transform the *combined*
+    # output of every backend's render(), in the same order. Default
+    # Backend.postprocess() is a no-op, so this changes nothing unless a
+    # backend explicitly overrides it -- see arklight.backend.base.Backend.
+    for backend in backends:
+        try:
+            output_files = backend.postprocess(output_files)
+        except Exception as exc:  # noqa: BLE001 -- surface backend errors clearly
+            raise CompileError(f"Backend {backend.name!r} failed to postprocess: {exc}") from exc
+
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 

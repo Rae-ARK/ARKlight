@@ -130,3 +130,36 @@ def home():
     assert ".pull-quote {" in css
     assert "font-style: italic;" in css
     assert 'class="pull-quote"' in html
+
+
+def test_added_backend_can_postprocess_combined_output_without_editing_existing_backends(tmp_path):
+    """
+    Demonstrates the "add a backend" extension point: a new Backend can
+    see and transform the *combined* output of every other backend's
+    render() via postprocess(), without touching HTMLBackend/CSSBackend/
+    JSBackend source at all.
+    """
+    from arklight.backend.base import Backend
+    from arklight.compiler.pipeline import default_backends
+
+    class BuildStampBackend(Backend):
+        name = "build-stamp"
+
+        def render(self, ir):
+            return {"BUILD_STAMP.txt": f"pages={len(ir.pages)}\n"}
+
+        def postprocess(self, output_files):
+            # Prove we can see files HTMLBackend/CSSBackend/JSBackend
+            # already produced, e.g. to append a generated-by comment.
+            stamped = dict(output_files)
+            if "index.html" in stamped:
+                stamped["index.html"] += "<!-- built by BuildStampBackend -->\n"
+            return stamped
+
+    site_path = write_site(tmp_path, SIMPLE_SITE)
+    out_dir = tmp_path / "ARK"
+
+    build(site_path, out_dir, backends=[*default_backends(), BuildStampBackend()])
+
+    assert (out_dir / "BUILD_STAMP.txt").read_text(encoding="utf-8") == "pages=2\n"
+    assert "<!-- built by BuildStampBackend -->" in (out_dir / "index.html").read_text(encoding="utf-8")
