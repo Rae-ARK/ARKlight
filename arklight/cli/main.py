@@ -21,6 +21,7 @@ import webbrowser
 from pathlib import Path
 
 from arklight import __version__
+from arklight.cli.license_gate import ensure_license_accepted
 from arklight.cli.scaffold import ScaffoldError, new_project
 from arklight.cli.templates import TEMPLATES
 from arklight.compiler.pipeline import BuildResult, CompileError, build
@@ -308,6 +309,12 @@ def main(argv: list[str] | None = None) -> int:
     new_parser.set_defaults(func=_cmd_new)
 
     args = parser.parse_args(argv)
+
+    # One-time GPLv3 + additional-terms acceptance gate -- see
+    # arklight/cli/license_gate.py for why this lives here rather than
+    # at `pip install` time.
+    if not ensure_license_accepted():
+        return 1
 
     try:
         return args.func(args)

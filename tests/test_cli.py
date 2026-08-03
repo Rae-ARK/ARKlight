@@ -60,6 +60,17 @@ def test_open_in_browser_swallows_launch_errors(tmp_path):
     assert opened is False
 
 
+def test_cli_build_blocked_without_license_acceptance(tmp_path, monkeypatch):
+    site_path = write_site(tmp_path)
+    monkeypatch.delenv("ARKLIGHT_ACCEPT_LICENSE", raising=False)
+    monkeypatch.setenv("ARKLIGHT_HOME", str(tmp_path / "home"))
+
+    exit_code = main(["build", str(site_path), "-o", str(tmp_path / "dist"), "--no-open"])
+
+    assert exit_code == 1
+    assert not (tmp_path / "dist" / "index.html").exists()
+
+
 def test_cli_build_no_open_does_not_launch_browser(tmp_path, capsys):
     site_path = write_site(tmp_path)
     out_dir = tmp_path / "dist"
