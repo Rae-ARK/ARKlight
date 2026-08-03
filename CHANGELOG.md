@@ -7,7 +7,20 @@ SemVer.
 
 ## [Unreleased]
 
-Nothing shipped yet. Next up is **v0.044** (JS backend capability
+**Stage 1 of a staged reactive-core expansion: vendored vdom core.**
+Pages that declare `State(...)` now re-render their `data-ark-bind`
+elements through a vendored [snabbdom](https://github.com/snabbdom/snabbdom)
+core (`init` + `h` + `vnode` + `htmlDomApi`, MIT licensed, no optional
+modules -- see `arklight/backend/js/vdom.py`) instead of a raw
+`el.textContent = ...` assignment. This is a mechanism swap only: no
+new page-facing Python API, no change to `State`/`Bind`/`Action.*`
+behavior, and pages without `State(...)` still ship none of it (only
+ship what's used, unchanged). It exists to give later stages (list
+rendering, conditional show/hide, attribute/class binding, and a
+planned "Stage 8": `localStorage` persistence for `State`) a real
+diff/patch algorithm to build on rather than each hand-rolling one.
+
+Next up is **v0.044** (JS backend capability
 expansion -- computed/derived state, watch effects, two-way input
 binding, per-item list rendering, conditional show/hide, event
 modifiers, reactive class binding), with **v0.048** (CSS `@media`
