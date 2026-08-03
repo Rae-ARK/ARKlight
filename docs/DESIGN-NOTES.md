@@ -529,6 +529,332 @@ behavior/action registries) lands first and independently; **v0.048**
 as v0.004a) does not depend on it and could technically land first if
 that's preferred once implementation starts.
 
+## v0.044: JS backend capability expansion -- reactive core parity with Vue 3 (PLANNING)
+
+Requested directly by the maintainer: "add all kinds [of] cool JS
+ability to the pkg... more capable of handling so much more
+reactivity... to match Vue 3's breadth." This section is the design
+doc for that, written before any of it is built, same discipline as
+every other PLANNING section in this file. Status: design complete,
+implementation not started.
+
+This section assumes the reader has `v0.0035`'s section above in
+mind: `State`/`Bind`/`Action.*`, the `BEHAVIOR_REGISTRY`/
+`ACTION_REGISTRY` pattern, and the closed-vocabulary-over-arbitrary-JS
+constraint. v0.044 is a direct continuation, not a new foundation --
+it grows the same registries-as-data discipline into the specific
+gaps that section's own "deliberately left for a future version"
+notes already named (derived/computed state, `set_from_input`,
+debounced actions, per-item list rendering).
+
+### The one constraint that shapes everything else
+
+**Anything CSS or HTML can already do doesn't belong here.** Per the
+maintainer's own framing: CSS has its dedicated pipeline
+(`arklight/backend/css/`), HTML has its dedicated pipeline
+(`arklight/backend/html/` + `arklight.ir.schema.SCHEMA`), and JS's job
+is reactivity -- *whether* and *what* changes, never *how it looks*.
+Concretely:
+
+- Conditional rendering decides *if* an element is shown. It does not
+  define a fade/slide/animation for the transition -- that's a
+  `Site.style`/CSS-class concern, unaffected by this milestone.
+- Reactive class binding toggles an *existing* class the CSS backend
+  (or `v0.042`'s `Site.style`) already defines. It does not define
+  new classes or rules -- that would be reopening the CSS pipeline
+  from the JS side, which is exactly the layering violation the
+  maintainer flagged.
+- List rendering decides *how many* copies of a template render and
+  with *what bound values*. The template's own tags/props are
+  ordinary `SCHEMA` components already validated by the existing
+  HTML/CSS pipelines -- v0.044 doesn't add new component types.
+
+### Why "Vue 3 parity" needs a different mechanism than Vue 3 uses
+
+Vue 3's breadth comes from a real **expression evaluator**: template
+directives (`v-if="user.age > 18 && user.active"`) compile down to
+arbitrary JavaScript expressions embedded in generated render
+functions. ARKlight's non-negotiable constraint -- no arbitrary
+JS/Python string is ever handed to the browser to execute, no `eval`,
+no `new Function` -- rules that mechanism out categorically, not as a
+matter of degree. This isn't a gap to design around quietly; it's the
+one part of "Vue 3 parity" this project cannot and should not chase,
+and it needs to be said plainly rather than discovered later as a
+disappointing surprise.
+
+**What's achievable instead: breadth of closed, named primitives
+covering the common cases**, the same trade Vue *itself* made at a
+different layer -- Vue's own `<script setup>` macros
+(`defineProps`, `defineEmits`) are themselves a closed, compiler-
+recognized vocabulary, not "any JS goes." ARKlight pushes that same
+idea one level further down, into the expression position itself:
+where Vue writes `v-if="count > 5"`, ARKlight writes
+`Show(Predicate.gt("count", 5))` -- a real Python call the Validation
+stage can check against a registry at compile time, not a string
+parsed at runtime. The result covers the large majority of realistic
+template-expression usage (comparisons, membership, simple arithmetic
+combinations, string formatting) without ever parsing or executing a
+user-supplied expression. What it *cannot* cover -- an arbitrary,
+unanticipated expression shape -- stays uncovered on purpose. That's
+a real, permanent ceiling, not a temporary one this project intends
+to close later by finally adding an evaluator.
+
+### Seven additive sub-systems
+
+Each follows the exact shape `v0.0035`'s `BehaviorSpec`/`ActionSpec`
+established: a new `*Spec` dataclass, a new `*_REGISTRY` dict in
+`arklight/ir/schema.py`, small per-entry JS fragments in a new
+`arklight/backend/js/<kind>/` directory, and new `arklight.api`
+surface that produces structured data (never a string of code).
+Nothing here changes `normalize.py`/`validate.py`/`build.py`'s
+*shape* -- it's the same registries growing as data, applied to six
+new kinds of registry instead of just behaviors/actions.
+
+**1. Computed/derived state** (closes the "derived/computed state"
+gap named in both `v0.0035` addenda). New API:
+
+```python
+State("price", 9.99)
+State("qty", 3)
+Computed("total", deps=("price", "qty"), derive=Derive.multiply("price", "qty"))
+Text(Bind("total"))
+```
+
+`DerivationSpec`/`DERIVATION_REGISTRY` (mirrors `ActionSpec`/
+`ACTION_REGISTRY`): `Derive.sum(*names)`, `Derive.multiply(*names)`,
+`Derive.join(*names, sep=" ")`, `Derive.count(name)` (list length),
+`Derive.format(template, **names)` (fixed `{name}`-style substitution
+over named state values only -- not a general string-eval, just
+`str.format` over a closed mapping), `Derive.compare(a, b, op)` where
+`op` is itself a closed choice (`"eq"`/`"gt"`/`"lt"`/...), never a
+raw operator string executed as code. `IRPage` gains a `computed:
+dict[str, ComputedSpec]` field alongside today's `state`. Validation
+checks every `deps` name resolves to a real `State`/other `Computed`
+on the same page (catching typos/forward-reference mistakes at build
+time, same guarantee `Bind` validation already gives).
+
+**2. Watch effects** (the reactive-effect / `watch()` equivalent).
+New API:
+
+```python
+State("celsius", 0)
+State("fahrenheit", 32)
+Watch("celsius", then=Action.set("fahrenheit", Derive.format("...")))  # illustrative
+```
+
+More realistically, `Watch` is most useful paired with `Computed`
+covering the "derive a value" half and `Watch` covering the "when X
+changes, also do Y" side-effect half -- e.g. clamping a value back
+into range, or dispatching a `dismiss`/`toggle` *behavior* (not just
+an action) in response to a state change rather than only a click.
+Declared as a `watch: list[WatchSpec]` on `IRPage`; the runtime's
+existing `store.subscribe` mechanism (already used by
+`renderBindings`) gains one more kind of subscriber. No new dispatch
+mechanism -- watch effects reuse the exact same `ACTION_REGISTRY`
+dispatcher `on_click=Action.*` already uses, just invoked from a
+state-change subscription instead of a click listener.
+
+**3. Two-way input binding** (the `v-model` equivalent; closes
+`set_from_input`, named in the `v0.0035` addendum I "left for a
+future version" list). New API:
+
+```python
+State("email", "")
+Input(type="email", bind_value="email", bind_as="string")
+```
+
+Compiles to `data-ark-model="email"` (+ `data-ark-model-as` for the
+closed coercion vocabulary: `"string"`/`"number"`/`"bool"`). The
+runtime wires one `input`/`change` listener per bound element calling
+`store.set(key, coerce(el.value))` -- the *coercion* function is
+fixed vocabulary (four cases: string passthrough, `Number(...)`,
+checkbox-checked boolean, nothing else), not user-suppliable code.
+
+**4. Per-item list rendering** (the `v-for` equivalent -- the single
+biggest lift here, and explicitly flagged as such back in the
+`v0.0035` addendum II section: "the real remaining gap for a
+production todo-list/tag-editor style UI... a materially different
+feature"). New API:
+
+```python
+State("items", ["milk", "eggs"])
+
+def row(item, index):
+    return Item(
+        Bind.item(),
+        Button("Remove", on_click=Action.remove("items", Bind.index())),
+    )
+
+List(Repeat("items", template=row))
+```
+
+- `Repeat(state_name, template)` is a new `ARKNode`/IR concept (not a
+  new HTML component -- `Repeat` never renders a tag itself, it
+  wraps whatever `template(item, index)` returns, which must already
+  be valid, schema-checked children of its parent the same as any
+  other list of children today).
+- Compiles to a `<template data-ark-repeat="items">...</template>`
+  block (the real HTML `<template>` element -- inert, never rendered
+  directly, exactly what it's for) wrapping one instance of the
+  compiled template markup, with `Bind.item()`/`Bind.index()`
+  positions marked as substitution points.
+- One new, fixed, general runtime function -- `renderRepeats(store)`
+  -- clones the `<template>` content once per array element on every
+  relevant `store.set`, substituting the marked positions. This is
+  one function shipped once, not per-list generated code: the
+  "generality" lives in walking the DOM template + substitution
+  markers, the same way `renderBindings` already generalizes over
+  every `data-ark-bind` element today rather than having one
+  hand-written function per bound key.
+- `Action.remove(name, index)` already exists (`v0.0035` addendum
+  II); `Bind.index()` inside a `Repeat` template is what makes
+  "remove *this* item" wireable without new action vocabulary.
+
+**5. Conditional show/hide** (the `v-show`/`v-if` equivalent). New
+API:
+
+```python
+State("is_open", False)
+Show(Predicate.truthy("is_open"), Container(Text("Details...")))
+```
+
+`PredicateSpec`/`PREDICATE_REGISTRY`: `Predicate.truthy(name)`,
+`Predicate.equals(name, value)`, `Predicate.gt(name, value)`,
+`Predicate.lt(name, value)`, `Predicate.in_list(name, values)`.
+Compiles to `data-ark-show-if="<predicate-id>"` on the wrapped
+element; the runtime evaluates the fixed predicate function against
+current state on every relevant change and toggles the standard HTML
+`hidden` attribute -- `v-show` semantics (stays in the DOM, display
+toggled) rather than `v-if` (added/removed from the DOM). True
+`v-if`-style removal is a plausible later addition on the same
+predicate mechanism, deliberately not bundled in here to keep this
+sub-system's first version to "toggle visibility," matching how
+`v0.0035`'s `toggle` behavior already only toggles a class rather
+than removing elements.
+
+**6. Event modifiers** (`.prevent`/`.stop`/`.once`/debounce/throttle
+-- named in `v0.0035` addendum I's "left for a future version" list
+as "a timing concern orthogonal to what an action does, better solved
+once as a wrapper than duplicated per action"). New API:
+
+```python
+Button("Save", on_click=Action.set("saved", True).debounce(300))
+Link("Delete", href="#", on_click=Action.remove("items", 0).with_modifiers("prevent", "once"))
+```
+
+`ModifierSpec`/`MODIFIER_REGISTRY`: `prevent`, `stop`, `once`,
+`debounce:<ms>`, `throttle:<ms>`. Implemented as one small wrapper
+function in the dispatcher (`arklight/backend/js/render.py`'s
+`wireActions`/`wireBehaviors`) that wraps the existing
+click-handler-building logic, checked once per element from a new
+`data-ark-modifiers="prevent,debounce:300"` attribute -- not
+duplicated into every individual action/behavior fragment.
+
+**7. Reactive class binding** (the `:class` equivalent; the "later
+`class_name=Bind(...)` for conditional classes" note explicitly left
+open in the original `v0.0035` design section above). New API:
+
+```python
+State("is_open", False)
+Container(..., class_name=Bind.class_if("is_open", "expanded"))
+```
+
+`Bind.class_if(state_name, class_name, else_class_name=None)`
+compiles to a `data-ark-class-if="is_open:expanded"` attribute (or
+`"is_open:expanded:collapsed"` with an else-class); the runtime
+adds/removes `class_name` on relevant state changes. The class itself
+(`"expanded"`) must already exist in the site's stylesheet -- via the
+default utility classes or `v0.042`'s `Site.style(...)` -- this
+sub-system only ever toggles membership in an existing class, it does
+not define one, keeping it strictly on the reactivity side of the
+CSS/JS boundary.
+
+### Generalizing the reactive core
+
+All seven sub-systems above put more consumers on the same underlying
+mechanism `v0.0035` introduced with one store and one flat
+`listeners` array. That flat structure means every sub-system so far
+would re-render *everything* on any `store.set` -- correct, but
+wasteful once `Computed`/`Watch`/`Repeat`/`Show`/class-binding are all
+independently subscribing. `createState` (`arklight/backend/js/
+render.py`) grows a real, if small, **dependency graph**: each state
+key tracks which computed keys, watchers, bound elements, repeat
+blocks, and show-if/class-if predicates depend on it, so `store.set`
+recomputes and re-renders only what actually depends on the changed
+key. This is still one static, fully-readable runtime file, still
+assembled from only the registry fragments a given site's IR actually
+references (the existing "ship only what's used" discipline from
+`v0.0035` applies unchanged), and still has zero `eval`/`new
+Function` anywhere -- the dependency graph is a plain JS object built
+from IR data at page-load time (`data-ark-deps="..."` or equivalent),
+not a fundamentally different execution model.
+
+### Compiler pipeline touch points
+
+- `arklight/ir/schema.py` -- four new registries
+  (`DERIVATION_REGISTRY`, `PREDICATE_REGISTRY`, `MODIFIER_REGISTRY`)
+  plus their `*Spec` dataclasses, same shape as `BehaviorSpec`/
+  `ActionSpec` today.
+- `arklight/api.py` -- `Computed`, `Watch`, `Show`, `Repeat`,
+  `Derive.*`, `Predicate.*`, `Bind.item`/`Bind.index`/`Bind.class_if`,
+  `Input(bind_value=...)`, `.debounce(...)`/`.with_modifiers(...)` on
+  `ActionRef`.
+- `arklight/ir/build.py` / `arklight/ir/normalize.py` /
+  `arklight/ir/validate.py` -- `IRPage` gains `computed`/`watch`
+  fields alongside today's `state`; validation checks `Computed.deps`,
+  `Watch` targets, `Repeat` template shape, and every `Derive.*`/
+  `Predicate.*`/modifier's args against its registry spec, same
+  discipline `Action.*` validation already applies.
+- `arklight/backend/js/render.py` -- the dependency-graph
+  generalization above; new fragment directories
+  `arklight/backend/js/derivations/`, `.../predicates/`,
+  `.../modifiers/`, one file per registry entry, mirroring
+  `actions/`/`behaviors/` exactly.
+- `arklight/backend/html/render.py` -- renders `Repeat`'s `<template>`
+  wrapper, `Show`'s `data-ark-show-if`, `Input`'s `data-ark-model`,
+  and the `data-ark-class-if`/`data-ark-modifiers` attributes.
+
+### Explicitly out of scope for v0.044
+
+Named here so none of it gets assumed-in-scope later, same convention
+this file already uses for `v0.048`:
+
+- A real JS/template-expression evaluator, `eval`, or `new Function`
+  -- permanent non-goal (see "Why 'Vue 3 parity' needs a different
+  mechanism" above), not a temporary gap.
+- Component props/slots/`provide`/`inject`, or anything assuming
+  `v0.010` (user-defined components) has landed -- it hasn't, and
+  this milestone's registries are deliberately page-scoped, not
+  component-scoped, so they don't need to be redesigned once v0.010
+  does land.
+- CSS transitions/animations/`@keyframes`/`@font-face` for anything
+  `Show`/class-binding toggles -- squarely `v0.048`-and-beyond
+  territory; this milestone only flips attributes/classes, never
+  defines what a change looks like.
+- New HTML component types or semantic vocabulary -- unchanged
+  territory of `SCHEMA`/the vocabulary addenda, not touched here.
+- Lifecycle hooks (`onMounted`/`onUpdated`) -- no concrete forcing
+  use case identified yet; noted as a candidate for a future
+  addendum rather than spec'd speculatively now.
+- Alternate framework backends (`v0.100`) -- this milestone is
+  a step toward the state/event-semantics prerequisite
+  `docs/DESIGN-NOTES.md`'s "authoring layer" section above already
+  names for that milestone, but does not itself complete it (no
+  Vue/Svelte codegen ships as part of v0.044).
+
+### Staging
+
+One milestone, landed as registry additions the same way `v0.0035`'s
+addenda were -- each of the seven sub-systems above is independently
+shippable and additive (a page using none of them renders
+byte-for-byte unchanged, same guarantee `v0.043`'s optional props
+gave), so they can land as `v0.044a`/`v0.044b`/etc. sub-versions in
+any order, rather than requiring one large all-or-nothing patch.
+Suggested order, easiest/most-requested first: reactive class binding
+(1) -> event modifiers (2) -> computed/derived state (3) -> two-way
+input binding (4) -> watch effects (5) -> conditional show/hide (6)
+-> per-item list rendering (7, the largest lift, last).
+
 ## v0.042: extra CSS features + CLI discoverability (IMPLEMENTED)
 
 Two initiatives that were originally raised alongside the `@media`/

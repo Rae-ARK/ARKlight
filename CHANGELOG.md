@@ -7,10 +7,15 @@ SemVer.
 
 ## [Unreleased]
 
-Nothing shipped yet. Next up is **v0.048** (CSS `@media` queries +
-structured `<head>`/`<header>` extension) -- see the "Planned" section
-of [`PROGRESS.md`](./PROGRESS.md) and [`docs/DESIGN-NOTES.md`](./docs/DESIGN-NOTES.md)
-("v0.048: CSS media queries + `<head>` extension") for the design.
+Nothing shipped yet. Next up is **v0.044** (JS backend capability
+expansion -- computed/derived state, watch effects, two-way input
+binding, per-item list rendering, conditional show/hide, event
+modifiers, reactive class binding), with **v0.048** (CSS `@media`
+queries + structured `<head>`/`<header>` extension) queued right
+behind it -- see the "Planned" section of [`PROGRESS.md`](./PROGRESS.md)
+and [`docs/DESIGN-NOTES.md`](./docs/DESIGN-NOTES.md) ("v0.044: JS
+backend capability expansion -- reactive core parity with Vue 3" and
+"v0.048: CSS media queries + `<head>` extension") for both designs.
 
 ## [0.043] -- Optional `<head>` metadata props + backend `postprocess` hook
 

@@ -22,6 +22,7 @@ table, see [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md).
 | v0.036   | ARK Bundle spec v1 (`arklight pack`)                         | DONE    |
 | v0.037   | Sealed ARK Bundles (encrypted by default, `arklight unpack`) | DONE    |
 | v0.041   | CLI/pipeline/JS runtime hardening + stateful JS addenda I/II | DONE    |
+| v0.044   | JS backend capability expansion (reactive core parity with Vue 3) | PLANNED |
 | v0.048   | CSS `@media` queries + `<head>`/`<header>` extension         | PLANNED |
 | v0.010   | User-defined components                                     | PLANNED |
 | v0.100   | Alternate backends (Vue, Svelte)                             | PLANNED |
@@ -44,6 +45,93 @@ go-ahead before implementation starts on any of these:
   `arklight.ir.schema.SCHEMA`, the same source of truth every compiler
   stage already reads from. Read-only reflection, no new data format.
 - **`arklight --help`** -- standard CLI usage/help text.
+
+## v0.044 -- JS backend capability expansion: reactive core parity with Vue 3 (PLANNED)
+
+Requested by the maintainer: bring "most of Vue 3's JS capabilities"
+into the JS backend -- computed/derived state, watchers, two-way
+input binding, per-item list rendering, conditional show/hide, event
+modifiers, reactive class binding. Full design writeup in
+[`docs/DESIGN-NOTES.md`](./docs/DESIGN-NOTES.md) ("v0.044: JS backend
+capability expansion -- reactive core parity with Vue 3"). Design
+complete; implementation not started.
+
+Explicit scope boundary carried over from the maintainer's own framing
+and enforced throughout the design: **anything achievable in CSS or
+HTML stays in the CSS/HTML backends.** This milestone only ever adds
+*reactivity* (state changing, and the DOM reflecting that change) --
+never new visual/structural vocabulary, which already has its own
+dedicated pipelines and its own milestones (`v0.048` for CSS, the two
+vocabulary addenda for HTML). Where a feature sounds like both (e.g.
+"conditional rendering"), the JS side only decides *whether/what*
+renders; *how it looks* is still 100% CSS the author already
+controls.
+
+- [ ] **Computed/derived state** (`Computed(name, deps=(...),
+      derive=Derive.sum(...))` etc.) -- a closed `DERIVATION_REGISTRY`
+      (`Derive.sum`, `Derive.join`, `Derive.count`, `Derive.format`,
+      `Derive.compare`), same registry discipline as
+      `ACTION_REGISTRY`. Not implemented yet.
+- [ ] **Watch effects** (`Watch("state_key", then=Action.xxx(...))`
+      declared on `Page(...)`) -- state-change-triggered side effects
+      reusing the existing action dispatcher, just triggered by
+      `store.set` instead of only by click. Not implemented yet.
+- [ ] **Two-way input binding** (`Input(..., bind_value="field")` ->
+      `data-ark-model`) -- the `v-model` equivalent; wires
+      `input`/`change` back into `store.set`. Not implemented yet.
+- [ ] **Per-item list rendering** (`Repeat(state_name, template=fn)`)
+      -- the `v-for` equivalent and the single biggest lift here,
+      already flagged as the real remaining gap back in the
+      `v0.0035` addendum II writeup ("comma-joined display is a
+      stopgap, not the end state"). Needs a new IR node carrying a
+      template sub-tree, plus a fixed `<template>`-clone-per-item
+      runtime function. Not implemented yet.
+- [ ] **Conditional show/hide** (`Show(Predicate.truthy("flag"),
+      children)`) -- the `v-show`/`v-if` equivalent, driven by a
+      closed `PREDICATE_REGISTRY` (`truthy`, `equals`, `gt`, `lt`),
+      never a raw boolean expression. Not implemented yet.
+- [ ] **Event modifiers** (`prevent`, `stop`, `once`,
+      `debounce:<ms>`, `throttle:<ms>`) -- one small dispatcher
+      wrapper via a closed `MODIFIER_REGISTRY`, not per-action
+      duplication. Not implemented yet.
+- [ ] **Reactive class binding** (`class_name=Bind.class_if("is_open",
+      "expanded")`) -- toggles an *existing* CSS class (defined by
+      the CSS backend/`Site.style`, not by this milestone) based on
+      state. This is the "later `class_name=Bind(...)` for
+      conditional classes" note left open back in the original
+      `v0.0035` design section. Not implemented yet.
+- [ ] Generalize the reactive core (`createState`/`renderBindings`/
+      the action dispatcher in `arklight/backend/js/render.py`) into
+      a real dependency graph (state key -> {computed keys, watchers,
+      bound elements, repeat blocks, show-if predicates} depending on
+      it), so one `store.set` triggers only what actually depends on
+      that key. Not implemented yet.
+
+**Explicitly out of scope for v0.044** (tracked here so it doesn't get
+assumed-in-scope later, same convention this file already uses for
+`v0.048`):
+
+- Any real JS/template-expression evaluator, `eval`, or `new
+  Function` -- permanent non-goal, not just deferred. Vue 3's own
+  breadth comes partly from a real expression evaluator in its
+  compiled render functions; this milestone gets comparable coverage
+  of *common patterns* through a breadth of closed, named primitives
+  instead, which is a real and permanent capability ceiling worth
+  being honest about, not a temporary gap.
+- Component props/slots/`provide`/`inject`/composition-API-style
+  reuse -- that's `v0.010` (components), which hasn't started; this
+  milestone doesn't assume or get ahead of it.
+- CSS transitions/animations/`@keyframes` for the `Show` toggle --
+  that's `v0.048`'s (and beyond) territory; `Show` only flips an
+  attribute/class, never defines how a change looks.
+- New HTML component types or semantic vocabulary -- that's the HTML
+  backend/schema's job (the two vocabulary addenda), not this one.
+- Lifecycle hooks (`onMounted`/`onUpdated`) -- no concrete forcing use
+  case yet; deferred rather than added speculatively.
+- Alternate framework backends (Vue/Svelte codegen) -- still `v0.100`,
+  still blocked on the same state/event-semantics prerequisite
+  `docs/DESIGN-NOTES.md` already names, which this milestone is a
+  step towards but does not itself complete.
 
 ## v0.041 -- JS runtime error-handling hardening (DONE)
 

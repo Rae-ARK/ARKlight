@@ -42,10 +42,19 @@ CLI discoverability) shipped just before this -- full detail in
 [`CHANGELOG.md`](./CHANGELOG.md); narrative/decision log in
 [`PROGRESS.md`](./PROGRESS.md).
 
-**Next up: v0.048 -- CSS `@media` queries + `<head>`/`<header>`
-extension.** Design complete, implementation not started. See
-[`docs/DESIGN-NOTES.md`](./docs/DESIGN-NOTES.md) ("v0.048: CSS media
-queries + `<head>` extension").
+**Next up: v0.044 -- JS backend capability expansion.** Computed/
+derived state, watch effects, two-way input binding, per-item list
+rendering, conditional show/hide, event modifiers, and reactive class
+binding -- all via closed, described registries (no arbitrary JS, no
+`eval`), same discipline as the existing `State`/`Bind`/`Action.*`
+system. Design complete, implementation not started. See
+[`docs/DESIGN-NOTES.md`](./docs/DESIGN-NOTES.md) ("v0.044: JS backend
+capability expansion -- reactive core parity with Vue 3").
+
+**Queued right behind it: v0.048 -- CSS `@media` queries +
+`<head>`/`<header>` extension.** Design complete, implementation not
+started. See [`docs/DESIGN-NOTES.md`](./docs/DESIGN-NOTES.md) ("v0.048:
+CSS media queries + `<head>` extension").
 
 See [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for the full
 milestone roadmap.
@@ -524,6 +533,7 @@ pytest
 Full milestone table (with status) lives in
 [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) -- kept as the single
 canonical copy rather than duplicated here, in `PROGRESS.md`, and in
-`CHANGELOG.md`. Short version: v0.001 through v0.043 are done; v0.048
-(CSS `@media` + `<head>`/`<header>` extension) is next; v0.010
+`CHANGELOG.md`. Short version: v0.001 through v0.043 are done; v0.044
+(JS backend capability expansion) is next, with v0.048 (CSS `@media` +
+`<head>`/`<header>` extension) queued right behind it; v0.010
 (components) and v0.100 (alternate backends) are further out.

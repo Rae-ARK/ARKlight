@@ -125,13 +125,15 @@ here rather than keeping their own copies. Status: DONE / PLANNED.
 | v0.041 | CLI/pipeline/JS runtime error-handling hardening + stateful JS vocabulary addenda I & II (`Action.decrement/reset/append/remove`) | DONE |
 | v0.042 | Extra CSS features -- `Site.style(name, rules)` custom CSS class authoring, `arklight search <name>` component-schema lookup, `arklight --help`/bare `arklight` help text | DONE |
 | v0.043 | Optional `<head>` metadata props (`description`/`favicon`/`og_*` on `Page(...)`) + `Backend.postprocess(...)` extension hook | DONE |
+| v0.044 | JS backend capability expansion -- computed/derived state, watch effects, two-way input binding, per-item list rendering, conditional show/hide, event modifiers, reactive class binding, all via closed registries (no arbitrary JS/eval) -- design complete in `docs/DESIGN-NOTES.md`, implementation not started | PLANNED |
 | v0.048 | CSS `@media` queries + structured `<head>`/`<header>` extension -- design complete in `docs/DESIGN-NOTES.md`, implementation not started | PLANNED |
 | v0.010 | User-defined, reusable components | PLANNED |
 | v0.100 | Alternate backends (Vue, Svelte) -- Backend interface ready today; IR needs a state/event-semantics milestone first | PLANNED |
 | v1.0 | Stable compiler | PLANNED |
 
-Nothing currently unscheduled -- v0.048 is next; see `docs/DESIGN-NOTES.md`
-for its design.
+Nothing currently unscheduled -- v0.044 is next (JS backend capability
+expansion), with v0.048 (CSS `@media` + `<head>` extension) queued
+right behind it; see `docs/DESIGN-NOTES.md` for both designs.
 
 ## Non-goals
 
