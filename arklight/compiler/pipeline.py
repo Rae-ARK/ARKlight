@@ -30,6 +30,7 @@ from __future__ import annotations
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 from arklight.backend.base import Backend
 from arklight.backend.css.render import CSSBackend
@@ -39,6 +40,21 @@ from arklight.ir.build import WebsiteIR, build_website_ir
 from arklight.ir.normalize import normalize_ark_ast
 from arklight.ir.validate import ValidationError, validate_ark_ast
 from arklight.parser.loader import SiteLoadError, load_site
+
+# A stage callback: called with a short, human-readable message every
+# time the pipeline moves into a new stage (site discovery, AST build,
+# normalization, validation, IR build, each backend's render/
+# postprocess, writing output, copying assets, ...). `compile_site_file`
+# and `build` both default this to a no-op, so calling either exactly
+# as before is unaffected -- passing `on_stage=` is purely additive.
+# The CLI's `--verbose`/`--debug` flags are what actually supply one
+# (see `arklight.cli.main`); nothing in this module ever prints on its
+# own, keeping stage reporting a presentation concern, not a pipeline one.
+StageLogger = Callable[[str], None]
+
+
+def _noop_stage_logger(_message: str) -> None:
+    return None
 
 # Name of the top-level, next-to-`site.py` folder ARKlight auto-copies
 # into the output directory (verbatim, recursively) if it exists. Fixes
@@ -64,12 +80,24 @@ class CompileError(RuntimeError):
     """Raised when any pipeline stage fails. Wraps the underlying error."""
 
 
-def compile_site_file(entry_path: str | Path) -> WebsiteIR:
+def compile_site_file(
+    entry_path: str | Path,
+    *,
+    on_stage: StageLogger | None = None,
+) -> WebsiteIR:
     """
     Run every stage up to (and including) Website IR construction, but
     do not render or write files. Useful for tooling that just wants
     the IR (linting, additional backends, tests).
+
+    `on_stage`, if given, is called once per stage with a short message
+    describing what's about to run -- purely for observability (e.g.
+    the CLI's `--verbose`/`--debug` output); it has no effect on the
+    result and defaults to a no-op.
     """
+    log = on_stage or _noop_stage_logger
+
+    log("Discovering site and compiling AST trees...")
     try:
         site, _discovered = load_site(entry_path)
     except SiteLoadError as exc:
@@ -80,16 +108,19 @@ def compile_site_file(entry_path: str | Path) -> WebsiteIR:
     except Exception as exc:  # noqa: BLE001 -- surface page-function errors clearly
         raise CompileError(f"Error while building page(s): {exc}") from exc
 
+    log("Normalizing AST...")
     try:
         normalized = normalize_ark_ast(ark_ast)
     except TypeError as exc:
         raise CompileError(str(exc)) from exc
 
+    log("Running validation...")
     try:
         validate_ark_ast(normalized)
     except ValidationError as exc:
         raise CompileError(str(exc)) from exc
 
+    log("Building website IR...")
     return build_website_ir(site.name, normalized, custom_styles=site.custom_styles)
 
 
@@ -98,19 +129,27 @@ def build(
     output_dir: str | Path,
     *,
     backends: list[Backend] | None = None,
+    on_stage: StageLogger | None = None,
 ) -> BuildResult:
     """
     Full pipeline: Python source file -> rendered files written to `output_dir`.
 
     Runs every backend in `backends` (default: HTML + CSS) over the
     same Website IR and merges their output files before writing.
+
+    `on_stage`, if given, is called once per stage (site discovery/AST,
+    normalization, validation, IR build, each backend's render/
+    postprocess, writing files, copying assets) with a short message --
+    see `compile_site_file` above. Defaults to a no-op; purely additive.
     """
+    log = on_stage or _noop_stage_logger
     backends = backends if backends is not None else default_backends()
 
-    ir = compile_site_file(entry_path)
+    ir = compile_site_file(entry_path, on_stage=log)
 
     output_files: dict[str, str] = {}
     for backend in backends:
+        log(f"Rendering backend {backend.name!r}...")
         try:
             rendered = backend.render(ir)
         except Exception as exc:  # noqa: BLE001 -- surface backend errors clearly
@@ -122,6 +161,7 @@ def build(
     # Backend.postprocess() is a no-op, so this changes nothing unless a
     # backend explicitly overrides it -- see arklight.backend.base.Backend.
     for backend in backends:
+        log(f"Postprocessing backend {backend.name!r}...")
         try:
             output_files = backend.postprocess(output_files)
         except Exception as exc:  # noqa: BLE001 -- surface backend errors clearly
@@ -130,6 +170,7 @@ def build(
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    log(f"Writing {len(output_files)} file(s) -> {out_dir}/...")
     written: list[Path] = []
     try:
         for rel_path, contents in output_files.items():
@@ -148,6 +189,7 @@ def build(
             f"the failure -- the output directory is now incomplete): {exc}"
         ) from exc
 
+    log("Copying assets...")
     try:
         written.extend(_copy_assets(entry_path, out_dir))
     except OSError as exc:
@@ -157,6 +199,7 @@ def build(
             f"so the build is partially complete: {exc}"
         ) from exc
 
+    log(f"Build complete -> {out_dir}/index.html")
     return BuildResult(ir=ir, output_files=output_files, written_paths=written)
 
 

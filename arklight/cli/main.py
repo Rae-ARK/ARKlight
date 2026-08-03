@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import traceback
 import webbrowser
 from pathlib import Path
 
@@ -28,6 +29,11 @@ from arklight.cli.templates import TEMPLATES
 from arklight.compiler.pipeline import BuildResult, CompileError, build
 from arklight.packer.bundle import PackError, pack, unpack
 from arklight.pwa import PWAError, enable_pwa
+
+# Prefix every `--verbose`/`--debug` stage line gets, so pipeline
+# progress reads as ARKlight "thinking out loud" rather than bare,
+# unattributed text mixed in with normal build output.
+_STAGE_PREFIX = "[ARKlight]"
 
 
 def open_in_browser(result: BuildResult, output_dir: str | Path) -> bool:
@@ -52,11 +58,35 @@ def open_in_browser(result: BuildResult, output_dir: str | Path) -> bool:
     return True
 
 
+def _stage_logger(message: str) -> None:
+    """`on_stage` callback for `build()` -- prints each pipeline stage
+    as it starts, prefixed like the rest of ARKlight's CLI output.
+    Wired up only when `--verbose`/`--debug` is passed (see
+    `_cmd_build`); the pipeline itself never prints anything on its own."""
+    print(f"{_STAGE_PREFIX} {message}")
+
+
 def _cmd_build(args: argparse.Namespace) -> int:
+    # --debug implies --verbose: tracing compiler errors is much easier
+    # with the stage-by-stage narration already on screen above the
+    # traceback, so there's no reason to ask for both separately.
+    verbose = args.verbose or args.debug
+    on_stage = _stage_logger if verbose else None
+
     try:
-        result = build(args.entry, args.output)
+        result = build(args.entry, args.output, on_stage=on_stage)
     except CompileError as exc:
-        print(f"ARKlight build failed: {exc}", file=sys.stderr)
+        if args.debug:
+            # Full chained traceback (CompileError's __cause__ is the
+            # original stage exception -- see arklight.compiler.pipeline)
+            # instead of the short one-line message, so the exact
+            # Python frame/line that failed is visible rather than just
+            # which pipeline stage wrapped it.
+            print(f"{_STAGE_PREFIX} Build failed -- full trace (--debug):", file=sys.stderr)
+            traceback.print_exception(type(exc), exc, exc.__traceback__, file=sys.stderr)
+        else:
+            print(f"ARKlight build failed: {exc}", file=sys.stderr)
+            print("Re-run with --debug for the full traceback.", file=sys.stderr)
         return 1
 
     print(f"ARKlight v{__version__} built {len(result.written_paths)} file(s) -> {args.output}/")
@@ -217,6 +247,23 @@ def main(argv: list[str] | None = None) -> int:
         dest="open",
         action="store_false",
         help="Don't open a browser after building.",
+    )
+    build_parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        default=False,
+        help="Print each compiler pipeline stage as it runs (discovery, "
+        "normalization, validation, IR build, each backend, ...) -- "
+        "useful for seeing exactly where a slow or failing build is spending time.",
+    )
+    build_parser.add_argument(
+        "--debug",
+        action="store_true",
+        default=False,
+        help="Like --verbose, plus print the full chained traceback (instead of "
+        "a short message) if the build fails -- for tracing a compiler "
+        "error back to the exact stage and Python frame that raised it.",
     )
     build_parser.set_defaults(func=_cmd_build)
 

@@ -108,6 +108,60 @@ def test_cli_build_failure_returns_nonzero(tmp_path, capsys):
     assert exit_code == 1
     captured = capsys.readouterr()
     assert "ARKlight build failed" in captured.err
+    assert "Re-run with --debug" in captured.err
+
+
+def test_cli_build_verbose_prints_pipeline_stages(tmp_path, capsys):
+    site_path = write_site(tmp_path)
+
+    exit_code = main(
+        ["build", str(site_path), "-o", str(tmp_path / "dist"), "--no-open", "--verbose"]
+    )
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    # Spot-check a handful of stages rather than the exact full list --
+    # this is about the mechanism (stages get narrated at all), not
+    # pinning down every wording forever.
+    assert "[ARKlight] Discovering site and compiling AST trees..." in captured.out
+    assert "[ARKlight] Running validation..." in captured.out
+    assert "[ARKlight] Rendering backend 'html'..." in captured.out
+    assert "[ARKlight] Build complete ->" in captured.out
+
+
+def test_cli_build_without_verbose_prints_no_stage_lines(tmp_path, capsys):
+    site_path = write_site(tmp_path)
+
+    exit_code = main(["build", str(site_path), "-o", str(tmp_path / "dist"), "--no-open"])
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "[ARKlight]" not in captured.out
+
+
+def test_cli_build_debug_prints_full_traceback_on_failure(tmp_path, capsys):
+    bad_path = tmp_path / "site.py"
+    bad_path.write_text(
+        "from arklight import *\n"
+        "site = Site()\n"
+        "@site.page('/')\n"
+        "def home():\n"
+        "    return Page(NotARealComponent('oops'))\n"
+    )
+
+    exit_code = main(
+        ["build", str(bad_path), "-o", str(tmp_path / "dist"), "--no-open", "--debug"]
+    )
+
+    assert exit_code == 1
+    captured = capsys.readouterr()
+    # --debug implies --verbose: stage narration still shows up...
+    assert "[ARKlight] Discovering site and compiling AST trees..." in captured.out
+    # ...and the failure is a full chained Python traceback, not the
+    # short one-line message `--debug`-less mode prints.
+    assert "Traceback (most recent call last)" in captured.err
+    assert "NameError" in captured.err
+    assert "site.py" in captured.err
 
 
 def test_cli_search_exact_match(capsys):

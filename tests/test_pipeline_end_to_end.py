@@ -163,3 +163,57 @@ def test_added_backend_can_postprocess_combined_output_without_editing_existing_
 
     assert (out_dir / "BUILD_STAMP.txt").read_text(encoding="utf-8") == "pages=2\n"
     assert "<!-- built by BuildStampBackend -->" in (out_dir / "index.html").read_text(encoding="utf-8")
+
+
+def test_build_on_stage_reports_every_stage_in_order(tmp_path):
+    """
+    `on_stage` (consumed by the CLI's --verbose/--debug) is called once
+    per pipeline stage, in pipeline order, and doesn't change the
+    result -- it's purely an observability hook.
+    """
+    site_path = write_site(tmp_path, SIMPLE_SITE)
+    out_dir = tmp_path / "ARK"
+
+    messages: list[str] = []
+    result = build(site_path, out_dir, on_stage=messages.append)
+
+    assert messages == [
+        "Discovering site and compiling AST trees...",
+        "Normalizing AST...",
+        "Running validation...",
+        "Building website IR...",
+        "Rendering backend 'html'...",
+        "Rendering backend 'css'...",
+        "Rendering backend 'js'...",
+        "Postprocessing backend 'html'...",
+        "Postprocessing backend 'css'...",
+        "Postprocessing backend 'js'...",
+        f"Writing {len(result.output_files)} file(s) -> {out_dir}/...",
+        "Copying assets...",
+        f"Build complete -> {out_dir}/index.html",
+    ]
+
+
+def test_build_without_on_stage_prints_nothing_and_behaves_as_before():
+    """`on_stage` is optional -- omitting it must be identical to pre-feature
+    behavior (default is a silent no-op, not a required argument)."""
+    import inspect
+
+    from arklight.compiler.pipeline import build as build_fn
+
+    sig = inspect.signature(build_fn)
+    assert sig.parameters["on_stage"].default is None
+
+
+def test_compile_site_file_on_stage_reports_its_own_stages(tmp_path):
+    site_path = write_site(tmp_path, SIMPLE_SITE)
+
+    messages: list[str] = []
+    compile_site_file(site_path, on_stage=messages.append)
+
+    assert messages == [
+        "Discovering site and compiling AST trees...",
+        "Normalizing AST...",
+        "Running validation...",
+        "Building website IR...",
+    ]
