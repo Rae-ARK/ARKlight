@@ -70,6 +70,16 @@ def _cmd_build(args: argparse.Namespace) -> int:
 
 
 def _cmd_pack(args: argparse.Namespace) -> int:
+    if args.passphrase:
+        print(
+            "Heads up: passing --passphrase on the command line is not the "
+            "recommended way to do this -- it can end up in your shell "
+            "history and in process listings visible to other users on this "
+            "machine. Prefer an interactive prompt or an environment "
+            "variable in scripted/CI use.",
+            file=sys.stderr,
+        )
+
     try:
         result = pack(
             args.build_dir,
@@ -119,38 +129,6 @@ def _cmd_unpack(args: argparse.Namespace) -> int:
     )
     for path in result.extracted_paths:
         print(f"  {path}")
-
-    return 0
-
-
-def _cmd_pwa(args: argparse.Namespace) -> int:
-    try:
-        result = enable_pwa(
-            args.build_dir,
-            name=args.name,
-            short_name=args.short_name,
-            start_url=args.start_url,
-            theme_color=args.theme_color,
-            background_color=args.background_color,
-            display=args.display,
-        )
-    except PWAError as exc:
-        print(f"ARKlight pwa failed: {exc}", file=sys.stderr)
-        return 1
-
-    print(
-        f"ARKlight v{__version__} enabled PWA support in {result.build_dir}/ "
-        f"({len(result.cached_paths)} file(s) precached, cache {result.cache_name})"
-    )
-    print(f"  {result.manifest_path.relative_to(result.build_dir)}")
-    print(f"  {result.service_worker_path.relative_to(result.build_dir)}")
-    for path in result.updated_pages:
-        print(f"  {path} (manifest link + SW registration injected)")
-    print(
-        "Re-run `arklight pwa` on this directory after every `arklight build` "
-        "to keep the manifest/service worker/precache list in sync -- it's "
-        "idempotent, so this is always safe."
-    )
 
     return 0
 
@@ -330,7 +308,31 @@ def main(argv: list[str] | None = None) -> int:
     new_parser.set_defaults(func=_cmd_new)
 
     args = parser.parse_args(argv)
-    return args.func(args)
+
+    try:
+        return args.func(args)
+    except Exception as exc:  # noqa: BLE001 -- last-resort safety net, see below
+        # Every subcommand above already catches its own typed error
+        # (CompileError, PackError, PWAError, ScaffoldError) and prints a
+        # clean message. Reaching this handler means something outside
+        # those known, handled failure modes happened -- uncharted
+        # territory ARKlight hasn't specifically anticipated or tested
+        # for. Rather than dumping a raw traceback (which used to be the
+        # only thing that could happen here), say so plainly, and be
+        # explicit that whatever was being produced (a build/, a .ark
+        # bundle, a scaffolded project) may be incomplete or unreliable.
+        print(
+            f"ARKlight hit an unexpected error while running `arklight "
+            f"{args.command}` -- this is outside its known, handled "
+            f"failure modes, so treat any partial output as untrustworthy:\n"
+            f"  {type(exc).__name__}: {exc}\n"
+            f"This isn't a documented/recommended failure path -- if you "
+            f"can reproduce it, please file an issue at "
+            f"https://github.com/Rae-ARK/ARKlight/issues with the exact "
+            f"command you ran.",
+            file=sys.stderr,
+        )
+        return 1
 
 
 if __name__ == "__main__":

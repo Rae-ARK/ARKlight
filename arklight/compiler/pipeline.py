@@ -121,13 +121,31 @@ def build(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     written: list[Path] = []
-    for rel_path, contents in output_files.items():
-        dest = out_dir / rel_path
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(contents, encoding="utf-8")
-        written.append(dest)
+    try:
+        for rel_path, contents in output_files.items():
+            dest = out_dir / rel_path
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(contents, encoding="utf-8")
+            written.append(dest)
+    except OSError as exc:
+        # Uncharted territory: nothing above this validates disk space,
+        # permissions, or a mid-write disconnect (e.g. a network drive).
+        # Say plainly how much of the build did land, since `out_dir` is
+        # now a mix of complete and missing files, not a clean failure.
+        raise CompileError(
+            f"Failed while writing output to {out_dir}/ "
+            f"({len(written)}/{len(output_files)} file(s) written before "
+            f"the failure -- the output directory is now incomplete): {exc}"
+        ) from exc
 
-    written.extend(_copy_assets(entry_path, out_dir))
+    try:
+        written.extend(_copy_assets(entry_path, out_dir))
+    except OSError as exc:
+        raise CompileError(
+            f"Failed while copying assets/ into {out_dir}/assets/ -- "
+            f"{len(written)} page file(s) were already written successfully, "
+            f"so the build is partially complete: {exc}"
+        ) from exc
 
     return BuildResult(ir=ir, output_files=output_files, written_paths=written)
 

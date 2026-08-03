@@ -4,7 +4,53 @@ Living document tracking what's implemented, key decisions made along
 the way, and what's queued up next. Update this file at the end of
 every work session, not just at milestone boundaries.
 
-## Current milestone: v0.0035 -- Stateful JS
+## Current milestone: [Unreleased] -- CLI & pipeline error-handling hardening
+
+**Status: DONE**, version number not yet assigned. Prompted by a UX
+audit comparing the CLI's error handling against how the generated
+client-side JS runtime handles (or rather, doesn't handle) failures.
+Full detail in `CHANGELOG.md` ("CLI & pipeline error-handling
+hardening"). Short version:
+
+- [x] `arklight/cli/main.py::main()` -- top-level `try/except` around
+      subcommand dispatch. Every subcommand already caught its own
+      typed error (`CompileError`/`PackError`/`PWAError`/
+      `ScaffoldError`); anything outside those known, anticipated
+      failure modes previously escaped as a raw traceback, which
+      directly contradicted the CLI module docstring's own stated
+      goal. Now prints a clear "outside ARKlight's known, handled
+      failure modes" message and exits `1`.
+- [x] `arklight/compiler/pipeline.py::build()` -- the output-file
+      write loop and the `_copy_assets()` call are now each guarded
+      with `try/except OSError`, reporting exactly how many files
+      wrote successfully before a failure (permissions, disk full, a
+      network drive dropping mid-write) rather than leaving a silently
+      partial output directory that looks the same as a complete one.
+- [x] `_cmd_pack` -- prints a runtime warning when `--passphrase` is
+      passed on the command line (shell history / process-listing
+      exposure), rather than leaving that risk documented only in
+      `--help` text.
+- [x] Fixed a real, pre-existing bug found while making the change
+      above: `_cmd_pwa` was defined twice in `arklight/cli/main.py`
+      (identical bodies, second silently shadowed the first). Removed
+      the duplicate.
+- [x] Fixed a version drift recurrence: `pyproject.toml` said `0.1.0`
+      while `arklight/__init__.py` already said `0.038` -- same class
+      of bug as the one fixed during the "v0.003 addendum" pass below,
+      just recurred for a later version jump and went uncaught.
+
+Deliberately out of scope for this pass, tracked as separate follow-up
+work: the generated client-side `arklight.js` runtime has an
+analogous gap -- zero `try`/`catch` anywhere in
+`arklight/backend/js/render.py`'s output, an unhandled clipboard-
+promise rejection in the `copy` behavior (`.writeText().then(...)`
+with no `.catch()`, notable since `arklight build --open` opens sites
+as `file://` URLs by default -- exactly where clipboard permissions
+are likeliest to fail), and a single malformed
+`data-ark-action-args` attribute able to abort `wireActions()`'s
+`forEach` for every *other* element on the page, not just the bad one.
+
+## Previous milestone: v0.0035 -- Stateful JS
 
 **Status: DONE.** This entry was missing from PROGRESS.md/CHANGELOG.md
 even though the code shipped -- `pyproject.toml` and
@@ -441,20 +487,26 @@ wasn't -- opening the same already-open file handle with
 it directly is sufficient, since `zipfile` computes offsets from the
 handle's current position rather than assuming a byte-0 start.
 
-## Then: v0.004 -- CLI scaffolding + responsive/head extension (PLANNING)
+## Then: v0.004 -- CLI scaffolding (DONE) + responsive/head extension (PLANNING)
 
-Also design-only so far, same doc. Three pieces, independent of
-v0.0035:
+Originally three pieces, independent of v0.0035. Status as of this
+update:
 
-- `arklight new <name> --template simple|production` -- two
-  scaffolds, the second mirroring Product-Showcase's layout and fixing
-  (not just documenting) the gotchas its `architecture.md` found,
-  including the `__init__.py` vocabulary-addendum-2 export gap and an
-  `arklight build` auto-copy of a top-level `assets/` folder.
-- `responsive_style={...}` prop -> real `@media` blocks in the CSS
-  backend.
-- `Page(meta=..., links=...)` -- a structured, non-arbitrary `<head>`
-  extension point (no raw HTML injection).
+- [x] `arklight new <name> --template simple|production` --
+  **implemented and wired into the CLI** (`arklight/cli/scaffold.py`,
+  `arklight/cli/templates/simple.py` and `.../production.py`,
+  `_cmd_new` in `arklight/cli/main.py`). The doc note below ("v0.0035
+  -- done; v0.004 -- folder scaffolding only, logic not started") is
+  now stale as a result and is being left in place with this
+  correction rather than rewritten, per this file's own convention of
+  not silently editing history.
+- [ ] `responsive_style={...}` prop -> real `@media` blocks in the CSS
+  backend. Still not implemented -- `arklight/backend/css/render.py`
+  still emits one fixed stylesheet with no `@media`/`@container`
+  blocks.
+- [ ] `Page(meta=..., links=...)` -- a structured, non-arbitrary
+  `<head>` extension point (no raw HTML injection). Still not
+  implemented.
 
 ## Later: v0.010 -- Components (user-defined, reusable)
 
@@ -600,11 +652,22 @@ actions.
 - [x] v0.002 CSS
 - [x] v0.003 JavaScript helpers (+ two vocabulary extension addenda above)
 - [x] v0.0035 Stateful JS (registry-driven behaviors + actions,
-      `State`/`Bind`/`Action.*`)
-- [ ] v0.004 CLI scaffolding + responsive/head extension
+      `State`/`Bind`/`Action.*`), plus addenda I & II (decrement,
+      reset, append, remove)
+- [x] v0.004a `arklight new` CLI scaffolding (simple + production
+      templates) -- implemented and wired in
+- [ ] v0.004b CSS `@media` support + structured `<head>` extension --
+      still design-only
 - [ ] v0.010 Components
 - [x] v0.036 ARK Bundle spec v1 (single-file `.ark` packaging via
       `arklight pack`; html/css/js carry-over only)
+- [x] v0.037 Sealed ARK Bundles (`assets/` carried into the archive,
+      encrypted by default, `--passphrase`/`--plain`, `arklight unpack`)
+      -- previously missing from this checklist despite shipping; added
+      here for accuracy
+- [x] [Unreleased] CLI & pipeline error-handling hardening (top-level
+      catch-all in `main()`, `OSError` guards in `build()`, passphrase
+      warning; version number not yet assigned -- see `CHANGELOG.md`)
 - [ ] v0.100 Alternate backends -- Backend interface ready; IR needs a
       state/event-semantics milestone first (see `docs/DESIGN-NOTES.md`)
 - [ ] v1.0 Stable compiler

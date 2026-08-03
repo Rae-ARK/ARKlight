@@ -5,6 +5,69 @@ follows [Keep a Changelog](https://keepachangelog.com/); versions
 follow the milestone scheme from ARCHITECTURE.md rather than strict
 SemVer.
 
+## [Unreleased] -- CLI & pipeline error-handling hardening
+
+A UX audit of the CLI's error handling (comparing it against how the
+generated client-side JS runtime handles -- or doesn't handle --
+failures) found that every subcommand only ever caught its *own*
+typed error (`CompileError`/`PackError`/`PWAError`/`ScaffoldError`).
+Anything outside those specific, anticipated failure modes propagated
+as a raw Python traceback, contradicting the CLI's own stated design
+goal ("error messages that point at exactly what went wrong... rather
+than a raw traceback" -- `arklight/cli/main.py` module docstring).
+
+### Added
+
+- **Top-level catch-all in `main()`** (`arklight/cli/main.py`) --
+  wraps subcommand dispatch. Anything not already handled by a
+  subcommand's own typed `except` clause now prints a clear,
+  clearly-labeled "outside ARKlight's known, handled failure modes"
+  message (which command was running, the underlying exception type
+  and message, an explicit note that this isn't a documented/
+  recommended failure path) instead of a raw traceback, and returns
+  exit code `1` like every other failure mode. Points at
+  https://github.com/Rae-ARK/ARKlight/issues for reporting.
+- **`OSError` guards around `build()`'s file-write loop and asset
+  copy** (`arklight/compiler/pipeline.py`) -- previously neither step
+  was guarded against filesystem failures (permissions, disk full, a
+  network drive disconnecting mid-write), so a failure there escaped
+  as a raw `OSError` instead of the `CompileError` every other pipeline
+  stage raises. Both paths now report exactly how much of the build
+  completed before the failure (e.g. "3/6 file(s) written before the
+  failure"), so a partially-written output directory is never
+  mistaken for a clean one.
+- **Runtime warning for `--passphrase` on the command line**
+  (`_cmd_pack`) -- previously this risk (shell history / process-
+  listing exposure) was only documented in `--help` text, easy to
+  never see. Now prints at the moment the flag is actually used.
+
+### Fixed
+
+- **Removed a duplicate `_cmd_pwa` definition** in `arklight/cli/main.py`
+  -- found while adding the catch-all above. Two identical copies of
+  the function existed; the second silently shadowed the first at
+  import time. Harmless today since the bodies matched exactly, but
+  exactly the kind of latent bug the new catch-all exists to guard
+  against if they'd ever drifted apart.
+- **`pyproject.toml` / `arklight/__init__.py` version mismatch**
+  (`0.1.0` vs. `0.038`) -- a second recurrence of the same class of
+  drift already fixed once during the "v0.003 addendum" pass (see
+  below); `pyproject.toml` now correctly reads `0.038`. This is a
+  distinct issue from the previously-documented `arklight --version`
+  vs. `pip show arklight` mismatch, which is about the *published*
+  PyPI package's own reported version, not this repo's internal
+  build-metadata sync.
+
+### Notes
+
+- Scope was deliberately kept to the CLI's own dispatch/build path --
+  the generated client-side `arklight.js` runtime has an analogous
+  gap (no `try`/`catch` anywhere in `arklight/backend/js/render.py`'s
+  output, an unhandled clipboard-promise rejection in the `copy`
+  behavior, one malformed `data-ark-action-args` attribute able to
+  abort `wireActions()` for every other element on the page) --
+  tracked as separate, follow-up work, not addressed in this pass.
+
 ## [Unreleased] -- Stateful JS vocabulary addendum II
 
 Full writeup in `docs/DESIGN-NOTES.md` ("v0.0035: stateful-JS

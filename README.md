@@ -27,6 +27,17 @@ produces `ARK/index.html` -- plain, dependency-free HTML.
 
 ## Status
 
+**Unreleased — CLI & pipeline error-handling hardening.** `main()`
+now wraps subcommand dispatch in a catch-all, so anything outside the
+CLI's known, typed failure modes prints a clear "uncharted territory"
+notice and exits `1` instead of a raw traceback; `build()`'s file
+writes and asset copy are now guarded against filesystem failures
+(reporting how much of a build completed before a failure); and
+`--passphrase` on the command line now warns at the point of use, not
+just in `--help` text. Not yet assigned a version number. Full detail
+in [`CHANGELOG.md`](./CHANGELOG.md) ("CLI & pipeline error-handling
+hardening").
+
 **v0.037 — Sealed ARK Bundles.** `arklight pack <build-dir> -o
 site.ark` packs an existing `arklight build` output directory
 (including any `assets/` folder) into a single `.ark` file -- an HTML/
@@ -451,9 +462,19 @@ pytest
       `arklight.ir.schema.BEHAVIOR_REGISTRY` / `ACTION_REGISTRY`,
       `State`/`Bind`/`Action.*`; see `docs/DESIGN-NOTES.md` for the
       full design writeup and `CHANGELOG.md` for what shipped)
-- [ ] v0.004 -- `arklight new` CLI scaffolding (simple + production
-      templates), CSS `@media` support, structured `<head>` extension
-      (design complete, implementation not started)
+- [x] v0.004a -- `arklight new` CLI scaffolding (`simple` +
+      `production` templates via `arklight/cli/scaffold.py` and
+      `arklight/cli/templates/`) -- implemented and wired into the
+      CLI (`arklight new <name> --template ...`)
+- [ ] v0.004b -- CSS `@media` support, structured `<head>` extension
+      (`Page(meta=..., links=...)`) -- design complete, implementation
+      not started; the CSS backend still emits a fixed stylesheet with
+      no `@media`/`@container` blocks (see `docs/DESIGN-NOTES.md`)
+- [x] Unreleased -- CLI & pipeline error-handling hardening (top-level
+      catch-all in `arklight/cli/main.py::main()`, `OSError` guards
+      around `build()`'s file writes/asset copy, `--passphrase`
+      runtime warning, duplicate `_cmd_pwa` fix; not yet assigned a
+      version number -- see `CHANGELOG.md`)
 - [ ] not yet scheduled -- `arklight --help` / `arklight --search
       <name>` (schema lookup for a component by name); design sketched
       in `docs/DESIGN-NOTES.md`, explicitly waiting on a go-ahead
