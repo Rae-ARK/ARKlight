@@ -81,7 +81,7 @@ This installs the `arklight` package and the `arklight` CLI command
 ## CLI
 
 ```bash
-arklight build <entry.py> [-o OUTPUT_DIR] [--open | --no-open]
+arklight build <entry.py> [-o OUTPUT_DIR] [--open | --no-open] [--verbose] [--debug]
 ```
 
 - `entry.py` -- your site file (must define `site = Site()` and at
@@ -91,6 +91,30 @@ arklight build <entry.py> [-o OUTPUT_DIR] [--open | --no-open]
   copied (recursively) into `<output>/assets` automatically.
 - `--open` (default) -- opens `index.html` in your default browser
   after building. `--no-open` disables this.
+- `--verbose` -- prints a `[ARKlight] ...` line as each pipeline stage
+  starts (discovering the site, normalizing, validating, building the
+  IR, each backend's render/postprocess, writing files, copying
+  assets), e.g.:
+
+  ```
+  [ARKlight] Discovering site and compiling AST trees...
+  [ARKlight] Normalizing AST...
+  [ARKlight] Running validation...
+  [ARKlight] Building website IR...
+  [ARKlight] Rendering backend 'html'...
+  ...
+  [ARKlight] Build complete -> ARK/index.html
+  ```
+
+  Useful for seeing exactly which stage a build reached before it
+  failed or hung.
+- `--debug` -- implies `--verbose`, and on failure prints the full
+  chained Python traceback instead of the short one-line error
+  message, so you can trace a compiler error back to the exact file
+  and line that raised it.
+
+Both flags are off by default -- a plain `arklight build` is
+unchanged.
 
 Try the bundled example -- this builds the site AND opens it in your
 browser:
