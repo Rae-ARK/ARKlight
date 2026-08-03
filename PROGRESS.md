@@ -4,7 +4,50 @@ Living document tracking what's implemented, key decisions made along
 the way, and what's queued up next. Update this file at the end of
 every work session, not just at milestone boundaries.
 
-## Current milestone: [Unreleased] -- CLI & pipeline error-handling hardening
+## Current milestone: [Unreleased] -- JS runtime error-handling hardening
+
+**Status: DONE**, version number not yet assigned. Follow-up to "CLI &
+pipeline error-handling hardening" directly below -- that pass covered
+the Python/CLI side and explicitly deferred the generated client-side
+`arklight.js` runtime, which had **zero** `try`/`catch` anywhere in it
+(confirmed by reading `arklight/backend/js/render.py` and every
+behavior/action fragment directly). Full detail in `CHANGELOG.md`
+("JS runtime error-handling hardening"). Short version:
+
+- [x] New `arkNotify(message)` helper (`arklight/backend/js/render.py`)
+      -- small, self-contained, inline-styled on-page notice, shipped
+      only when a site actually uses a behavior or declares
+      `State(...)` (same "only ship what's used" discipline as the
+      rest of this runtime). Gives end users a visible signal instead
+      of a console-only error nobody but a developer would ever see.
+      Wrapped in its own `try`/`catch` so the notifier itself can
+      never throw.
+- [x] `initState()`'s `JSON.parse` is now guarded -- previously a
+      malformed `data-ark-state` attribute threw inside the
+      `DOMContentLoaded` handler and silently aborted `wireActions()`
+      (and anything scheduled after it) for the whole page.
+- [x] `wireActions()` and `wireBehaviors()` now guard each element's
+      setup *and* its click dispatch independently -- previously one
+      malformed element (bad JSON in `data-ark-action-args`, or a
+      behavior/action throwing at click time) could abort the
+      `forEach` loop for every other element on the page, not just the
+      one at fault.
+- [x] The `copy` behavior's clipboard promise
+      (`arklight/backend/js/behaviors/copy.py`) now has a `.catch()`
+      -- previously an unhandled rejection, notable because
+      `arklight build --open` opens sites as `file://` URLs by
+      default, exactly where clipboard permissions are likeliest to be
+      denied.
+- [x] `tests/test_js_error_handling.py` -- 8 new tests (212 total, all
+      passing).
+
+Deliberately left out: `renderBindings()` and `highlightActiveNavLink()`
+have no plausible runtime failure mode given their inputs
+(`store.get(key)` returning `undefined` just renders as the text
+"undefined", not a throw; the nav-highlight loop only ever touches
+`<a>` elements' own `.href`), so no guard was added to either.
+
+## Previous milestone: [Unreleased] -- CLI & pipeline error-handling hardening
 
 **Status: DONE**, version number not yet assigned. Prompted by a UX
 audit comparing the CLI's error handling against how the generated
@@ -49,6 +92,9 @@ as `file://` URLs by default -- exactly where clipboard permissions
 are likeliest to fail), and a single malformed
 `data-ark-action-args` attribute able to abort `wireActions()`'s
 `forEach` for every *other* element on the page, not just the bad one.
+
+**Update:** this follow-up is now done -- see the "JS runtime
+error-handling hardening" milestone directly above.
 
 ## Previous milestone: v0.0035 -- Stateful JS
 
@@ -665,9 +711,11 @@ actions.
       encrypted by default, `--passphrase`/`--plain`, `arklight unpack`)
       -- previously missing from this checklist despite shipping; added
       here for accuracy
-- [x] [Unreleased] CLI & pipeline error-handling hardening (top-level
-      catch-all in `main()`, `OSError` guards in `build()`, passphrase
-      warning; version number not yet assigned -- see `CHANGELOG.md`)
+- [x] [Unreleased] CLI, pipeline & JS runtime error-handling
+      hardening (top-level catch-all in `main()`, `OSError` guards in
+      `build()`, passphrase warning, `arkNotify()` + `try`/`catch`
+      guards throughout the generated `arklight.js` runtime; version
+      number not yet assigned -- see `CHANGELOG.md`)
 - [ ] v0.100 Alternate backends -- Backend interface ready; IR needs a
       state/event-semantics milestone first (see `docs/DESIGN-NOTES.md`)
 - [ ] v1.0 Stable compiler

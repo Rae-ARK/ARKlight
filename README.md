@@ -27,16 +27,21 @@ produces `ARK/index.html` -- plain, dependency-free HTML.
 
 ## Status
 
-**Unreleased — CLI & pipeline error-handling hardening.** `main()`
-now wraps subcommand dispatch in a catch-all, so anything outside the
-CLI's known, typed failure modes prints a clear "uncharted territory"
-notice and exits `1` instead of a raw traceback; `build()`'s file
-writes and asset copy are now guarded against filesystem failures
-(reporting how much of a build completed before a failure); and
-`--passphrase` on the command line now warns at the point of use, not
-just in `--help` text. Not yet assigned a version number. Full detail
-in [`CHANGELOG.md`](./CHANGELOG.md) ("CLI & pipeline error-handling
-hardening").
+**Unreleased — CLI, pipeline & JS runtime error-handling hardening.**
+`main()` now wraps subcommand dispatch in a catch-all, so anything
+outside the CLI's known, typed failure modes prints a clear
+"uncharted territory" notice and exits `1` instead of a raw traceback;
+`build()`'s file writes and asset copy are now guarded against
+filesystem failures (reporting how much of a build completed before a
+failure); and `--passphrase` on the command line now warns at the
+point of use, not just in `--help` text. The generated `arklight.js`
+runtime got the browser-side counterpart: a new `arkNotify()` on-page
+notice, `try`/`catch` guards around state init and per-element
+behavior/action wiring (so one bad element can't take the rest of the
+page's interactivity down with it), and a `.catch()` on the `copy`
+behavior's clipboard promise. Not yet assigned a version number. Full
+detail in [`CHANGELOG.md`](./CHANGELOG.md) ("CLI & pipeline
+error-handling hardening" and "JS runtime error-handling hardening").
 
 **v0.037 — Sealed ARK Bundles.** `arklight pack <build-dir> -o
 site.ark` packs an existing `arklight build` output directory
@@ -470,11 +475,13 @@ pytest
       (`Page(meta=..., links=...)`) -- design complete, implementation
       not started; the CSS backend still emits a fixed stylesheet with
       no `@media`/`@container` blocks (see `docs/DESIGN-NOTES.md`)
-- [x] Unreleased -- CLI & pipeline error-handling hardening (top-level
-      catch-all in `arklight/cli/main.py::main()`, `OSError` guards
-      around `build()`'s file writes/asset copy, `--passphrase`
-      runtime warning, duplicate `_cmd_pwa` fix; not yet assigned a
-      version number -- see `CHANGELOG.md`)
+- [x] Unreleased -- CLI, pipeline & JS runtime error-handling
+      hardening (top-level catch-all in `arklight/cli/main.py::main()`,
+      `OSError` guards around `build()`'s file writes/asset copy,
+      `--passphrase` runtime warning, duplicate `_cmd_pwa` fix, and a
+      new `arkNotify()` on-page notice plus `try`/`catch` guards
+      throughout the generated `arklight.js` runtime; not yet assigned
+      a version number -- see `CHANGELOG.md`)
 - [ ] not yet scheduled -- `arklight --help` / `arklight --search
       <name>` (schema lookup for a component by name); design sketched
       in `docs/DESIGN-NOTES.md`, explicitly waiting on a go-ahead

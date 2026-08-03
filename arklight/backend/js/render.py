@@ -64,6 +64,37 @@ from arklight.ir.build import IRNode, WebsiteIR
 # relative to the output directory root.
 SCRIPT_PATH = "arklight.js"
 
+_NOTIFY_JS = """  function arkNotify(message) {
+    // Self-contained on-page notice for runtime edge cases the fixed
+    // behavior/action vocabulary didn't anticipate -- deliberately
+    // inline-styled (not a `.stack`/`.card`/etc. class) so it renders
+    // correctly even on a page whose stylesheet this failure might
+    // itself be related to, and wrapped in its own try/catch so a
+    // notification failure can never become a second, worse error.
+    try {
+      var el = document.getElementById("ark-notify");
+      if (!el) {
+        el = document.createElement("div");
+        el.id = "ark-notify";
+        el.setAttribute("role", "alert");
+        el.style.cssText =
+          "position:fixed;bottom:1rem;right:1rem;left:auto;max-width:22rem;" +
+          "background:#111827;color:#f9fafb;padding:0.75rem 1rem;" +
+          "border-radius:0.5rem;font:14px/1.4 system-ui,sans-serif;" +
+          "box-shadow:0 4px 12px rgba(0,0,0,.35);z-index:2147483647;";
+        document.body.appendChild(el);
+      }
+      el.textContent = message;
+      el.style.display = "block";
+      clearTimeout(el._arkNotifyTimer);
+      el._arkNotifyTimer = setTimeout(function () {
+        el.style.display = "none";
+      }, 6000);
+    } catch (notifyErr) {
+      /* notification is best-effort; never let it throw */
+    }
+  }"""
+
 _NAV_HIGHLIGHT_JS = """  function highlightActiveNavLink() {
     document.querySelectorAll(".nav a").forEach(function (link) {
       var here = location.href.replace(/#.*$/, "");
@@ -101,24 +132,39 @@ _STATE_CORE_JS = """  function createState(initial) {
   function initState() {
     var raw = document.body.getAttribute("data-ark-state");
     if (!raw) return null;
-    var store = createState(JSON.parse(raw));
-    store.subscribe(function () { renderBindings(store); });
-    return store;
+    try {
+      var store = createState(JSON.parse(raw));
+      store.subscribe(function () { renderBindings(store); });
+      return store;
+    } catch (err) {
+      arkNotify("This page's saved state couldn't be loaded -- interactive features on this page may not work.");
+      return null;
+    }
   }
 
   function wireActions(store) {
     if (!store) return;
     document.querySelectorAll('[data-ark-on-click^="action:"]').forEach(function (el) {
-      var actionName = el.getAttribute("data-ark-on-click").slice("action:".length);
-      var stateKey = el.getAttribute("data-ark-action-state");
-      var argsRaw = el.getAttribute("data-ark-action-args");
-      var args = argsRaw ? JSON.parse(argsRaw) : {};
-      var action = actions[actionName];
-      if (!action) return;
-      el.addEventListener("click", function (event) {
-        event.preventDefault();
-        action(store, stateKey, args);
-      });
+      try {
+        var actionName = el.getAttribute("data-ark-on-click").slice("action:".length);
+        var stateKey = el.getAttribute("data-ark-action-state");
+        var argsRaw = el.getAttribute("data-ark-action-args");
+        var args = argsRaw ? JSON.parse(argsRaw) : {};
+        var action = actions[actionName];
+        if (!action) return;
+        el.addEventListener("click", function (event) {
+          event.preventDefault();
+          try {
+            action(store, stateKey, args);
+          } catch (err) {
+            arkNotify("Something went wrong updating this page -- an unsupported or unexpected case was hit.");
+          }
+        });
+      } catch (err) {
+        // One malformed element (e.g. bad data-ark-action-args JSON)
+        // must not abort wiring for every other element in this loop.
+        arkNotify("One of this page's interactive elements couldn't be set up.");
+      }
     });
   }"""
 
@@ -164,13 +210,23 @@ def _behaviors_block(used_behaviors: set[str]) -> str | None:
         "  var behaviors = {\n" + entries + "\n  };\n\n"
         "  function wireBehaviors() {\n"
         '    document.querySelectorAll("[data-ark-on-click]").forEach(function (el) {\n'
-        '      var name = el.getAttribute("data-ark-on-click");\n'
-        "      var behavior = behaviors[name];\n"
-        "      if (!behavior) return;\n"
-        '      el.addEventListener("click", function (event) {\n'
-        "        event.preventDefault();\n"
-        "        behavior(el);\n"
-        "      });\n"
+        "      try {\n"
+        '        var name = el.getAttribute("data-ark-on-click");\n'
+        "        var behavior = behaviors[name];\n"
+        "        if (!behavior) return;\n"
+        '        el.addEventListener("click", function (event) {\n'
+        "          event.preventDefault();\n"
+        "          try {\n"
+        "            behavior(el);\n"
+        "          } catch (err) {\n"
+        '            arkNotify("Something went wrong running this action -- an unsupported or unexpected case was hit.");\n'
+        "          }\n"
+        "        });\n"
+        "      } catch (err) {\n"
+        "        // One malformed element must not abort wiring for\n"
+        "        // every other behavior-tagged element on the page.\n"
+        '        arkNotify("One of this page\'s interactive elements couldn\'t be set up.");\n'
+        "      }\n"
         "    });\n"
         "  }"
     )
@@ -199,6 +255,11 @@ def _build_runtime_js(ir: WebsiteIR) -> str:
     ]
 
     behaviors_block = _behaviors_block(used_behaviors)
+    needs_notify = bool(behaviors_block) or has_state
+    if needs_notify:
+        parts.append(_NOTIFY_JS)
+        parts.append("")
+
     if behaviors_block:
         parts.append(behaviors_block)
         parts.append("")

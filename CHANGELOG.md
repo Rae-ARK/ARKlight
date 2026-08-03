@@ -5,6 +5,61 @@ follows [Keep a Changelog](https://keepachangelog.com/); versions
 follow the milestone scheme from ARCHITECTURE.md rather than strict
 SemVer.
 
+## [Unreleased] -- JS runtime error-handling hardening
+
+Follow-up to "CLI & pipeline error-handling hardening" directly below
+-- that pass covered the Python/CLI side; this covers the generated
+client-side `arklight.js` runtime, which previously had **zero**
+`try`/`catch` anywhere in it (confirmed by reading
+`arklight/backend/js/render.py` and every behavior/action fragment
+directly).
+
+### Added
+
+- **`arkNotify(message)`** (`arklight/backend/js/render.py`) -- a
+  small, self-contained, inline-styled on-page notice, shipped only
+  when a site actually uses a behavior or declares `State(...)` (same
+  "only ship what's used" discipline as everything else in this
+  runtime). Gives end users a visible signal when the runtime hits a
+  case its closed vocabulary didn't anticipate, instead of a
+  console-only error nobody but a developer would ever see. Wrapped in
+  its own `try`/`catch` so the notifier itself can never throw.
+- **`try`/`catch` around `initState()`'s `JSON.parse`** -- a malformed
+  `data-ark-state` attribute previously threw inside the
+  `DOMContentLoaded` handler and silently aborted `wireActions()` (and
+  anything scheduled after it) for the entire page. Now caught,
+  notified via `arkNotify`, and the page degrades to non-reactive
+  instead of partially broken with no explanation.
+- **`try`/`catch` around each element's setup *and* click dispatch**
+  in both `wireActions()` and `wireBehaviors()` -- previously a single
+  malformed `data-ark-action-args` attribute (or a behavior/action
+  throwing at click time) could abort the `forEach` loop for every
+  *other* element on the page, not just the one at fault. Each element
+  now fails independently.
+- **`.catch()` on the `copy` behavior's clipboard promise**
+  (`arklight/backend/js/behaviors/copy.py`) -- `navigator.clipboard
+  .writeText(...).then(...)` had no rejection handler, notable because
+  `arklight build --open` opens sites as `file://` URLs by default,
+  exactly the context where clipboard permissions are likeliest to be
+  denied. A copy failure now notifies the user instead of silently
+  doing nothing when clicked.
+- `tests/test_js_error_handling.py` -- 8 new tests (212 total, all
+  passing) covering `arkNotify` shipping conditions, the new guard
+  structure in `initState`/`wireActions`/`wireBehaviors`, the clipboard
+  `.catch()`, and re-confirming no `eval`/`new Function` was
+  introduced.
+
+### Notes
+
+- No changes to `normalize.py`/`validate.py`/`build.py`/the IR --
+  this is purely a `JSBackend` generation change, same class of
+  change as every behavior/action addendum before it.
+- Deliberately did not add error handling to `renderBindings()` or
+  `highlightActiveNavLink()` -- neither has a plausible runtime
+  failure mode given their inputs (`store.get(key)` returning
+  `undefined` just renders as the text "undefined", not a throw; the
+  nav-highlight loop only ever touches `<a>` elements' own `.href`).
+
 ## [Unreleased] -- CLI & pipeline error-handling hardening
 
 A UX audit of the CLI's error handling (comparing it against how the
@@ -67,6 +122,8 @@ than a raw traceback" -- `arklight/cli/main.py` module docstring).
   behavior, one malformed `data-ark-action-args` attribute able to
   abort `wireActions()` for every other element on the page) --
   tracked as separate, follow-up work, not addressed in this pass.
+  **Update:** this follow-up is now done -- see "JS runtime
+  error-handling hardening" above.
 
 ## [Unreleased] -- Stateful JS vocabulary addendum II
 

@@ -10,7 +10,10 @@ JS_FRAGMENT = """    copy: function (el) {
       var selector = el.getAttribute("data-ark-target");
       if (!selector) return;
       var target = document.querySelector(selector);
-      if (!target || !navigator.clipboard) return;
+      if (!target || !navigator.clipboard) {
+        arkNotify("Copy isn't available in this browser or context.");
+        return;
+      }
       var text = target.value !== undefined && target.tagName === "TEXTAREA"
         ? target.value
         : target.textContent;
@@ -20,5 +23,7 @@ JS_FRAGMENT = """    copy: function (el) {
         setTimeout(function () {
           el.textContent = original;
         }, 1500);
+      }).catch(function () {
+        arkNotify("Couldn't copy to clipboard -- try selecting and copying the text manually.");
       });
     }"""
