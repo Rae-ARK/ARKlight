@@ -66,6 +66,12 @@ Current:
 Future:
 - Vue
 - Svelte
+- Android (`arklight android` -- packaging backend, not a template/
+  codegen backend like Vue/Svelte: wraps an existing `build-dir` into
+  a native Android project via `androidx.webkit.WebViewAssetLoader`,
+  same "reads already-built output, never touches the
+  parser/ir/backend internals" shape as `arklight.packer`. See
+  `docs/DESIGN-NOTES.md` ("v0.0438: Android backend"), PLANNING.)
 
 ## Public API
 
@@ -125,6 +131,7 @@ here rather than keeping their own copies. Status: DONE / PLANNED.
 | v0.041 | CLI/pipeline/JS runtime error-handling hardening + stateful JS vocabulary addenda I & II (`Action.decrement/reset/append/remove`) | DONE |
 | v0.042 | Extra CSS features -- `Site.style(name, rules)` custom CSS class authoring, `arklight search <name>` component-schema lookup, `arklight --help`/bare `arklight` help text | DONE |
 | v0.043 | Optional `<head>` metadata props (`description`/`favicon`/`og_*` on `Page(...)`) + `Backend.postprocess(...)` extension hook | DONE |
+| v0.0438 | Android backend -- `arklight android` packages a `build-dir` into a native Android project via `androidx.webkit.WebViewAssetLoader` (staged `scaffold` -> `build` -> `--install` -> `--release` CLI ladder); design complete in `docs/DESIGN-NOTES.md`, implementation not started | PLANNED |
 | v0.044 | JS backend capability expansion -- computed/derived state, watch effects, two-way input binding, per-item list rendering, conditional show/hide, event modifiers, reactive class binding, all via closed registries (no arbitrary JS/eval) -- design complete in `docs/DESIGN-NOTES.md`, implementation not started | PLANNED |
 | vdom-staging | Reactive-core vdom staging, Stage 1 of 8 -- vendored snabbdom bare core (`init`/`h`/`vnode`/`htmlDomApi`) swapped into `State`'s re-render pass (Stage 1, DONE); reactive class binding via direct `classList.toggle` (Stage 2, DONE); event modifiers/computed state/two-way binding/watch effects/conditional show-hide/list rendering (Stages 3-7, feeding `v0.044`), then `localStorage` persistence (Stage 8) -- see `docs/DESIGN-NOTES.md` ("Reactive-core vdom staging") | IN PROGRESS |
 | v0.048 | CSS `@media` queries + structured `<head>`/`<header>` extension -- design complete in `docs/DESIGN-NOTES.md`, implementation not started | PLANNED |
@@ -134,7 +141,12 @@ here rather than keeping their own copies. Status: DONE / PLANNED.
 
 Nothing currently unscheduled -- v0.044 is next (JS backend capability
 expansion), with v0.048 (CSS `@media` + `<head>` extension) queued
-right behind it; see `docs/DESIGN-NOTES.md` for both designs.
+right behind it; see `docs/DESIGN-NOTES.md` for both designs. v0.0438
+(Android backend) is designed but not yet greenlit for
+implementation -- it sits between v0.043 and v0.044 numerically, but
+isn't assumed to land in that order; see `docs/DESIGN-NOTES.md`
+("v0.0438: Android backend") for why it's cross-referenced against
+the vdom-staging Stage 8 work rather than v0.044.
 
 ## Non-goals
 

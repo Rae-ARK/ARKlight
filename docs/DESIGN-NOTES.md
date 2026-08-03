@@ -604,6 +604,250 @@ writes persisted keys back out on every change, wrapped in its own
 just doesn't persist," never a hard failure) -- same defensive
 discipline `arkNotify` already applies elsewhere in this runtime.
 
+## v0.0438: Android backend -- androidx.webkit.WebViewAssetLoader packaging (PLANNING)
+
+Internal design doc only -- deliberately not summarized in `README.md`
+until (if) implementation actually lands, same "design complete,
+implementation not started" discipline every other PLANNING section
+in this file follows. Placed here, right after Stage 8 above rather
+than near `v0.044`, because the real dependency this milestone has is
+on Stage 8's persistence work, not on anything in `v0.044` proper --
+see "Why this sits after Stage 8, not after v0.044" below.
+
+### What this is, in one line
+
+A new `arklight android` CLI backend that packages an existing
+`arklight build` output directory into a minimal native Android
+project shell (Kotlin + Gradle), so the same static site that already
+runs standalone in a browser or as a `.ark` polyglot can also be
+built into an installable, Play-Store-shippable APK -- without
+ARKlight ever executing JavaScript, running a JVM, or becoming a
+general-purpose native-app framework.
+
+### Why this needs to exist at all: the `file://` problem
+
+`arklight build` output is plain static files. The obvious "just wrap
+it in a WebView" approach -- point a `WebView` at
+`file:///android_asset/index.html` -- works for a trivial single-page
+site, but breaks down for exactly the features ARKlight's JS runtime
+already has or is building toward:
+
+- `file://` pages get a **null or opaque origin** in most WebView
+  implementations. `fetch()`/XHR to relative paths, and some storage
+  APIs, behave inconsistently or are blocked outright against opaque
+  origins -- this is a real platform restriction, not an ARKlight
+  bug.
+- Stage 8 above (`State(..., persist=True)` -> `localStorage`) needs
+  a **stable, real origin** to be reliable: `localStorage` under a
+  null/opaque origin is unreliable to nonexistent depending on
+  WebView version, and any origin computed per-load rather than
+  per-app defeats the entire point of "survives a reload."
+
+`androidx.webkit`'s `WebViewAssetLoader` (a Jetpack/AndroidX
+component, not a solo-maintainer convenience wrapper) exists
+specifically to solve this: it intercepts a `WebViewClient`'s resource
+requests and serves an app's local `assets/` folder under a real,
+stable `https` origin (conventionally
+`https://appassets.androidx.domain/...`) instead of `file://` --
+without a server, a socket, or network access at runtime. That real
+origin is what makes Stage 8's persistence, and any future
+`fetch()`-based feature, actually reliable inside a packaged app,
+which is why this section is cross-referenced from Stage 8 rather
+than from `v0.044`.
+
+### Why `WebViewAssetLoader` specifically, not a random GitHub WebView wrapper
+
+The maintenance-risk axis that matters here is **who maintains the
+dependency**, not "Kotlin vs. Java" or "which wrapper has more
+stars." `WebViewAssetLoader` ships as part of AndroidX/Jetpack --
+Google's own release train, the same one every other `androidx.*`
+artifact ARKlight would otherwise have zero relationship to rides on
+-- rather than a single maintainer's personal repository. Depending
+on it is depending on Google's AndroidX support commitment, not on
+one person's continued interest in their own side project. This is
+the deciding factor; it would be the wrong choice on solo-maintainer
+grounds even if it were the more feature-rich or more popular option,
+and it would still be the right choice even if a solo-maintainer
+alternative were technically nicer.
+
+### The toolchain is unavoidable -- corrected from an earlier, too-optimistic take
+
+An earlier pass at this design assumed a "templating-only, zero
+build-step" version could ship without asking the user to install
+anything. That was wrong, and it's worth being explicit about why, so
+nobody re-proposes it later: `WebViewAssetLoader` is not a `.js` file
+that a WebView can load the way a browser loads a script tag -- it is
+a compiled Kotlin/Java class that only exists as bytecode inside a
+built APK. There is no "skip Gradle" version of this feature. Getting
+`WebViewAssetLoader` into a running app unavoidably requires:
+
+1. A `build.gradle` declaring `implementation
+   "androidx.webkit:webkit:1.16.0"`, resolved from Google's Maven
+   repository.
+2. The Android Gradle Plugin + Android SDK (`compileSdk`/`targetSdk`,
+   platform-tools) to compile Kotlin/Java that imports
+   `androidx.webkit.WebViewAssetLoader` down to dex bytecode.
+3. A JDK, for Gradle/AGP/`kotlinc` themselves to run at all.
+4. Network access on first build, since Gradle/AGP/AndroidX artifacts
+   are fetched from Maven, not vendored into ARKlight.
+
+**What genuinely stays zero-dependency:** *generating* the Android
+project's source files (Kotlin, `build.gradle`, `AndroidManifest.xml`)
+from ARKlight's existing IR/build output is pure templating --
+identical in kind to how `arklight new`'s scaffold templates or the
+HTML/CSS/JS backends already work, no new runtime dependency on
+ARKlight's own side. What is **not** zero-dependency, no matter how
+minimally this feature is scoped, is turning those generated files
+into anything runnable -- that step always needs JDK + Android SDK +
+Gradle installed on the user's machine. Templating the source is
+genuinely free; building it never can be. This is the corrected
+framing this section replaces the earlier one with.
+
+### Why `subprocess`, and why not PyJNIus/JPype/Jython
+
+Given the toolchain above is unavoidable, the tempting-sounding next
+question is "does ARKlight need a Python-to-JVM bridge to drive it?"
+No -- and it's worth ruling the alternatives out explicitly, because
+they solve a different problem than the one ARKlight actually has:
+
+- **PyJNIus** and **JPype** are JNI bridges: they let Python code call
+  into Java *classes* and *objects* directly, in-process, via the
+  Java Native Interface. That's the right tool if ARKlight needed to,
+  say, invoke a JVM API and get a live Java object back. It does not
+  need that here.
+- **Jython** is a separate, alternative *implementation* of the
+  Python language itself, written in and running on the JVM -- not a
+  feature or mode of CPython. Depending on it would mean ARKlight's
+  own interpreter story forks depending on this one feature, which is
+  a far larger commitment than this milestone calls for.
+
+What `arklight android build` actually needs to do is **shell out to
+an already-built external tool and check whether it succeeded** --
+run `./gradlew assembleDebug` (the wrapper script the generated
+project itself carries, per Gradle convention, so no Gradle install
+is assumed beyond the JDK), wait for it to exit, and read its
+exit code / stdout-stderr. That is precisely what the stdlib
+`subprocess` module is for, and it is the *only* tool actually needed
+here -- no JNI bridge, no alternate interpreter, no new third-party
+dependency of any kind on ARKlight's own side. This keeps the same
+"stdlib only, no new dependency" discipline the ARK Bundle sealing
+code (`hmac`/`hashlib`/`secrets`) already established for a different
+feature.
+
+### Graceful failure when no JDK is present
+
+Running `./gradlew` via `subprocess` on a machine with no JDK
+installed does not raise a Java-flavored error -- it raises Python's
+own `FileNotFoundError` (or platform-equivalent `OSError`), because
+the OS itself cannot locate an executable for the wrapper script's
+shebang/launcher to hand off to. Left uncaught, that surfaces as a
+raw Python traceback, which is exactly the failure mode `main()`'s
+v0.041 catch-all was built to eliminate for every other subcommand.
+`arklight android build` should catch this specifically (not just
+fall through to the generic catch-all) and print a clear, actionable
+message -- "no Java installation found; `arklight android` needs a
+JDK to build the generated project -- see
+https://adoptium.net/ (or your OS package manager) to install one" --
+then exit `1`, the same "clear message over raw traceback" contract
+every other command in this CLI already honors.
+
+### A staged CLI ladder, not one all-or-nothing command
+
+Rather than ARKlight deciding how far a user has to go, `arklight
+android` is proposed as a small ladder of increasingly toolchain-
+dependent subcommands, so someone who only wants the generated
+project (to open in Android Studio themselves, or commit to their own
+CI) never needs a JDK on *this* machine at all, while someone who
+wants a device-ready build in one command can ask for that instead:
+
+1. **`arklight android scaffold <build-dir> -o <project-dir>`** --
+   templating only, no toolchain required. Generates the Kotlin/
+   Gradle/manifest project shell, wires a `MainActivity` that
+   registers a `WebViewAssetLoader` pointed at the build output copied
+   into `app/src/main/assets/`, and stops there. This is the
+   genuinely zero-dependency stage described above.
+2. **`arklight android build <build-dir> -o <project-dir>`** -- runs
+   stage 1, then shells out to the generated project's `./gradlew
+   assembleDebug` via `subprocess`, per the JDK-detection handling
+   above. Produces a debug APK. First run needs JDK + Android SDK +
+   network (for Gradle/AGP/AndroidX resolution); nothing about
+   ARKlight's own install grows to support this -- the toolchain
+   lives entirely in the generated project, same way a `node_modules`
+   folder would live in a project ARKlight itself has nothing to do
+   with.
+3. **`arklight android build --install <build-dir>`** -- stage 2,
+   then `adb install` onto a connected device/emulator if `adb` is
+   found on `PATH` (same graceful-`FileNotFoundError` handling if
+   not).
+4. **`arklight android build --release`** -- stage 2 targeting
+   `assembleRelease` instead of `assembleDebug`; signing
+   configuration (keystore path/passwords) is the user's own concern,
+   passed through to Gradle rather than ARKlight inventing its own
+   credential-handling story -- explicitly out of scope for this
+   milestone to manage on the user's behalf.
+
+Each rung is additive and independently useful, mirroring the
+`.ark` bundle's own "`--plain` vs. sealed" and "`arklight pack` runs
+after `build`, never touching the compiler internals" precedents:
+`arklight.packer` reads already-built output and never imports the
+parser/ir/backend internals; `arklight android` would follow the same
+shape, reading an existing `build-dir` and never touching the
+HTML/CSS/JS backends it's packaging.
+
+### Why this sits after Stage 8, not after `v0.044`
+
+An earlier pass at this cross-reference guessed the relevant
+intersection was `v0.044`'s Stage 3 (event modifiers) or general JS
+capability growth. Tracing it through the actual stage list above,
+that's not right: none of `v0.044`'s planned sub-systems (computed
+state, two-way binding, list rendering, etc.) care what origin a page
+is served from -- they operate purely on the in-memory `store` and
+the DOM already in front of them. The one and only place origin
+*does* matter is Stage 8, because `localStorage` is scoped per-origin
+by the browser/WebView itself. That is the actual, narrow reason this
+milestone is worth doing *before or alongside* Stage 8 rather than
+after `v0.044` generally: shipping Stage 8 against a `file://`-served
+page would give persistence that's unreliable in exactly the
+environment (a packaged native app) where "survives a reload" matters
+most to a user. Everything else in this file's roadmap is indifferent
+to which of `file://` / `https://appassets.androidx.domain` /
+plain browser HTTP a page is served from.
+
+### Explicitly out of scope for this milestone
+
+- **iOS.** `WKWebView` has its own analogous mechanism
+  (`WKURLSchemeHandler`) but a different toolchain (Xcode, Swift,
+  Apple's provisioning/signing model) and a different enough set of
+  gotchas that it deserves its own PLANNING section rather than being
+  folded into this one as "and also iOS."
+- **Push/deep-link/native-plugin bridging of any kind.** This
+  milestone's `MainActivity` hosts a `WebView` and nothing else -- no
+  Capacitor-style native-plugin bridge, no JS-to-native message
+  channel beyond what's needed to serve assets. A generalized native-
+  bridge layer is a substantially larger surface (security review,
+  plugin API design, ongoing maintenance of the bridge itself) with
+  no concrete forcing use case identified yet; noted here as a
+  candidate for a future, separate design rather than speculatively
+  scoped now.
+- **Play Store signing/publishing automation.** Stage 4 above passes
+  signing config through to Gradle; it does not manage keystores,
+  Play Console API integration, or release-track promotion on the
+  user's behalf.
+- **Any change to the HTML/CSS/JS backends themselves.** This is a
+  packaging backend, not a template/codegen backend like the future
+  `v0.100` Vue/Svelte target -- it consumes an existing `build-dir`
+  as opaque input, same as `arklight.packer` already does for `.ark`
+  bundles.
+
+### Staging
+
+Land as four independently-shippable sub-stages matching the CLI
+ladder above (`scaffold` -> `build` -> `--install` -> `--release`),
+each individually useful on its own and gated behind the maintainer
+choosing to proceed past design -- consistent with every other
+PLANNING section in this file, nothing here is scheduled to a version
+number yet.
+
 ## v0.044: JS backend capability expansion -- reactive core parity with Vue 3 (PLANNING)
 
 Requested directly by the maintainer: "add all kinds [of] cool JS

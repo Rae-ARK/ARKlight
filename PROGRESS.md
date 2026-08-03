@@ -24,6 +24,7 @@ table, see [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md).
 | v0.041   | CLI/pipeline/JS runtime hardening + stateful JS addenda I/II | DONE    |
 | vdom-1   | Reactive-core vdom staging, Stage 1 of 8: vendored snabbdom bare core swapped into `State`'s re-render pass | DONE |
 | vdom-2   | Reactive-core vdom staging, Stage 2 of 8: reactive class binding (`Bind.when(...)`/`bind_class=`) | DONE |
+| v0.0438  | Android backend (`arklight android` -- `androidx.webkit.WebViewAssetLoader` packaging) | PLANNED |
 | v0.044   | JS backend capability expansion (reactive core parity with Vue 3) | PLANNED |
 | v0.048   | CSS `@media` queries + `<head>`/`<header>` extension         | PLANNED |
 | v0.010   | User-defined components                                     | PLANNED |
@@ -47,6 +48,61 @@ go-ahead before implementation starts on any of these:
   `arklight.ir.schema.SCHEMA`, the same source of truth every compiler
   stage already reads from. Read-only reflection, no new data format.
 - **`arklight --help`** -- standard CLI usage/help text.
+
+## Android backend design -- `arklight android` (`androidx.webkit.WebViewAssetLoader`) (PLANNING)
+
+Documentation-only session: wrote up the full design in
+`docs/DESIGN-NOTES.md` ("v0.0438: Android backend"), added the
+milestone row + Future-backend note to `docs/ARCHITECTURE.md`, and
+this snapshot/narrative entry. No code written -- matches every other
+PLANNING section's "design complete, implementation not started"
+convention. Deliberately not mentioned in `README.md` for the same
+reason no other unbuilt PLANNING item is.
+
+Key decisions, in brief (full reasoning in `docs/DESIGN-NOTES.md`):
+
+- **Why `androidx.webkit.WebViewAssetLoader`**, not a solo-maintainer
+  WebView-wrapper library: it's a Jetpack/AndroidX artifact, so the
+  maintenance-risk axis (who keeps this working) is Google's AndroidX
+  release train, not one person's side project. Also solves a real
+  problem plain `file://` loading has: opaque/null origin, unreliable
+  `localStorage`/`fetch()` behavior.
+- **The build toolchain (JDK, Android SDK, Gradle/AGP, network) is
+  unavoidable**, even for the smallest possible version of this
+  feature -- `WebViewAssetLoader` only exists as compiled bytecode
+  inside an APK, there's no "just drop in a .js-equivalent file" path.
+  An earlier, too-optimistic take assumed a template-only path could
+  avoid this entirely; corrected in the design doc. What *does* stay
+  genuinely zero-dependency: generating the Kotlin/Gradle project
+  files themselves is pure templating, same as every other backend.
+- **`subprocess` is the only tool needed** to shell out to the
+  generated project's `./gradlew`, not PyJNIus/JPype (JNI bridges --
+  solve a different problem, calling into live JVM objects) or Jython
+  (a separate Python implementation entirely). No new third-party
+  dependency on ARKlight's own side, same discipline as the ARK
+  Bundle sealing code (stdlib `hmac`/`hashlib`/`secrets` only).
+- **Graceful failure with no JDK present**: `subprocess` against a
+  missing `java`/`gradlew` raises `FileNotFoundError`/`OSError`, not a
+  Java-flavored error -- caught explicitly (not left to the v0.041
+  catch-all) with a clear "install a JDK" message rather than a raw
+  traceback.
+- **A 4-stage CLI ladder** (`arklight android scaffold` ->
+  `build` -> `build --install` -> `build --release`) so the user
+  decides how far to go -- e.g. someone who only wants the generated
+  project to open in Android Studio themselves never needs a JDK on
+  *this* machine at all.
+- **Cross-reference correction**: the actual dependency isn't on
+  `v0.044` (none of its planned sub-systems care what origin a page
+  is served from) -- it's specifically on the vdom-staging **Stage
+  8** (`localStorage` persistence), because `localStorage` is scoped
+  per-origin, and only a real, stable origin (which
+  `WebViewAssetLoader` provides and `file://` doesn't) makes that
+  persistence reliable inside a packaged app. That's why this section
+  is placed right after Stage 8 in `docs/DESIGN-NOTES.md`, not after
+  `v0.044`.
+- Explicitly out of scope for now: iOS/`WKWebView` (different
+  toolchain, own future design), any native-plugin/JS-bridge layer
+  beyond asset serving, and Play Store signing/publishing automation.
 
 ## Reactive-core vdom staging -- Stage 1: vdom core integration (DONE)
 
