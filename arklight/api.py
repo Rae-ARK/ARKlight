@@ -14,9 +14,17 @@ except `Site`, which is a small registry object.
 
 from __future__ import annotations
 
+import re
 from typing import Any, Callable
 
 from arklight.ast.nodes import ActionRef, ARKNode, node
+
+# v0.042: custom CSS class names must look like a real, single CSS class
+# identifier -- letters/digits/hyphens/underscores, not starting with a
+# digit. Deliberately conservative (no escaped Unicode class names,
+# no leading '.', no combinators) since this becomes a literal `.name {`
+# selector in generated CSS with no further validation downstream.
+_CSS_CLASS_NAME_RE = re.compile(r"^-?[A-Za-z_][A-Za-z0-9_-]*$")
 
 # ---------------------------------------------------------------------------
 # Built-in components
@@ -368,6 +376,50 @@ class Site:
         self.name = name
         # route -> page function
         self.routes: dict[str, Callable[[], ARKNode]] = {}
+        # v0.042: name -> {css-property: value}, registered via
+        # `site.style(...)`. Structured input only -- see `style()` below
+        # for why this isn't a raw CSS string.
+        self.custom_styles: dict[str, dict[str, str]] = {}
+
+    def style(self, name: str, rules: dict[str, str]) -> None:
+        """
+        Register a real, named, reusable CSS class -- `class_name="name"`
+        anywhere in the site then picks up `rules` from the generated
+        stylesheet, instead of repeating a `style={...}` dict on every
+        node that needs it.
+
+        `rules` is a plain `{css-property: value}` dict, the same shape
+        already used for the per-node `style={...}` prop -- deliberately
+        not a raw CSS string, so this doesn't reopen the "no arbitrary
+        CSS/HTML strings" boundary the rest of ARKlight holds. Calling
+        this again with a name that's already registered overwrites the
+        previous rules for that name (last call wins), which lets a site
+        redefine a class as it's built up without needing a separate
+        "update" method.
+        """
+        if not isinstance(name, str) or not _CSS_CLASS_NAME_RE.match(name):
+            raise ValueError(
+                f"site.style({name!r}, ...) needs a valid CSS class name -- "
+                f"letters, digits, hyphens, and underscores only, and it "
+                f"can't start with a digit."
+            )
+        if not isinstance(rules, dict) or not rules:
+            raise ValueError(
+                f"site.style({name!r}, rules) needs a non-empty dict of "
+                f"{{css-property: value}}, e.g. {{'color': 'red'}}."
+            )
+        for prop, value in rules.items():
+            if not isinstance(prop, str) or not prop.strip():
+                raise ValueError(
+                    f"site.style({name!r}, ...) has a non-string or empty "
+                    f"CSS property name: {prop!r}."
+                )
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(
+                    f"site.style({name!r}, ...) property {prop!r} needs a "
+                    f"non-empty string value, got {value!r}."
+                )
+        self.custom_styles[name] = dict(rules)
 
     def page(self, route: str) -> Callable[[Callable[[], ARKNode]], Callable[[], ARKNode]]:
         if not route.startswith("/"):

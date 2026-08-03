@@ -90,7 +90,7 @@ def compile_site_file(entry_path: str | Path) -> WebsiteIR:
     except ValidationError as exc:
         raise CompileError(str(exc)) from exc
 
-    return build_website_ir(site.name, normalized)
+    return build_website_ir(site.name, normalized, custom_styles=site.custom_styles)
 
 
 def build(

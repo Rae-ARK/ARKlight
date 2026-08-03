@@ -51,6 +51,11 @@ class WebsiteIR:
 
     site_name: str
     pages: list[IRPage] = field(default_factory=list)
+    # v0.042: site-wide custom CSS classes registered via `Site.style(...)`
+    # -- name -> {css-property: value}. Structured input only (a plain
+    # dict), never a raw CSS string, same boundary the rest of the
+    # project holds. Empty for sites that never call `site.style(...)`.
+    custom_styles: dict[str, dict[str, str]] = field(default_factory=dict)
 
 
 def _ark_node_to_ir_node(node: ARKNode) -> IRNode:
@@ -79,16 +84,27 @@ def _extract_page_state(page: ARKNode) -> tuple[dict[str, Any], list]:
     return state, remaining
 
 
-def build_website_ir(site_name: str, pages: dict[str, ARKNode]) -> WebsiteIR:
+def build_website_ir(
+    site_name: str,
+    pages: dict[str, ARKNode],
+    *,
+    custom_styles: dict[str, dict[str, str]] | None = None,
+) -> WebsiteIR:
     """
     Build the Website IR from a normalized + validated ARK AST.
 
     Callers are expected to have already run `normalize_ark_ast` and
-    `validate_ark_ast` on `pages` before calling this.
+    `validate_ark_ast` on `pages` before calling this. `custom_styles`
+    (v0.042) is optional and defaults to empty -- existing callers that
+    only pass `site_name`/`pages` are unaffected.
     """
     ir_pages = []
     for route, page in pages.items():
         state, remaining_children = _extract_page_state(page)
         root_page = ARKNode(type=page.type, props=page.props, children=remaining_children)
         ir_pages.append(IRPage(route=route, root=_ark_node_to_ir_node(root_page), state=state))
-    return WebsiteIR(site_name=site_name, pages=ir_pages)
+    return WebsiteIR(
+        site_name=site_name,
+        pages=ir_pages,
+        custom_styles=dict(custom_styles) if custom_styles else {},
+    )

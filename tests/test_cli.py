@@ -106,3 +106,52 @@ def test_cli_build_failure_returns_nonzero(tmp_path, capsys):
     assert exit_code == 1
     captured = capsys.readouterr()
     assert "ARKlight build failed" in captured.err
+
+
+def test_cli_search_exact_match(capsys):
+    exit_code = main(["search", "Picture"])
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert captured.out.startswith("Picture")
+    assert "required props" in captured.out
+    assert "allows children" in captured.out
+
+
+def test_cli_search_is_case_insensitive(capsys):
+    exit_code = main(["search", "picture"])
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert captured.out.startswith("Picture")
+
+
+def test_cli_search_text_only_component_mentions_bind(capsys):
+    main(["search", "Heading"])
+
+    captured = capsys.readouterr()
+    assert "text only" in captured.out
+    assert "Bind" in captured.out
+
+
+def test_cli_search_required_prop_is_listed(capsys):
+    main(["search", "Link"])
+
+    captured = capsys.readouterr()
+    assert "href" in captured.out
+
+
+def test_cli_search_typo_suggests_close_matches(capsys):
+    exit_code = main(["search", "Pictur"])
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "No component named" in captured.out
+    assert "Picture" in captured.out
+
+
+def test_cli_search_unrelated_query_says_nothing_close(capsys):
+    main(["search", "zzzznotarealcomponentatall"])
+
+    captured = capsys.readouterr()
+    assert "nothing close enough" in captured.out

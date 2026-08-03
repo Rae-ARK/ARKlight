@@ -574,13 +574,37 @@ map, area {
 """
 
 
+def _render_custom_styles(custom_styles: dict[str, dict[str, str]]) -> str:
+    """
+    Turn `site.style(name, {prop: value})` registrations (v0.042) into
+    real `.name { prop: value; ... }` CSS blocks, sorted by class name
+    for deterministic output across runs. Empty input -> empty string
+    (nothing appended to the stylesheet).
+    """
+    if not custom_styles:
+        return ""
+
+    blocks = [
+        "\n/* Custom classes -- registered via `site.style(...)`. */",
+    ]
+    for class_name in sorted(custom_styles):
+        rules = custom_styles[class_name]
+        lines = [f".{class_name} {{"]
+        for prop in sorted(rules):
+            lines.append(f"  {prop}: {rules[prop]};")
+        lines.append("}")
+        blocks.append("\n".join(lines))
+    return "\n\n".join(blocks) + "\n"
+
+
 class CSSBackend(Backend):
     name = "css"
 
     def render(self, ir: WebsiteIR) -> dict[str, str]:
-        # v0.002 ships a single, site-wide stylesheet. `ir` isn't
-        # consulted yet -- reserved for a future per-node style
-        # collection pass -- but is accepted to satisfy the Backend
-        # interface and keep this backend swappable with a smarter one.
-        del ir
-        return {STYLESHEET_PATH: BASE_CSS}
+        # v0.002 ships a single, site-wide stylesheet; v0.042 appends
+        # any custom classes a site registered via `site.style(...)`
+        # (see `ir.custom_styles`, threaded from `Site.custom_styles`
+        # through `build_website_ir`) after the fixed base stylesheet,
+        # so custom classes can override base rules by cascade order.
+        css = BASE_CSS + _render_custom_styles(ir.custom_styles)
+        return {STYLESHEET_PATH: css}

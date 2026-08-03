@@ -6,6 +6,7 @@ ARKlight CLI.
     arklight pack ARK -o site.ark
     arklight unpack site.ark -o ARK
     arklight pwa ARK --name "My Site"
+    arklight search Picture
 
 Beginner-friendly by design: a handful of subcommands, sensible
 defaults (builds AND opens the result in your browser), and error
@@ -22,6 +23,7 @@ from pathlib import Path
 
 from arklight import __version__
 from arklight.cli.scaffold import ScaffoldError, new_project
+from arklight.cli.search import search_component
 from arklight.cli.templates import TEMPLATES
 from arklight.compiler.pipeline import BuildResult, CompileError, build
 from arklight.packer.bundle import PackError, pack, unpack
@@ -186,6 +188,11 @@ def _cmd_new(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_search(args: argparse.Namespace) -> int:
+    print(search_component(args.name))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="arklight", description="Python-first static site compiler.")
     parser.add_argument("--version", action="version", version=f"arklight {__version__}")
@@ -306,6 +313,13 @@ def main(argv: list[str] | None = None) -> int:
         help="Directory to create the project in (default: current directory)",
     )
     new_parser.set_defaults(func=_cmd_new)
+
+    search_parser = subparsers.add_parser(
+        "search",
+        help="Look up a built-in component's schema by name (required props, children rules).",
+    )
+    search_parser.add_argument("name", help="Component name to look up, e.g. Picture")
+    search_parser.set_defaults(func=_cmd_search)
 
     args = parser.parse_args(argv)
 
