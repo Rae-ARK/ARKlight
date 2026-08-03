@@ -41,6 +41,12 @@ Three things beyond basic tag rendering are handled here:
    `data-ark-action-state`/`data-ark-action-args`, which the JS
    backend's reactive core (only shipped for pages that declare state)
    reads to wire up the click.
+
+5. **Stage 3 ("Reactive-core vdom staging"): `.with_modifiers(...)` /
+   `.debounce(...)` / `.throttle(...)` on an `ActionRef` render as a
+   `data-ark-modifiers="prevent,debounce:300"` attribute** alongside
+   the `data-ark-on-click` hooks above -- comma-joined tokens, omitted
+   entirely for an `ActionRef` with no modifiers attached.
 """
 
 from __future__ import annotations
@@ -319,6 +325,12 @@ def _attr_string(
             parts.append(f' data-ark-action-state="{escape(value.state, quote=True)}"')
             if value.args:
                 parts.append(f' data-ark-action-args="{escape(json.dumps(value.args), quote=True)}"')
+            if value.modifiers:
+                # Stage 3 ("Reactive-core vdom staging"): comma-joined
+                # modifier tokens, read by the JS runtime's
+                # arkApplyModifiers -- see arklight/backend/js/render.py.
+                modifiers_str = ",".join(value.modifiers)
+                parts.append(f' data-ark-modifiers="{escape(modifiers_str, quote=True)}"')
             continue
 
         if key == "bind_class" and isinstance(value, ClassBindSpec):

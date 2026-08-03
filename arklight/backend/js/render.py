@@ -70,6 +70,25 @@ class would make `patch()` treat it as a different vnode and remount
 the element (dropping any already-wired listeners) -- so it's a
 direct, one-line `classList.toggle` instead, run in its own pass
 (`renderClassBindings`) alongside `renderBindings`.
+
+Stage 3 adds event modifiers: `Action.set("saved", True).debounce(300)`
+/ `Action.remove("items", 0).with_modifiers("prevent", "stop", "once")`
+attach `prevent`/`stop`/`once`/`debounce:<ms>`/`throttle:<ms>` tokens
+(`arklight.ir.schema.MODIFIER_REGISTRY`) to an `ActionRef`, compiled to
+`data-ark-modifiers="prevent,debounce:300"`. One small wrapper,
+`arkApplyModifiers`, reads that attribute once per element and decides
+*if*/*when* the underlying action actually runs -- not duplicated into
+every `ACTION_FRAGMENTS` entry. Shipped as part of the state runtime
+core (alongside `renderClassBindings`) whenever a page declares
+`State(...)`, the same "ship per-feature, not per-element-usage"
+granularity that core already uses, rather than a separate detection
+pass over whether any given site's `ActionRef`s actually carry
+modifiers. `prevent` is honored by construction: `wireActions`'s click
+listener already unconditionally calls `event.preventDefault()`
+(unchanged, pre-Stage-3 behavior), so there is nothing left for the
+modifier itself to additionally do. Named behaviors (`on_click=
+"toggle"`, etc.) have no modifier-attaching API yet -- deliberately
+left for a future addendum rather than speculatively wired up now.
 """
 
 from __future__ import annotations
@@ -181,6 +200,69 @@ _STATE_CORE_JS = """  function createState(initial) {
     }
   }
 
+  function arkApplyModifiers(el, run) {
+    // Stage 3 ("Reactive-core vdom staging"): one small wrapper, read
+    // once per element from data-ark-modifiers="prevent,debounce:300"
+    // (see ActionRef.modifiers / MODIFIER_REGISTRY), instead of
+    // duplicating debounce/throttle/once/stop into every action
+    // fragment. `run` is a zero-arg callback (the actual state
+    // mutation); this returns a click handler that decides *if*/*when*
+    // to call it. "prevent" is deliberately a no-op here: wireActions'
+    // click listener already unconditionally calls
+    // event.preventDefault() before this runs (existing, pre-Stage-3
+    // behavior this stage doesn't change), so an explicit .with_modifiers("prevent")
+    // is honored by construction rather than by a second call.
+    var raw = el.getAttribute("data-ark-modifiers");
+    if (!raw) return function () { run(); };
+
+    var stop = false, once = false, debounceMs = 0, throttleMs = 0;
+    raw.split(",").forEach(function (token) {
+      var bits = token.split(":");
+      var name = bits[0];
+      if (name === "stop") stop = true;
+      else if (name === "once") once = true;
+      else if (name === "debounce") debounceMs = parseInt(bits[1], 10) || 0;
+      else if (name === "throttle") throttleMs = parseInt(bits[1], 10) || 0;
+    });
+
+    var dispatch = run;
+    if (debounceMs) {
+      dispatch = (function (fn, ms) {
+        var timer;
+        return function () {
+          clearTimeout(timer);
+          timer = setTimeout(fn, ms);
+        };
+      })(dispatch, debounceMs);
+    } else if (throttleMs) {
+      dispatch = (function (fn, ms) {
+        var last = 0;
+        return function () {
+          var now = Date.now();
+          if (now - last >= ms) {
+            last = now;
+            fn();
+          }
+        };
+      })(dispatch, throttleMs);
+    }
+    if (once) {
+      dispatch = (function (fn) {
+        var called = false;
+        return function () {
+          if (called) return;
+          called = true;
+          fn();
+        };
+      })(dispatch);
+    }
+
+    return function (event) {
+      if (stop) event.stopPropagation();
+      dispatch();
+    };
+  }
+
   function wireActions(store) {
     if (!store) return;
     document.querySelectorAll('[data-ark-on-click^="action:"]').forEach(function (el) {
@@ -191,13 +273,16 @@ _STATE_CORE_JS = """  function createState(initial) {
         var args = argsRaw ? JSON.parse(argsRaw) : {};
         var action = actions[actionName];
         if (!action) return;
-        el.addEventListener("click", function (event) {
-          event.preventDefault();
+        var dispatch = arkApplyModifiers(el, function () {
           try {
             action(store, stateKey, args);
           } catch (err) {
             arkNotify("Something went wrong updating this page -- an unsupported or unexpected case was hit.");
           }
+        });
+        el.addEventListener("click", function (event) {
+          event.preventDefault();
+          dispatch(event);
         });
       } catch (err) {
         // One malformed element (e.g. bad data-ark-action-args JSON)
@@ -284,10 +369,12 @@ def _build_runtime_js(ir: WebsiteIR) -> str:
     used_behaviors, used_actions, has_state = _collect_usage(ir)
 
     parts: list[str] = [
-        "// Generated by ARKlight -- v0.0035 runtime + Stage 1 vdom core.",
-        "// Implements only the named behaviors and Action.*(...) references",
-        "// this site actually uses -- see arklight.ir.schema.BEHAVIOR_REGISTRY",
-        "// and ACTION_REGISTRY. No other JavaScript runs on this site.",
+        "// Generated by ARKlight -- v0.0035 runtime + Stage 1-3 of the",
+        "// reactive-core vdom staging (vdom core, class binding, event",
+        "// modifiers). Implements only the named behaviors and",
+        "// Action.*(...) references this site actually uses -- see",
+        "// arklight.ir.schema.BEHAVIOR_REGISTRY / ACTION_REGISTRY /",
+        "// MODIFIER_REGISTRY. No other JavaScript runs on this site.",
         "// Pages with state also carry a vendored snabbdom core (init + h,",
         "// no optional modules) -- see arklight/backend/js/vdom.py.",
         "(function () {",

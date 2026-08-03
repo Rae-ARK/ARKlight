@@ -304,3 +304,34 @@ ACTION_REGISTRY: dict[str, ActionSpec] = {
 }
 
 KNOWN_ACTIONS = frozenset(ACTION_REGISTRY)
+
+
+# Stage 3 of "Reactive-core vdom staging" (see docs/DESIGN-NOTES.md):
+# event modifiers -- a timing/dispatch concern orthogonal to what an
+# action does, so it's solved once as a wrapper around the click
+# dispatcher rather than duplicated into every `ACTION_REGISTRY` entry.
+# `Action.set(...).with_modifiers("prevent", "stop", "once")` and
+# `Action.set(...).debounce(300)` / `.throttle(300)` attach these to an
+# `ActionRef` (see `ActionRef.modifiers` in arklight.ast.nodes); the
+# Validation stage checks each token here the same way it checks
+# `action.action` against `ACTION_REGISTRY` above.
+#
+# `has_param` distinguishes plain boolean modifiers (`prevent`, `stop`,
+# `once`) from ones that carry a millisecond value serialized as
+# `"<name>:<ms>"` (`debounce`, `throttle`) -- same shape distinction
+# `ActionSpec.args` draws for actions, just for the modifier token
+# itself rather than the action's argument dict.
+@dataclass
+class ModifierSpec:
+    has_param: bool = False
+
+
+MODIFIER_REGISTRY: dict[str, ModifierSpec] = {
+    "prevent": ModifierSpec(),
+    "stop": ModifierSpec(),
+    "once": ModifierSpec(),
+    "debounce": ModifierSpec(has_param=True),
+    "throttle": ModifierSpec(has_param=True),
+}
+
+KNOWN_MODIFIERS = frozenset(MODIFIER_REGISTRY)

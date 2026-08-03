@@ -29,12 +29,18 @@ Checks performed:
    (arklight.ast.nodes.ClassBindSpec) whose `state` targets a
    `State(...)` declared on the same page (Stage 2 of "Reactive-core
    vdom staging" -- see docs/DESIGN-NOTES.md).
+9. An `Action.*(...)`'s `.modifiers` (from `.with_modifiers(...)`,
+   `.debounce(...)`, `.throttle(...)`) are each a known token from
+   `arklight.ir.schema.MODIFIER_REGISTRY` -- `prevent`/`stop`/`once`
+   bare, `debounce`/`throttle` as `"<name>:<ms>"` with a positive
+   integer `ms` (Stage 3 of "Reactive-core vdom staging" -- see
+   docs/DESIGN-NOTES.md).
 """
 
 from __future__ import annotations
 
 from arklight.ast.nodes import ActionRef, ARKNode, ClassBindSpec
-from arklight.ir.schema import ACTION_REGISTRY, KNOWN_BEHAVIORS, SCHEMA
+from arklight.ir.schema import ACTION_REGISTRY, KNOWN_BEHAVIORS, MODIFIER_REGISTRY, SCHEMA
 
 
 class ValidationError(Exception):
@@ -53,6 +59,41 @@ def _validate_bind(node: ARKNode, *, path: str, page_state: frozenset[str]) -> N
         )
 
 
+def _validate_modifiers(action: ActionRef, *, path: str) -> None:
+    """Stage 3 ("Reactive-core vdom staging"): check each token in
+    `action.modifiers` against `MODIFIER_REGISTRY` -- a bare name
+    (`prevent`/`stop`/`once`) must take no parameter, and a
+    `"<name>:<value>"` token (`debounce:300`/`throttle:300`) must both
+    name a param-taking modifier and carry a positive integer value."""
+    for token in action.modifiers:
+        name, sep, param = token.partition(":")
+        spec = MODIFIER_REGISTRY.get(name)
+        if spec is None:
+            known = ", ".join(sorted(MODIFIER_REGISTRY))
+            raise ValidationError(
+                f"on_click at {path} uses unknown modifier {name!r} (from "
+                f"{token!r}). Known modifiers are: {known}."
+            )
+        if spec.has_param:
+            if not sep:
+                raise ValidationError(
+                    f"on_click at {path} uses modifier {name!r} without a "
+                    f"millisecond value -- use .{name}(<ms>), e.g. .{name}(300)."
+                )
+            if not param.isdigit() or int(param) <= 0:
+                raise ValidationError(
+                    f"on_click at {path} uses modifier {token!r} with an "
+                    f"invalid value -- {name!r} needs a positive integer "
+                    f"millisecond count."
+                )
+        elif sep:
+            raise ValidationError(
+                f"on_click at {path} uses modifier {token!r}, but {name!r} "
+                f"doesn't take a value -- use .with_modifiers({name!r}) "
+                f"instead."
+            )
+
+
 def _validate_action(action: ActionRef, *, path: str, page_state: frozenset[str]) -> None:
     if action.action not in ACTION_REGISTRY:
         known = ", ".join(sorted(ACTION_REGISTRY))
@@ -67,6 +108,7 @@ def _validate_action(action: ActionRef, *, path: str, page_state: frozenset[str]
             f"{action.state!r}, which isn't declared on this page. State "
             f"declared on this page: {known}."
         )
+    _validate_modifiers(action, path=path)
 
 
 def _validate_class_bind(node: ARKNode, *, path: str, page_state: frozenset[str]) -> None:

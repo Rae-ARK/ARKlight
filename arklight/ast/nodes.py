@@ -22,7 +22,7 @@ This is intentionally a thin, uniform structure:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 
@@ -64,6 +64,34 @@ class ActionRef:
     action: str
     state: str
     args: dict[str, Any] = field(default_factory=dict)
+    # Stage 3 ("Reactive-core vdom staging", see docs/DESIGN-NOTES.md):
+    # event modifiers -- `prevent`/`stop`/`once` stored verbatim, and
+    # `debounce`/`throttle` stored as `"debounce:<ms>"`/`"throttle:<ms>"`
+    # tokens. Deliberately a tuple of plain strings (not a nested
+    # dataclass per modifier) since every entry is either bare or a
+    # single "name:param" pair -- see arklight.ir.schema.MODIFIER_REGISTRY
+    # for what's valid here; Validation checks these tokens the same way
+    # it already checks `action`/`state` above.
+    modifiers: tuple[str, ...] = field(default_factory=tuple)
+
+    def with_modifiers(self, *names: str) -> "ActionRef":
+        """
+        Attach one or more boolean modifiers: `.with_modifiers("prevent",
+        "once")`. Returns a new `ActionRef` -- the original is untouched,
+        same immutable-builder shape `.debounce(...)`/`.throttle(...)`
+        below share.
+        """
+        return replace(self, modifiers=self.modifiers + tuple(names))
+
+    def debounce(self, ms: int) -> "ActionRef":
+        """`.debounce(300)` -- wait 300ms of silence since the last
+        click on this element before actually running the action."""
+        return replace(self, modifiers=self.modifiers + (f"debounce:{ms}",))
+
+    def throttle(self, ms: int) -> "ActionRef":
+        """`.throttle(300)` -- run the action at most once every
+        300ms while clicks keep happening."""
+        return replace(self, modifiers=self.modifiers + (f"throttle:{ms}",))
 
 
 @dataclass
