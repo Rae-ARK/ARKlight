@@ -121,7 +121,12 @@ def compile_site_file(
         raise CompileError(str(exc)) from exc
 
     log("Building website IR...")
-    return build_website_ir(site.name, normalized, custom_styles=site.custom_styles)
+    return build_website_ir(
+        site.name,
+        normalized,
+        custom_styles=site.custom_styles,
+        css_var_overrides=site.css_var_overrides,
+    )
 
 
 def build(

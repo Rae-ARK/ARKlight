@@ -56,6 +56,11 @@ class WebsiteIR:
     # dict), never a raw CSS string, same boundary the rest of the
     # project holds. Empty for sites that never call `site.style(...)`.
     custom_styles: dict[str, dict[str, str]] = field(default_factory=dict)
+    # CSS backend refactor: `--ark-*` custom property overrides
+    # registered via `Site(max_width=..., bg=...)` -- var name (e.g.
+    # "--ark-max-width") -> value. Empty for sites that pass neither,
+    # in which case `CSSBackend` falls back to its own defaults.
+    css_var_overrides: dict[str, str] = field(default_factory=dict)
 
 
 def _ark_node_to_ir_node(node: ARKNode) -> IRNode:
@@ -89,14 +94,16 @@ def build_website_ir(
     pages: dict[str, ARKNode],
     *,
     custom_styles: dict[str, dict[str, str]] | None = None,
+    css_var_overrides: dict[str, str] | None = None,
 ) -> WebsiteIR:
     """
     Build the Website IR from a normalized + validated ARK AST.
 
     Callers are expected to have already run `normalize_ark_ast` and
     `validate_ark_ast` on `pages` before calling this. `custom_styles`
-    (v0.042) is optional and defaults to empty -- existing callers that
-    only pass `site_name`/`pages` are unaffected.
+    (v0.042) and `css_var_overrides` (CSS backend refactor) are both
+    optional and default to empty -- existing callers that only pass
+    `site_name`/`pages` are unaffected.
     """
     ir_pages = []
     for route, page in pages.items():
@@ -107,4 +114,5 @@ def build_website_ir(
         site_name=site_name,
         pages=ir_pages,
         custom_styles=dict(custom_styles) if custom_styles else {},
+        css_var_overrides=dict(css_var_overrides) if css_var_overrides else {},
     )

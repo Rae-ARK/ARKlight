@@ -391,7 +391,13 @@ class Site:
     it builds the ARK AST for the whole site.
     """
 
-    def __init__(self, name: str = "arklight-site") -> None:
+    def __init__(
+        self,
+        name: str = "arklight-site",
+        *,
+        max_width: str | None = None,
+        bg: str | None = None,
+    ) -> None:
         self.name = name
         # route -> page function
         self.routes: dict[str, Callable[[], ARKNode]] = {}
@@ -399,6 +405,34 @@ class Site:
         # `site.style(...)`. Structured input only -- see `style()` below
         # for why this isn't a raw CSS string.
         self.custom_styles: dict[str, dict[str, str]] = {}
+        # CSS backend refactor: `max_width`/`bg` override two of the
+        # `:root`-declared `--ark-*` custom properties that `CSSBackend`
+        # used to bake in as constants. Both are read by `body`'s *own*
+        # rule (`max-width: var(--ark-max-width)`, `background:
+        # var(--ark-bg)`) -- see docs/CONTAINER-WIDTH-BUG.md and the CSS
+        # backend architecture notes for why that specifically makes them
+        # unreachable from any wrapper/descendant override: a CSS custom
+        # property only cascades *downward*, and `body` resolves its own
+        # rule before any site-authored wrapper div exists to override it
+        # on. `Site(max_width=..., bg=...)` is the fix -- these become
+        # real constructor kwargs, threaded through Website IR to
+        # `CSSBackend`, which now generates `:root` instead of hardcoding
+        # it (see `arklight/backend/css/render.py`). Both stay `None` by
+        # default, so a site that doesn't pass either gets ARKlight's
+        # stock defaults, unchanged.
+        self.css_var_overrides: dict[str, str] = {}
+        if max_width is not None:
+            self._set_css_var_override("max_width", "--ark-max-width", max_width)
+        if bg is not None:
+            self._set_css_var_override("bg", "--ark-bg", bg)
+
+    def _set_css_var_override(self, kwarg_name: str, var_name: str, value: str) -> None:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(
+                f"Site({kwarg_name}=...) needs a non-empty CSS value string, "
+                f"got {value!r}."
+            )
+        self.css_var_overrides[var_name] = value
 
     def style(self, name: str, rules: dict[str, str]) -> None:
         """
