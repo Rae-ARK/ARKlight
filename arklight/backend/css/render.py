@@ -17,15 +17,17 @@ component can carry a `style={...}` dict prop (rendered as an inline
 This module is the orchestrator (see docs/CSS-BACKEND-REFACTOR.md):
 `CSSBackend.render` composes output from focused, single-responsibility
 sibling modules rather than doing the generation itself --
-`base_stylesheet.py` (static default CSS text) and `design_tokens.py`
-(`:root`/`@property` generation) today, with custom-class rendering
-below staged to move out the same way in the next refactor stage.
+`base_stylesheet.py` (static default CSS text), `design_tokens.py`
+(`:root`/`@property` generation), and `custom_styles.py` (custom-class
+rendering) -- with only orchestration left here (Stage 4 will trim this
+file down further).
 """
 
 from __future__ import annotations
 
 from arklight.backend.base import Backend
 from arklight.backend.css.base_stylesheet import BASE_CSS_BODY, BASE_CSS_HEADER
+from arklight.backend.css.custom_styles import render_custom_styles
 from arklight.backend.css.design_tokens import render_root_and_property_rules
 from arklight.ir.build import WebsiteIR
 
@@ -34,29 +36,6 @@ from arklight.ir.build import WebsiteIR
 # backends agree on the filename without importing each other's
 # rendering internals.
 STYLESHEET_PATH = "styles.css"
-
-
-def _render_custom_styles(custom_styles: dict[str, dict[str, str]]) -> str:
-    """
-    Turn `site.style(name, {prop: value})` registrations (v0.042) into
-    real `.name { prop: value; ... }` CSS blocks, sorted by class name
-    for deterministic output across runs. Empty input -> empty string
-    (nothing appended to the stylesheet).
-    """
-    if not custom_styles:
-        return ""
-
-    blocks = [
-        "\n/* Custom classes -- registered via `site.style(...)`. */",
-    ]
-    for class_name in sorted(custom_styles):
-        rules = custom_styles[class_name]
-        lines = [f".{class_name} {{"]
-        for prop in sorted(rules):
-            lines.append(f"  {prop}: {rules[prop]};")
-        lines.append("}")
-        blocks.append("\n".join(lines))
-    return "\n\n".join(blocks) + "\n"
 
 
 class CSSBackend(Backend):
@@ -82,6 +61,6 @@ class CSSBackend(Backend):
             + root_and_properties
             + "\n\n"
             + BASE_CSS_BODY
-            + _render_custom_styles(ir.custom_styles)
+            + render_custom_styles(ir.custom_styles)
         )
         return {STYLESHEET_PATH: css}

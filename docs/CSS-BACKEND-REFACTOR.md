@@ -83,7 +83,7 @@ unchanged after every stage -- if they don't, that stage isn't done.
 - [x] **Stage 2** -- Extract `ROOT_VAR_DEFAULTS`, `ROOT_VAR_SYNTAX`,
   and `_render_root_and_property_rules` into `design_tokens.py` as
   `render_root_and_property_rules(overrides)`.
-- [ ] **Stage 3** -- Extract `_render_custom_styles` into
+- [x] **Stage 3** -- Extract `_render_custom_styles` into
   `custom_styles.py` as `render_custom_styles(custom_styles)`.
 - [ ] **Stage 4** -- `render.py` left holding only `STYLESHEET_PATH`
   and `CSSBackend`, whose `render()` becomes a short composition of
@@ -95,8 +95,7 @@ unchanged after every stage -- if they don't, that stage isn't done.
 
 ## Status
 
-Stages 1-2 complete. Stages 3-4 not started. Resume by picking up
-Stage 3 above -- `render.py`'s current `_render_custom_styles` is the
-extraction target, same pattern as Stages 1-2: new module
-(`custom_styles.py`), move code, update the one import site, run
-tests.
+Stages 1-3 complete. Stage 4 not started. Resume by picking up Stage 4
+above -- trim `render.py` down to `STYLESHEET_PATH` + `CSSBackend`,
+optionally split `tests/test_css_backend.py` across module boundaries,
+update `README.md`'s CSS Backend line if it's gone stale.
