@@ -110,6 +110,7 @@ h1, h2, h3, h4, h5, h6 {
   margin: 1.6em 0 0.5em;
   font-weight: 700;
   letter-spacing: -0.01em;
+  text-wrap: balance;
 }
 
 h1 { font-size: 2.25rem; margin-top: 0; }
@@ -122,6 +123,7 @@ h6 { font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.05em; color
 p {
   margin: 0 0 1em;
   color: var(--ark-text);
+  text-wrap: pretty;
 }
 
 a {
@@ -350,6 +352,7 @@ input:focus, textarea:focus, select:focus {
 textarea {
   resize: vertical;
   min-height: 6em;
+  field-sizing: content;
 }
 
 input[type="checkbox"], input[type="radio"] {
