@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import sys
 import traceback
+import warnings
 import webbrowser
 from pathlib import Path
 
@@ -66,6 +67,40 @@ def _stage_logger(message: str) -> None:
     print(f"{_STAGE_PREFIX} {message}")
 
 
+# v0.0431 emergency patch: marker prefix `arklight.backend.html.render`
+# puts on every known-alpha-limitation warning (see UNROUTED_REFERENCE_ATTRS
+# there). Matched here so the CLI can surface these clearly and always --
+# not gated behind --verbose, and not dependent on Python's default
+# warning filters (which only show a `UserWarning` once per call site,
+# and not at all if the caller has warnings configured/silenced) --
+# without touching unrelated warnings a site's own code might raise.
+_ALPHA_WARNING_MARKER = "[ARKlight ALPHA]"
+
+
+def _print_alpha_warnings(caught: list[warnings.WarningMessage]) -> None:
+    """Print every captured `[ARKlight ALPHA]`-marked warning from a
+    build, framed as a known, non-fatal alpha limitation -- not a build
+    failure, but not silent either. This is the graceful-degradation
+    path: the feature the site author used isn't broken by ARKlight
+    refusing to build, it's flagged as "may not work everywhere yet"
+    with a pointer to the patch tracking it.
+    """
+    alpha_warnings = [w for w in caught if _ALPHA_WARNING_MARKER in str(w.message)]
+    if not alpha_warnings:
+        return
+
+    print(
+        f"{_STAGE_PREFIX} NOTE: this alpha build is under active maintenance. "
+        f"{len(alpha_warnings)} known limitation(s) were hit during this build "
+        f"-- the site was still built, but the feature(s) below may not work "
+        f"correctly everywhere. Please wait for (or update to) the emergency "
+        f"patch series (v0.043x) to have these handled gracefully:",
+        file=sys.stderr,
+    )
+    for w in alpha_warnings:
+        print(f"  - {w.message}", file=sys.stderr)
+
+
 def _cmd_build(args: argparse.Namespace) -> int:
     # --debug implies --verbose: tracing compiler errors is much easier
     # with the stage-by-stage narration already on screen above the
@@ -74,7 +109,9 @@ def _cmd_build(args: argparse.Namespace) -> int:
     on_stage = _stage_logger if verbose else None
 
     try:
-        result = build(args.entry, args.output, on_stage=on_stage)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            result = build(args.entry, args.output, on_stage=on_stage)
     except CompileError as exc:
         if args.debug:
             # Full chained traceback (CompileError's __cause__ is the
@@ -92,6 +129,8 @@ def _cmd_build(args: argparse.Namespace) -> int:
     print(f"ARKlight v{__version__} built {len(result.written_paths)} file(s) -> {args.output}/")
     for path in result.written_paths:
         print(f"  {path}")
+
+    _print_alpha_warnings(caught)
 
     if args.open:
         opened = open_in_browser(result, args.output)

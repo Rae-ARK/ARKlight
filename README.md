@@ -27,7 +27,17 @@ produces `ARK/index.html` -- plain, dependency-free HTML.
 
 ## Status
 
-**Current release: v0.043 -- optional `<head>` metadata props +
+**Current release: v0.0431 -- emergency patch, build-time warning for
+unrouted `srcset`/`poster`/`action`/`formaction`.** Alpha maintenance
+release: those four attributes aren't route-rewritten yet (only
+`href`/`src` are), so a route-shaped value now gets a clear, non-fatal
+build warning instead of silently 404ing when the site is deployed
+outside the domain root -- the build still succeeds and the site still
+gets written either way. Full write-up, including what was checked and
+found *not* to be a problem, in [`CHANGELOG.md`](./CHANGELOG.md) and
+[`PROGRESS.md`](./PROGRESS.md) ("v0.0431 -- Emergency patch").
+
+**Previous release: v0.043 -- optional `<head>` metadata props +
 backend `postprocess` hook.** `Page(...)` gains five optional props
 beyond the existing `title`: `description`, `favicon`, `og_title`,
 `og_description`, `og_image` (see "Head metadata" below) -- all

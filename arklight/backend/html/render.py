@@ -53,6 +53,7 @@ from __future__ import annotations
 
 import json
 import posixpath
+import warnings
 from html import escape
 
 from arklight.ast.nodes import ActionRef, ClassBindSpec
@@ -225,6 +226,15 @@ BEHAVIOR_PROP_ATTRS = {
 # page ("/", "/about", ...) instead of emitted verbatim.
 ROUTE_AWARE_ATTRS = {"href", "src"}
 
+# v0.0431 emergency patch: these attributes can *also* carry an internal
+# route reference (Picture/PictureSource's `srcset`, Video's `poster`,
+# Form's `action`/`formaction`) but are NOT in ROUTE_AWARE_ATTRS yet --
+# route-rewriting for them is a known gap, tracked for a real fix in a
+# later release (see CHANGELOG.md). Until then this set only drives a
+# build-time warning so a site author finds out at build time, not by
+# discovering a 404 after deploying outside the domain root.
+UNROUTED_REFERENCE_ATTRS = {"srcset", "poster", "action", "formaction"}
+
 # Tags that never have a closing tag / children.
 VOID_TAGS = {
     "img", "hr", "br", "input", "source",
@@ -268,6 +278,40 @@ def _is_internal_route_ref(value: str) -> bool:
     return True
 
 
+def _warn_unrouted_reference(attr_name: str, value: str, *, node_type: str) -> None:
+    """v0.0431 emergency patch: `attr_name` is one of
+    UNROUTED_REFERENCE_ATTRS and isn't route-rewritten today (see the
+    comment on that set). If `value` looks like it was written the same
+    way a `href`/`src` route reference would be, warn at build time
+    instead of letting it silently 404 outside a domain-root deploy.
+
+    `srcset` is a comma-separated list of `url descriptor` pairs, so
+    each URL is checked individually; the other attrs here are a single
+    value.
+    """
+    if attr_name == "srcset":
+        candidates = [entry.strip().split()[0] for entry in value.split(",") if entry.strip()]
+    else:
+        candidates = [value]
+
+    flagged = [c for c in candidates if _is_internal_route_ref(c)]
+    if not flagged:
+        return
+
+    warnings.warn(
+        f"[ARKlight ALPHA] {node_type!r} has {attr_name}={value!r}, which looks "
+        f"like an internal route reference (e.g. {flagged[0]!r}), but "
+        f"{attr_name!r} is not route-rewritten yet in this alpha build -- it "
+        f"will be emitted as-is and may 404 if the site is deployed from a "
+        f"subdirectory or opened via file://. This is a known limitation "
+        f"under active maintenance; a fix is planned for the v0.0431 "
+        f"emergency patch series. Until then, prefer a value that already "
+        f"resolves correctly from wherever you deploy, or track the fix in "
+        f"CHANGELOG.md.",
+        stacklevel=2,
+    )
+
+
 def _resolve_route_ref(value: str, *, current_route: str, route_to_path: dict[str, str]) -> str:
     """Rewrite an internal route reference into a relative file path
     from the current page's output location. Unknown routes are left
@@ -292,7 +336,12 @@ def _relative_asset_path(asset_path: str, *, current_route: str, route_to_path: 
 
 
 def _attr_string(
-    props: dict, *, current_route: str, route_to_path: dict[str, str], page_state: dict | None = None
+    props: dict,
+    *,
+    current_route: str,
+    route_to_path: dict[str, str],
+    page_state: dict | None = None,
+    node_type: str = "node",
 ) -> str:
     props = dict(props)  # local copy -- may splice the initial bound class in below
 
@@ -357,6 +406,8 @@ def _attr_string(
 
             if attr_name in ROUTE_AWARE_ATTRS and isinstance(value, str) and _is_internal_route_ref(value):
                 value = _resolve_route_ref(value, current_route=current_route, route_to_path=route_to_path)
+            elif attr_name in UNROUTED_REFERENCE_ATTRS and isinstance(value, str):
+                _warn_unrouted_reference(attr_name, value, node_type=node_type)
 
             if attr_name not in PASSTHROUGH_ATTRS and not attr_name.startswith("data-"):
                 # Unknown props are still emitted as data-* attributes rather
@@ -413,7 +464,13 @@ def _render_node(node: IRNode, *, current_route: str, route_to_path: dict[str, s
         return _render_bind(node, page_state=page_state)
 
     tag = _tag_for(node)
-    attrs = _attr_string(node.props, current_route=current_route, route_to_path=route_to_path, page_state=page_state)
+    attrs = _attr_string(
+        node.props,
+        current_route=current_route,
+        route_to_path=route_to_path,
+        page_state=page_state,
+        node_type=node.type,
+    )
 
     if tag in VOID_TAGS:
         return f"<{tag}{attrs} />"

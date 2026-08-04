@@ -41,6 +41,41 @@ and [`docs/DESIGN-NOTES.md`](./docs/DESIGN-NOTES.md) ("v0.044: JS
 backend capability expansion -- reactive core parity with Vue 3" and
 "v0.048: CSS media queries + `<head>` extension") for both designs.
 
+## [0.0431] -- Emergency patch: unrouted-reference build warning
+
+Out-of-band alpha maintenance release (numbered inside the v0.043 ->
+v0.0438 gap, ahead of v0.044). Addresses one finding from an external
+HTML-backend audit: `ROUTE_AWARE_ATTRS` covers only `href`/`src`, while
+`Picture`/`PictureSource`'s `srcset`, `Video`'s `poster`, and `Form`'s
+`action`/`formaction` are all emitted verbatim -- a route-shaped value
+(`/assets/preview.png`) silently 404s once the site is deployed outside
+the domain root.
+
+**Detection only, not a fix yet.** `arklight.backend.html.render` now
+warns at build time (`warnings.warn`, build still succeeds) whenever
+one of those four attributes is given a route-shaped value, naming the
+node/attribute/value and pointing at this patch series. Real
+route-rewriting for these four attributes -- splitting/rejoining
+`srcset`'s comma-separated list, and deciding whether `action`/
+`formaction` should warn-and-skip instead of rewrite -- is tracked as a
+follow-up, not shipped here.
+
+Also confirmed **not** an issue on this branch: the audit's other
+finding, an unrecognized `on_click` value silently no-opping, doesn't
+reproduce -- `arklight/ir/validate.py` already hard-errors on any
+`on_click` outside `KNOWN_BEHAVIORS`.
+
+Three further findings (`<html lang="en">` hardcoded, `--ark-max-width`
+unreachable from any prop, untyped `--ark-*` custom properties) remain
+open but aren't build-time-detectable -- no prop exists yet for a site
+author to trigger them. Tracked against the CSS/HTML backend refactor
+in `docs/DESIGN-NOTES.md` instead.
+
+`0.043` -> `0.0431` version bump only; no page-facing API change;
+existing builds produce byte-for-byte identical HTML/CSS/JS. See
+[`PROGRESS.md`](./PROGRESS.md) ("v0.0431 -- Emergency patch") for the
+full narrative.
+
 ## [0.043] -- Optional `<head>` metadata props + backend `postprocess` hook
 
 Two independent, additive changes: five new optional `Page(...)` props

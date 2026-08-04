@@ -24,6 +24,7 @@ table, see [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md).
 | v0.041   | CLI/pipeline/JS runtime hardening + stateful JS addenda I/II | DONE    |
 | vdom-1   | Reactive-core vdom staging, Stage 1 of 8: vendored snabbdom bare core swapped into `State`'s re-render pass | DONE |
 | vdom-2   | Reactive-core vdom staging, Stage 2 of 8: reactive class binding (`Bind.when(...)`/`bind_class=`) | DONE |
+| v0.0431  | Emergency patch: build-time warning for unrouted `srcset`/`poster`/`action`/`formaction` | DONE |
 | v0.0438  | Android backend (`arklight android` -- `androidx.webkit.WebViewAssetLoader` packaging) | PLANNED |
 | v0.044   | JS backend capability expansion (reactive core parity with Vue 3) | PLANNED |
 | v0.048   | CSS `@media` queries + `<head>`/`<header>` extension         | PLANNED |
@@ -49,7 +50,63 @@ go-ahead before implementation starts on any of these:
   stage already reads from. Read-only reflection, no new data format.
 - **`arklight --help`** -- standard CLI usage/help text.
 
-## Android backend design -- `arklight android` (`androidx.webkit.WebViewAssetLoader`) (PLANNING)
+## v0.0431 -- Emergency patch: unrouted-reference build warning (DONE)
+
+Out-of-band alpha maintenance release, numbered inside the v0.043 ->
+v0.0438 gap rather than waiting for v0.044. Triggered by an external
+audit of the HTML backend that found `ROUTE_AWARE_ATTRS = {"href",
+"src"}` doesn't cover `srcset` (`Picture`/`PictureSource`), `poster`
+(`Video`), or `action`/`formaction` (`Form`) -- all four sit in
+`PASSTHROUGH_ATTRS` and are emitted verbatim, so a route-shaped value
+(`/assets/preview.png`) works when served from `/` and silently 404s
+the moment the site is deployed from a subdirectory or opened via
+`file://`. Same failure shape as the already-fixed `href`/`src` case,
+just never extended to the newer attrs when they were added.
+
+**Shipped:** detection only, not the fix. `arklight.backend.html.render`
+now calls `warnings.warn(...)` (build continues; nothing fails) whenever
+one of those four attributes gets a value `_is_internal_route_ref`
+recognizes as route-shaped -- `srcset` is split on `,` and each URL
+checked individually, since it's a list of `url descriptor` pairs, not
+a single value. The message names the node type, attribute, and value,
+states this is a known alpha limitation, and points at this patch
+series. One file touched (`arklight/backend/html/render.py`); no
+page-facing API change; all 293 existing tests still pass (one,
+`test_form_elements_render_with_form_attrs`, now also emits the new
+warning, which is expected -- it was already hitting this exact gap).
+
+**Checked, not touched:** the audit's other claimed gap -- an unknown
+`on_click` value (a typo like `"dismis"`) silently round-tripping into
+harmless-looking `data-ark-on-click="dismis"` output -- does not
+reproduce on this branch. `arklight/ir/validate.py`'s
+`_validate_behavior_props` already raises `ValidationError` for any
+`on_click` not in `KNOWN_BEHAVIORS`. No change made where there was
+nothing to fix.
+
+**Left open, deliberately.** Three more items from the same audit --
+`<html lang="en">` hardcoded with no `Site`/`Page` override, the
+`--ark-max-width` CSS variable unreachable from any public API, and
+every `--ark-*` custom property being an untyped string substitution
+(no `@property`, so a bad value like `--ark-max-width: 75re;` fails
+silently) -- have **no code path a site author can hit today**, since
+no prop exists yet that would let them trigger the gap. There's nothing
+for a build-time warning to detect. These stay tracked against the
+CSS/HTML backend refactor in `docs/DESIGN-NOTES.md` rather than being
+faked here with a check that could never actually fire.
+
+**Real fix (route-rewriting `srcset`/`poster`/`action`/`formaction`
+the way `href`/`src` already are) is not in this patch** -- it needs
+`srcset`'s comma-separated list split and rejoined per-URL, and a
+decision on whether `action`/`formaction` should warn-and-skip instead
+of rewrite (a form action is at least as likely to be an external API
+endpoint as an internal route). Tracked as a follow-up, not v0.0431's
+job -- this release is the safety net, not the repair.
+
+Version bumped `0.043` -> `0.0431` (`pyproject.toml`,
+`arklight/__init__.py`) so `arklight --version` and build-output banners
+reflect the patch.
+
+
 
 Documentation-only session: wrote up the full design in
 `docs/DESIGN-NOTES.md` ("v0.0438: Android backend"), added the
