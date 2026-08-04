@@ -108,10 +108,28 @@ def _cmd_build(args: argparse.Namespace) -> int:
     verbose = args.verbose or args.debug
     on_stage = _stage_logger if verbose else None
 
+    # --max-width/--bg let the *build invocation* set a design token
+    # without touching the site file's Site(...) call -- e.g. CI
+    # producing a widescreen variant of a site that otherwise ships
+    # with a narrower Site(max_width=...) default. Only the flags the
+    # user actually passed are forwarded, so leaving both off changes
+    # nothing (falls straight through to the site file's own value, or
+    # ARKlight's stock default if it set none either).
+    css_var_overrides: dict[str, str] = {}
+    if args.max_width is not None:
+        css_var_overrides["--ark-max-width"] = args.max_width
+    if args.bg is not None:
+        css_var_overrides["--ark-bg"] = args.bg
+
     try:
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            result = build(args.entry, args.output, on_stage=on_stage)
+            result = build(
+                args.entry,
+                args.output,
+                on_stage=on_stage,
+                css_var_overrides=css_var_overrides or None,
+            )
     except CompileError as exc:
         if args.debug:
             # Full chained traceback (CompileError's __cause__ is the
@@ -310,6 +328,25 @@ def main(argv: list[str] | None = None) -> int:
         help="Like --verbose, plus print the full chained traceback (instead of "
         "a short message) if the build fails -- for tracing a compiler "
         "error back to the exact stage and Python frame that raised it.",
+    )
+    build_parser.add_argument(
+        "--max-width",
+        dest="max_width",
+        default=None,
+        metavar="VALUE",
+        help="Override the page's max content width (--ark-max-width), e.g. "
+        "'90rem', '1400px', '100%%'. Takes precedence over Site(max_width=...) "
+        "in the site file, without requiring an edit to it. Default: "
+        "ARKlight's fluid min(100%% - 3rem, 75rem).",
+    )
+    build_parser.add_argument(
+        "--bg",
+        dest="bg",
+        default=None,
+        metavar="VALUE",
+        help="Override the page background (--ark-bg), e.g. '#0f0f1a'. Takes "
+        "precedence over Site(bg=...) in the site file, without requiring an "
+        "edit to it.",
     )
     build_parser.set_defaults(func=_cmd_build)
 

@@ -84,6 +84,7 @@ def compile_site_file(
     entry_path: str | Path,
     *,
     on_stage: StageLogger | None = None,
+    css_var_overrides: dict[str, str] | None = None,
 ) -> WebsiteIR:
     """
     Run every stage up to (and including) Website IR construction, but
@@ -94,6 +95,13 @@ def compile_site_file(
     describing what's about to run -- purely for observability (e.g.
     the CLI's `--verbose`/`--debug` output); it has no effect on the
     result and defaults to a no-op.
+
+    `css_var_overrides`, if given, is merged *over* whatever the site
+    file itself set via `Site(max_width=..., bg=...)` -- i.e. this is
+    an outer override, for callers (the CLI's `--max-width`/`--bg`
+    flags) that need to set a design token without editing the site
+    file. Defaults to `None` (no additional overrides), so calling
+    `compile_site_file` exactly as before is unaffected.
     """
     log = on_stage or _noop_stage_logger
 
@@ -121,11 +129,15 @@ def compile_site_file(
         raise CompileError(str(exc)) from exc
 
     log("Building website IR...")
+    merged_css_var_overrides = dict(site.css_var_overrides)
+    if css_var_overrides:
+        merged_css_var_overrides.update(css_var_overrides)
+
     return build_website_ir(
         site.name,
         normalized,
         custom_styles=site.custom_styles,
-        css_var_overrides=site.css_var_overrides,
+        css_var_overrides=merged_css_var_overrides,
     )
 
 
@@ -135,6 +147,7 @@ def build(
     *,
     backends: list[Backend] | None = None,
     on_stage: StageLogger | None = None,
+    css_var_overrides: dict[str, str] | None = None,
 ) -> BuildResult:
     """
     Full pipeline: Python source file -> rendered files written to `output_dir`.
@@ -146,11 +159,15 @@ def build(
     normalization, validation, IR build, each backend's render/
     postprocess, writing files, copying assets) with a short message --
     see `compile_site_file` above. Defaults to a no-op; purely additive.
+
+    `css_var_overrides`, if given, is forwarded to `compile_site_file`
+    (see there) -- this is how the CLI's `--max-width`/`--bg` flags
+    reach the design tokens without requiring a site-file edit.
     """
     log = on_stage or _noop_stage_logger
     backends = backends if backends is not None else default_backends()
 
-    ir = compile_site_file(entry_path, on_stage=log)
+    ir = compile_site_file(entry_path, on_stage=log, css_var_overrides=css_var_overrides)
 
     output_files: dict[str, str] = {}
     for backend in backends:
