@@ -299,6 +299,31 @@ specifically only appear once `description` or any `og_*` prop is
 supplied, so `title`-only pages (the common case) don't get an
 unsolicited `og:title`.
 
+### Site-wide layout width & background
+
+Two more optional `Site(...)` constructor kwargs, alongside `name`:
+
+```python
+site = Site(max_width="90rem", bg="#0f0f1a")
+```
+
+| Kwarg | Overrides | Default when omitted |
+|---|---|---|
+| `max_width` | `--ark-max-width` (`body`'s own `max-width`) | `min(100% - 3rem, 75rem)` -- fluid, caps around 1200px |
+| `bg` | `--ark-bg` (`body`'s and `html`'s own `background`) | `#ffffff` |
+
+Both exist specifically because `body` reads these two `--ark-*`
+variables *directly* on its own rule -- unlike `--ark-accent`/
+`--ark-border`/etc., which only descendants (links, buttons, borders)
+read, a per-node `style={...}` or a custom `site.style(...)` class
+can't reach `body`'s own box: a CSS custom property only cascades
+downward, and `body` already resolved its rule from `:root` before any
+site-authored element exists in the tree. `Site(max_width=...,
+bg=...)` sets the variable at `:root` scope instead, which *is* an
+ancestor of `body`, so it's picked up correctly. See
+`docs/CONTAINER-WIDTH-BUG.md` for the full history of why this needed
+its own dedicated kwargs rather than reusing `site.style(...)`.
+
 ### Styling components
 
 Any component accepts two extra props for styling, on top of the

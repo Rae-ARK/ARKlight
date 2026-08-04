@@ -7,6 +7,18 @@ SemVer.
 
 ## [Unreleased]
 
+**Documentation fix: the container-width bug fix itself was never
+documented.** `arklight/api.py`'s own `Site.__init__` comment has
+pointed at `docs/CONTAINER-WIDTH-BUG.md` since the fix landed in
+`7aabfb5` ("CSS Backend is being refactored for predictability. Stage
+1 done.") -- but that file never existed in this repo (only in a
+downstream site's own repo, which independently diagnosed the same
+bug from the outside). Added `docs/CONTAINER-WIDTH-BUG.md` here,
+documented `Site(max_width=..., bg=...)` in `README.md`'s "Styling
+components" section (previously undocumented anywhere despite being
+live, working public API), and this entry. No code change -- the fix
+itself already shipped; only the paper trail was missing.
+
 **Stage 2 of the vdom staging: reactive class binding.**
 `Bind.when("active", "is-active")` + `bind_class=` toggles a CSS class
 as a `State(...)` value's truthiness changes (`ClassBindSpec`,
