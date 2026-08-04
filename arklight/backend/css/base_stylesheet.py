@@ -52,8 +52,7 @@ body {
   min-height: 100vh;
   background: var(--ark-bg);
   color: var(--ark-text);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
-    sans-serif;
+  font-family: var(--ark-font-family);
   line-height: 1.6;
   max-width: var(--ark-max-width);
   margin-left: auto;
@@ -94,7 +93,7 @@ a:hover {
 button {
   font: inherit;
   background: var(--ark-accent);
-  color: #ffffff;
+  color: var(--ark-button-text);
   border: none;
   border-radius: 8px;
   padding: 0.65em 1.4em;

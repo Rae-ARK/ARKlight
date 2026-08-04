@@ -50,7 +50,7 @@ import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from arklight.packer.seal import SealError, seal, unseal
+from arklight.packer.seal import SealError, SEALED_MAGICS, seal, unseal
 
 STYLESHEET_NAME = "styles.css"
 SCRIPT_NAME = "arklight.js"
@@ -266,7 +266,7 @@ def unpack(
     data = bundle_path.read_bytes()
     archive_bytes = data[_find_archive_start(data):]
 
-    was_sealed = archive_bytes.startswith(b"ARKSEAL1")
+    was_sealed = archive_bytes.startswith(SEALED_MAGICS)
     if was_sealed:
         try:
             zip_bytes = unseal(archive_bytes, passphrase=passphrase)

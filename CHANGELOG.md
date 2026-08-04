@@ -5,6 +5,108 @@ follows [Keep a Changelog](https://keepachangelog.com/); versions
 follow the milestone scheme from ARCHITECTURE.md rather than strict
 SemVer.
 
+## [0.0435] - Unreleased
+
+**`arklight new --template production` now recommends the layout it
+already scaffolds.** The `production` template's `site.py` +
+`components/` + `pages/` + `content/` split was already
+service-oriented and separated by concern, but a first-time user got
+no explanation of *why* the files were laid out that way -- just a
+file list. A short note now prints after every `production` scaffold
+(`arklight new` output for `simple` is unchanged, since there's
+nothing to explain there). Added `arklight new --explain-architecture`
+to print the full guide -- concrete to this template's actual
+directories, not generic advice -- either standalone (`arklight new
+--explain-architecture`, no project name needed) or right after a
+`--template production` scaffold. `name` is now an optional positional
+on `new` (only to allow the standalone form); omitting it without
+`--explain-architecture` still errors exactly as before.
+
+## [0.0434] - Unreleased
+
+**`<html lang="...">` is no longer hardcoded to `"en"` with zero
+override path.** Every page of every ARKlight site, regardless of
+actual content language, rendered `lang="en"` -- wrong for any
+non-English site, and consequential: `lang` drives screen-reader
+pronunciation, browser auto-translate prompts, and search engines'
+language signal, not just cosmetics. Added `WebsiteIR.lang` (default
+`"en"`, unchanged), `Site(lang=...)` for a sitewide default, and a
+per-page `Page(lang=...)` override read the same way `title`/
+`favicon`/`description` already are -- a page-level override wins over
+the sitewide default, which wins over the `"en"` stock default. Also
+added `arklight build --lang TAG`, which overrides `Site(lang=...)`
+(but not an explicit `Page(lang=...)`) without a site-file edit.
+Verified the emitted value is HTML-escaped (no injection risk from an
+untrusted `lang` string).
+
+**Button text color decoupled from accent, silently.** `button`'s
+`color: #ffffff` was a literal, independent of `background:
+var(--ark-accent)` -- harmless while the stock accent stayed a dark
+indigo, but a real usability trap for any site now setting a *light*
+accent (via the override paths added in 0.0432/0.0433): white text on
+a light button background, unreadable, with no var to fix it through.
+Added `--ark-button-text` (default `#ffffff`, unchanged) and
+`Site(button_text=...)` / `arklight build --button-text VALUE`.
+
+## [0.0433] - Unreleased
+
+**`body`'s `font-family` is no longer unreachable.** Same bug class as
+the container-width fix, just not caught in that pass: `body` read a
+literal font stack directly (no `--ark-*` var at all), so there was no
+way -- sitewide *or* per-instance -- for a site author to change the
+font. Added `--ark-font-family` (universal `"*"` `@property` syntax,
+since font stacks don't fit a typed CSS syntax component) and
+`Site(font_family=...)` + `arklight build --font-family "..."`,
+mirroring `max_width`/`bg`. Default unchanged from BASE_CSS's existing
+system-font stack.
+
+**PBKDF2 iterations raised from 200,000 to 600,000 (`ARKSEAL2`),
+without breaking any bundle already sealed at the old count.**
+`_PBKDF2_ITERATIONS` was a fixed module constant with no version
+attached to it in the blob format -- bumping it in place would have
+made `unseal()` silently derive the wrong key (and report a misleading
+"wrong passphrase") for every `.ark` bundle sealed by an older
+ARKlight release. Fixed by making the format self-describing about its
+own iteration count instead of assuming one: `ARKSEAL2` embeds a
+4-byte iteration count in passphrase mode; `unseal()` still recognizes
+`ARKSEAL1` bundles and falls back to the old fixed 200,000 for them.
+Every bundle sealed by every past release still opens unchanged; only
+newly-sealed bundles get the stronger, current-OWASP-guidance count.
+`arklight.packer.bundle`'s sealed-bundle detection (`was_sealed = ...`)
+updated to recognize both magics (`SEALED_MAGICS`) instead of hardcoding
+`ARKSEAL1`.
+
+## [0.0432] - Unreleased
+
+**`--max-width`/`--bg` CLI flags on `arklight build`.** The site-file
+API (`Site(max_width=..., bg=...)`) already existed, but there was no
+way to set either without editing the site file itself. `arklight
+build site.py --max-width 90rem --bg "#0f0f1a"` now overrides those
+design tokens at build time, taking precedence over whatever the site
+file sets; leaving both flags off changes nothing. Threaded through
+`compile_site_file()`/`build()` as an optional `css_var_overrides`
+merge, layered *over* `site.css_var_overrides` rather than replacing
+it.
+
+**Layout-primitive tokens (`Stack`/`Cluster`/`Sidebar`/`Switcher`/
+`Grid`/`Reel`) are now sitewide-configurable via `Site(...)`.**
+Previously `--ark-stack-space`, `--ark-grid-min`,
+`--ark-switcher-threshold`, `--ark-sidebar-width`,
+`--ark-cluster-space`, `--ark-sidebar-space`, `--ark-switcher-space`,
+`--ark-grid-space`, `--ark-center-gutter`, and `--ark-reel-space` each
+had a `var(--ark-x, fallback)` at their point of use in `BASE_CSS`, so
+a *per-instance* wrapper `style="--ark-grid-min: 20rem"` already
+worked -- but there was no sitewide override path the way
+`max_width`/`bg` have, a gap `design_tokens.py` flagged in its own
+comments as "tracked as a follow-up." `Site(stack_space=..., grid_min=...,
+switcher_threshold=..., sidebar_width=..., cluster_space=...,
+sidebar_space=..., switcher_space=..., grid_space=..., center_gutter=...,
+reel_space=...)` are now real constructor kwargs, all defaulting to
+`None` (unset) -- an unconfigured site's rendered layout is unchanged,
+byte-identical apart from these values now also being declared
+explicitly at `:root` (needed for the `@property` typing and the
+override path to work at all).
+
 ## [Unreleased]
 
 **Documentation fix: the container-width bug fix itself was never

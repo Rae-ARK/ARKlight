@@ -29,6 +29,14 @@ ROOT_VAR_DEFAULTS: dict[str, str] = {
     "--ark-accent": "#4f46e5",
     "--ark-accent-hover": "#4338ca",
     "--ark-border": "#e5e5f0",
+    # `button`'s text color, previously a literal `#ffffff` decoupled
+    # from `--ark-accent` (its own `background`) -- fine while accent
+    # stayed the stock indigo, but any site choosing a *light* accent
+    # via the existing `Site(...)`-adjacent per-instance override (or,
+    # after this pass, a lighter one some other way) got white text on
+    # a light button background: unreadable, with no var to fix it
+    # through. Default unchanged (`#ffffff`), now overridable.
+    "--ark-button-text": "#ffffff",
     # The one-line fix for the container-width bug: `min()` combines a
     # fluid bound (page never touches the viewport edge) with an
     # absolute cap (~1200px, wide enough for multi-column layouts,
@@ -36,6 +44,38 @@ ROOT_VAR_DEFAULTS: dict[str, str] = {
     # (clamp/min/minmax) the rest of BASE_CSS already leans on for
     # .switcher/.grid/.fluid-heading, instead of a fixed 720px column.
     "--ark-max-width": "min(100% - 3rem, 75rem)",
+    # Layout-primitive tokens (Stack/Cluster/Sidebar/Switcher/Grid/
+    # Reel, see BASE_CSS below). Before this pass these only flowed
+    # through a `var(--ark-x, fallback)` at their point of use, which
+    # -- unlike `--ark-max-width`/`--ark-bg` -- meant they *were*
+    # technically reachable, but only per-instance via a wrapper's own
+    # `style="--ark-grid-min: 20rem"`, never sitewide through `Site()`.
+    # design_tokens.py's own prior revision flagged this gap explicitly
+    # ("tracked as a follow-up, not done in this pass"); this is that
+    # follow-up. Defaults below are unchanged from BASE_CSS's existing
+    # per-use fallbacks -- this only adds a sitewide override path via
+    # `Site(...)`, it doesn't change what an unconfigured site renders.
+    "--ark-stack-space": "1.25rem",
+    "--ark-cluster-space": "0.75rem",
+    "--ark-sidebar-space": "1.5rem",
+    "--ark-sidebar-width": "16rem",
+    "--ark-switcher-space": "1rem",
+    "--ark-switcher-threshold": "30rem",
+    "--ark-grid-min": "16rem",
+    "--ark-grid-space": "1.25rem",
+    "--ark-center-gutter": "0",
+    "--ark-reel-space": "1rem",
+    # Same unreachable-value bug class as `--ark-max-width` originally
+    # was (see the comment on that key above): `body` reads this
+    # directly, so before this pass there was no `--ark-*` var at all
+    # here -- just a literal string baked into BASE_CSS with no
+    # override path, sitewide or per-instance. Default matches the
+    # system-font stack BASE_CSS already shipped, so an unconfigured
+    # site's rendered font is unchanged.
+    "--ark-font-family": (
+        '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, '
+        "Arial, sans-serif"
+    ),
 }
 
 # `@property` gives the browser (and a site author debugging output) a
@@ -52,7 +92,28 @@ ROOT_VAR_SYNTAX: dict[str, str] = {
     "--ark-accent": '"<color>"',
     "--ark-accent-hover": '"<color>"',
     "--ark-border": '"<color>"',
+    "--ark-button-text": '"<color>"',
     "--ark-max-width": '"<length-percentage>"',
+    "--ark-stack-space": '"<length>"',
+    "--ark-cluster-space": '"<length>"',
+    "--ark-sidebar-space": '"<length>"',
+    "--ark-sidebar-width": '"<length-percentage>"',
+    "--ark-switcher-space": '"<length>"',
+    "--ark-switcher-threshold": '"<length>"',
+    "--ark-grid-min": '"<length-percentage>"',
+    "--ark-grid-space": '"<length>"',
+    "--ark-center-gutter": '"<length-percentage>"',
+    "--ark-reel-space": '"<length>"',
+    # `font-family` has no dedicated CSS `<syntax-string>` component
+    # (unlike `<color>`/`<length>`) -- a stack like `-apple-system,
+    # ..., sans-serif` is a comma-separated list of idents/strings, not
+    # expressible as a single typed component. The universal `"*"`
+    # syntax is the correct choice here per the `@property` spec for
+    # values that don't fit a typed component: no browser-side type
+    # validation, but the property is still real, `:root`-declared,
+    # and overridable -- validation of the *value itself* stays a
+    # site-author concern (same as it always was for a raw CSS string).
+    "--ark-font-family": '"*"',
 }
 
 

@@ -535,8 +535,11 @@ def _render_head_meta(
     return "".join(tags)
 
 
-def _render_page(page: IRPage, site_name: str, route_to_path: dict[str, str]) -> str:
+def _render_page(
+    page: IRPage, site_name: str, route_to_path: dict[str, str], *, site_lang: str
+) -> str:
     title = page.root.props.get("title", site_name)
+    lang = page.root.props.get("lang", site_lang)
     body_inner = _render_children(
         page.root.children, current_route=page.route, route_to_path=route_to_path, page_state=page.state
     )
@@ -553,7 +556,7 @@ def _render_page(page: IRPage, site_name: str, route_to_path: dict[str, str]) ->
         body_attrs = f' data-ark-state="{escape(json.dumps(page.state), quote=True)}"'
     return (
         "<!DOCTYPE html>\n"
-        '<html lang="en">\n'
+        f'<html lang="{escape(str(lang), quote=True)}">\n'
         "<head>\n"
         '  <meta charset="utf-8">\n'
         '  <meta name="viewport" content="width=device-width, initial-scale=1">\n'
@@ -576,5 +579,5 @@ class HTMLBackend(Backend):
         output: dict[str, str] = {}
         for page in ir.pages:
             path = route_to_path[page.route]
-            output[path] = _render_page(page, ir.site_name, route_to_path)
+            output[path] = _render_page(page, ir.site_name, route_to_path, site_lang=ir.lang)
         return output

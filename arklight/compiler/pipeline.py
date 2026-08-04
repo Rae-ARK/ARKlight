@@ -85,6 +85,7 @@ def compile_site_file(
     *,
     on_stage: StageLogger | None = None,
     css_var_overrides: dict[str, str] | None = None,
+    lang: str | None = None,
 ) -> WebsiteIR:
     """
     Run every stage up to (and including) Website IR construction, but
@@ -102,6 +103,9 @@ def compile_site_file(
     flags) that need to set a design token without editing the site
     file. Defaults to `None` (no additional overrides), so calling
     `compile_site_file` exactly as before is unaffected.
+
+    `lang`, if given, overrides the site file's own `Site(lang=...)`
+    (or its "en" default) the same way -- for the CLI's `--lang` flag.
     """
     log = on_stage or _noop_stage_logger
 
@@ -138,6 +142,7 @@ def compile_site_file(
         normalized,
         custom_styles=site.custom_styles,
         css_var_overrides=merged_css_var_overrides,
+        lang=lang if lang is not None else site.lang,
     )
 
 
@@ -148,6 +153,7 @@ def build(
     backends: list[Backend] | None = None,
     on_stage: StageLogger | None = None,
     css_var_overrides: dict[str, str] | None = None,
+    lang: str | None = None,
 ) -> BuildResult:
     """
     Full pipeline: Python source file -> rendered files written to `output_dir`.
@@ -160,14 +166,17 @@ def build(
     postprocess, writing files, copying assets) with a short message --
     see `compile_site_file` above. Defaults to a no-op; purely additive.
 
-    `css_var_overrides`, if given, is forwarded to `compile_site_file`
-    (see there) -- this is how the CLI's `--max-width`/`--bg` flags
-    reach the design tokens without requiring a site-file edit.
+    `css_var_overrides`/`lang`, if given, are forwarded to
+    `compile_site_file` (see there) -- this is how the CLI's
+    `--max-width`/`--bg`/`--font-family`/`--lang` flags reach the
+    design tokens and `<html lang>` without requiring a site-file edit.
     """
     log = on_stage or _noop_stage_logger
     backends = backends if backends is not None else default_backends()
 
-    ir = compile_site_file(entry_path, on_stage=log, css_var_overrides=css_var_overrides)
+    ir = compile_site_file(
+        entry_path, on_stage=log, css_var_overrides=css_var_overrides, lang=lang
+    )
 
     output_files: dict[str, str] = {}
     for backend in backends:

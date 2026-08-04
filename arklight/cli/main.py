@@ -36,6 +36,71 @@ from arklight.pwa import PWAError, enable_pwa
 # unattributed text mixed in with normal build output.
 _STAGE_PREFIX = "[ARKlight]"
 
+# Short nudge printed after every `production`-template scaffold --
+# the template's layout (components/ pages/ content/) already puts
+# this into practice, but a first-time user staring at four new
+# directories benefits from being told *why*, not just handed the
+# files. Points at `--explain-architecture` rather than dumping the
+# full guide inline, so the normal `arklight new` output stays short.
+_PRODUCTION_ARCHITECTURE_NOTE = (
+    "Recommended: keep this project service-oriented and separated by "
+    "concern (routes thin, content/markup/logic in their own modules) "
+    "-- minimal boilerplate, not a framework to fight. Run `arklight "
+    "new --explain-architecture` to see how."
+)
+
+# The `--explain-architecture` guide itself -- concrete, tied to the
+# actual `production` template layout (site.py/components/pages/
+# content/assets), not generic architecture advice. Printed standalone
+# (`arklight new --explain-architecture`, no `name` needed) or after a
+# fresh `production` scaffold when the flag is passed alongside a name.
+_ARCHITECTURE_GUIDE = """\
+ARKlight production layout: service-oriented, separated by concern
+--------------------------------------------------------------------
+
+  site.py           routes only -- @site.page(...) decorators that
+                     each delegate to one function in pages/. Nothing
+                     else belongs here.
+  pages/*.py        one module per route. Builds that page's Page(...)
+                     tree by composing components/ + content/ --
+                     no markup lives inline in site.py.
+  components/*.py   reusable pieces (nav, footer, cards, ...) as plain
+                     functions. No special "component" mechanism --
+                     ordinary composition, so there's nothing framework-
+                     specific to learn.
+  content/*.py      copy/text/config constants, kept out of both
+                     components/ and pages/ so wording can change
+                     without touching markup or logic.
+  assets/           images, fonts, favicons -- copied into the build
+                     output automatically.
+
+Why this shape:
+  - Each concern (routing, page assembly, presentation, content) lives
+    in exactly one place, so a change to wording, layout, or a shared
+    nav touches exactly one file, not several.
+  - "Service-oriented" here just means: pages/ and components/ are
+    plain functions with a clear input/output contract (return
+    Page(...) or a node) -- swap, test, or reuse them independently,
+    the same way you'd treat any small service.
+  - It stays minimal-boilerplate on purpose -- no base classes, no
+    config beyond content/, no generated files to keep in sync by
+    hand. Every file above is something you'd write anyway; this is
+    just where it goes.
+
+How to extend it:
+  1. New page: add pages/<name>.py returning Page(...), then wire a
+     @site.page("/<route>") decorator in site.py that calls it. The
+     decorator must live in site.py -- ARKlight discovers routes by
+     statically scanning the entry file's own source, not files it
+     imports.
+  2. New shared piece (nav, card, footer, ...): add it to components/
+     as a plain function, import it from whichever pages/ use it.
+  3. New copy/config: add it to content/, import from pages/ or
+     components/ rather than hardcoding strings in either.
+
+Scaffold this layout with: arklight new <name> --template production
+"""
+
 
 def open_in_browser(result: BuildResult, output_dir: str | Path) -> bool:
     """
@@ -120,6 +185,10 @@ def _cmd_build(args: argparse.Namespace) -> int:
         css_var_overrides["--ark-max-width"] = args.max_width
     if args.bg is not None:
         css_var_overrides["--ark-bg"] = args.bg
+    if args.font_family is not None:
+        css_var_overrides["--ark-font-family"] = args.font_family
+    if args.button_text is not None:
+        css_var_overrides["--ark-button-text"] = args.button_text
 
     try:
         with warnings.catch_warnings(record=True) as caught:
@@ -129,6 +198,7 @@ def _cmd_build(args: argparse.Namespace) -> int:
                 args.output,
                 on_stage=on_stage,
                 css_var_overrides=css_var_overrides or None,
+                lang=args.lang,
             )
     except CompileError as exc:
         if args.debug:
@@ -262,6 +332,19 @@ def _cmd_pwa(args: argparse.Namespace) -> int:
 
 
 def _cmd_new(args: argparse.Namespace) -> int:
+    # `--explain-architecture` is informational and doesn't require a
+    # project name -- `arklight new --explain-architecture` alone just
+    # prints the guide and exits, so it can be run before ever
+    # scaffolding anything. If a name *is* given alongside it, fall
+    # through and scaffold as normal, then print the guide after.
+    if args.explain_architecture and args.name is None:
+        print(_ARCHITECTURE_GUIDE)
+        return 0
+
+    if args.name is None:
+        print("ARKlight new failed: the following arguments are required: name", file=sys.stderr)
+        return 1
+
     try:
         result = new_project(args.name, template=args.template, dest_dir=args.dir)
     except ScaffoldError as exc:
@@ -278,6 +361,13 @@ def _cmd_new(args: argparse.Namespace) -> int:
     print("Next steps:")
     print(f"  cd {result.project_dir}")
     print("  arklight build site.py -o ARK")
+
+    if result.template == "production":
+        print()
+        print(_PRODUCTION_ARCHITECTURE_NOTE)
+        if args.explain_architecture:
+            print()
+            print(_ARCHITECTURE_GUIDE)
 
     return 0
 
@@ -347,6 +437,36 @@ def main(argv: list[str] | None = None) -> int:
         help="Override the page background (--ark-bg), e.g. '#0f0f1a'. Takes "
         "precedence over Site(bg=...) in the site file, without requiring an "
         "edit to it.",
+    )
+    build_parser.add_argument(
+        "--font-family",
+        dest="font_family",
+        default=None,
+        metavar="VALUE",
+        help="Override the page font stack (--ark-font-family), e.g. "
+        "'Georgia, serif' or '\"Inter\", sans-serif'. Takes precedence over "
+        "Site(font_family=...) in the site file, without requiring an edit "
+        "to it. Default: ARKlight's stock system-font stack.",
+    )
+    build_parser.add_argument(
+        "--lang",
+        dest="lang",
+        default=None,
+        metavar="TAG",
+        help="Override the <html lang=\"...\"> tag, e.g. 'es', 'ta', 'fr-CA'. "
+        "Overrides Site(lang=...) without requiring a site-file edit -- a "
+        "page's own Page(lang=...), if it sets one, still wins for that page. "
+        "Default: 'en'.",
+    )
+    build_parser.add_argument(
+        "--button-text",
+        dest="button_text",
+        default=None,
+        metavar="VALUE",
+        help="Override button text color (--ark-button-text), e.g. '#111827'. "
+        "Takes precedence over Site(button_text=...) in the site file. "
+        "Default: '#ffffff' -- worth setting explicitly if you also choose a "
+        "light --ark-accent, since button background follows accent.",
     )
     build_parser.set_defaults(func=_cmd_build)
 
@@ -430,7 +550,13 @@ def main(argv: list[str] | None = None) -> int:
     new_parser = subparsers.add_parser(
         "new", help="Scaffold a new ARKlight project from a built-in template."
     )
-    new_parser.add_argument("name", help="Name of the new project (also the directory created for it)")
+    new_parser.add_argument(
+        "name",
+        nargs="?",
+        default=None,
+        help="Name of the new project (also the directory created for it). "
+        "Optional only when used with --explain-architecture alone.",
+    )
     new_parser.add_argument(
         "--template",
         choices=sorted(TEMPLATES),
@@ -441,6 +567,16 @@ def main(argv: list[str] | None = None) -> int:
         "--dir",
         default=None,
         help="Directory to create the project in (default: current directory)",
+    )
+    new_parser.add_argument(
+        "--explain-architecture",
+        action="store_true",
+        default=False,
+        help="Print guidance on structuring an ARKlight project as "
+        "service-oriented, separated-by-concern modules with minimal "
+        "boilerplate (routes/pages/components/content), and how to extend "
+        "that layout. Run alone (no name) to just read the guide, or "
+        "alongside a --template production scaffold to print it right after.",
     )
     new_parser.set_defaults(func=_cmd_new)
 

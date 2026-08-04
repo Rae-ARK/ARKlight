@@ -397,8 +397,28 @@ class Site:
         *,
         max_width: str | None = None,
         bg: str | None = None,
+        font_family: str | None = None,
+        button_text: str | None = None,
+        lang: str = "en",
+        stack_space: str | None = None,
+        cluster_space: str | None = None,
+        sidebar_space: str | None = None,
+        sidebar_width: str | None = None,
+        switcher_space: str | None = None,
+        switcher_threshold: str | None = None,
+        grid_min: str | None = None,
+        grid_space: str | None = None,
+        center_gutter: str | None = None,
+        reel_space: str | None = None,
     ) -> None:
         self.name = name
+        # <html lang="..."> for every page this site builds, unless a
+        # page overrides it with its own Page(lang=...). Previously
+        # hardcoded to "en" in the HTML backend with no override path
+        # at all -- see WebsiteIR.lang's comment in arklight/ir/build.py.
+        if not isinstance(lang, str) or not lang.strip():
+            raise ValueError(f"Site(lang=...) needs a non-empty language tag string, got {lang!r}.")
+        self.lang = lang
         # route -> page function
         self.routes: dict[str, Callable[[], ARKNode]] = {}
         # v0.042: name -> {css-property: value}, registered via
@@ -425,6 +445,40 @@ class Site:
             self._set_css_var_override("max_width", "--ark-max-width", max_width)
         if bg is not None:
             self._set_css_var_override("bg", "--ark-bg", bg)
+        if font_family is not None:
+            # Same unreachable-value bug class `max_width`/`bg` above
+            # already fix -- see design_tokens.py's `--ark-font-family`
+            # comment. `body` reads this directly, so before this a
+            # site author had no way to change the font at all.
+            self._set_css_var_override("font_family", "--ark-font-family", font_family)
+        if button_text is not None:
+            # Fixes the button-text-color/accent-color decoupling --
+            # see design_tokens.py's `--ark-button-text` comment.
+            self._set_css_var_override("button_text", "--ark-button-text", button_text)
+
+        # Layout-primitive tokens (Stack/Cluster/Sidebar/Switcher/Grid/
+        # Reel spacing + Sidebar's fixed-column width + Switcher's
+        # stack/row breakpoint). These already had a `var(--ark-x,
+        # fallback)` fallback at their point of use in BASE_CSS, so a
+        # *per-instance* wrapper `style=` override already worked --
+        # what was missing was a sitewide path, same shape as
+        # `max_width`/`bg` above. All default to `None` (unset), so a
+        # site passing none of these gets ARKlight's stock per-use
+        # defaults, unchanged.
+        for kwarg_name, var_name, value in (
+            ("stack_space", "--ark-stack-space", stack_space),
+            ("cluster_space", "--ark-cluster-space", cluster_space),
+            ("sidebar_space", "--ark-sidebar-space", sidebar_space),
+            ("sidebar_width", "--ark-sidebar-width", sidebar_width),
+            ("switcher_space", "--ark-switcher-space", switcher_space),
+            ("switcher_threshold", "--ark-switcher-threshold", switcher_threshold),
+            ("grid_min", "--ark-grid-min", grid_min),
+            ("grid_space", "--ark-grid-space", grid_space),
+            ("center_gutter", "--ark-center-gutter", center_gutter),
+            ("reel_space", "--ark-reel-space", reel_space),
+        ):
+            if value is not None:
+                self._set_css_var_override(kwarg_name, var_name, value)
 
     def _set_css_var_override(self, kwarg_name: str, var_name: str, value: str) -> None:
         if not isinstance(value, str) or not value.strip():

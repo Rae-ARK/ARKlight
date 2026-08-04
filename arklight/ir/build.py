@@ -61,6 +61,15 @@ class WebsiteIR:
     # "--ark-max-width") -> value. Empty for sites that pass neither,
     # in which case `CSSBackend` falls back to its own defaults.
     css_var_overrides: dict[str, str] = field(default_factory=dict)
+    # Sitewide default for <html lang="...">. Previously this was a
+    # literal "en" baked into the HTML backend with no override path
+    # at all -- wrong for every non-English site, and there was no way
+    # to fix it short of hand-editing generated HTML after every
+    # build. Defaults to "en" (unchanged rendered output for a site
+    # that doesn't set `Site(lang=...)`); a per-page `Page(lang=...)`
+    # prop, read the same way `title`/`favicon`/`description` already
+    # are, overrides this per route.
+    lang: str = "en"
 
 
 def _ark_node_to_ir_node(node: ARKNode) -> IRNode:
@@ -95,15 +104,16 @@ def build_website_ir(
     *,
     custom_styles: dict[str, dict[str, str]] | None = None,
     css_var_overrides: dict[str, str] | None = None,
+    lang: str = "en",
 ) -> WebsiteIR:
     """
     Build the Website IR from a normalized + validated ARK AST.
 
     Callers are expected to have already run `normalize_ark_ast` and
     `validate_ark_ast` on `pages` before calling this. `custom_styles`
-    (v0.042) and `css_var_overrides` (CSS backend refactor) are both
-    optional and default to empty -- existing callers that only pass
-    `site_name`/`pages` are unaffected.
+    (v0.042), `css_var_overrides` (CSS backend refactor), and `lang`
+    are all optional and default to their prior stock values --
+    existing callers that only pass `site_name`/`pages` are unaffected.
     """
     ir_pages = []
     for route, page in pages.items():
@@ -115,4 +125,5 @@ def build_website_ir(
         pages=ir_pages,
         custom_styles=dict(custom_styles) if custom_styles else {},
         css_var_overrides=dict(css_var_overrides) if css_var_overrides else {},
+        lang=lang,
     )
