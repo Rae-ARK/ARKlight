@@ -165,6 +165,13 @@ def _cmd_pack(args: argparse.Namespace) -> int:
     print(f"ARKlight v{__version__} packed {len(result.packed_paths)} file(s) -> {result.output_path}")
     for path in result.packed_paths:
         print(f"  {path}")
+    print(
+        "Note: .ark is ARKlight's own bundle format, not something a browser "
+        "opens directly -- double-clicking it will offer to open it as a "
+        "generic ZIP/archive, not as a site. Run `arklight unpack "
+        f"{result.output_path}` to get a build/ directory back, then open "
+        "that directory's index.html in a browser (or serve it)."
+    )
 
     if not result.sealed:
         print(

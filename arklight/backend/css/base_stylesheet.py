@@ -29,9 +29,27 @@ BASE_CSS_BODY = """\
   box-sizing: border-box;
 }
 
+/* `body` below carries `max-width` + centering, so its background only
+   paints the centered content column, and neither `html` nor `body` is
+   guaranteed to be as tall as the viewport when the page's content is
+   shorter than the screen. Without this, a page with a short amount of
+   content and a colored/imaged background (via `Site(bg=...)`, which
+   sets `--ark-bg`) shows that background only behind the text, with
+   the browser's default (usually white) showing everywhere else --
+   both the gutters beside the content column and the empty space below
+   a short page. `html` is unconstrained-width and always at least
+   viewport-tall, so painting the same background there and stretching
+   `body` to match makes any background color or image cover the whole
+   browser window, edge to edge, regardless of content length. */
+html {
+  min-height: 100%;
+  background: var(--ark-bg);
+}
+
 body {
   margin: 0;
   padding: 2.5rem 1.5rem 4rem;
+  min-height: 100vh;
   background: var(--ark-bg);
   color: var(--ark-text);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
@@ -110,6 +128,7 @@ div {
 
 .nav {
   display: flex;
+  flex-wrap: wrap;
   gap: 1.25rem;
   padding-bottom: 1.5rem;
   margin-bottom: 1.5rem;
