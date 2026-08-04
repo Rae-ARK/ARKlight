@@ -14,13 +14,12 @@ component can carry a `style={...}` dict prop (rendered as an inline
 `style` attribute by the HTML backend) or a `class_name="..."` prop
 (rendered as `class`) to layer custom rules or override these defaults.
 
-This module is the orchestrator (see docs/CSS-BACKEND-REFACTOR.md):
-`CSSBackend.render` composes output from focused, single-responsibility
-sibling modules rather than doing the generation itself --
-`base_stylesheet.py` (static default CSS text), `design_tokens.py`
-(`:root`/`@property` generation), and `custom_styles.py` (custom-class
-rendering) -- with only orchestration left here (Stage 4 will trim this
-file down further).
+This module is the orchestrator (see docs/CSS-BACKEND-REFACTOR.md,
+Stage 4): `CSSBackend.render` is now pure composition of three sibling
+modules -- `base_stylesheet.py` (static default CSS text),
+`design_tokens.py` (`:root`/`@property` generation), and
+`custom_styles.py` (custom-class rendering) -- with no generation logic
+of its own left in this file.
 """
 
 from __future__ import annotations
@@ -42,23 +41,16 @@ class CSSBackend(Backend):
     name = "css"
 
     def render(self, ir: WebsiteIR) -> dict[str, str]:
-        # v0.002 ships a single, site-wide stylesheet; v0.042 appends
-        # any custom classes a site registered via `site.style(...)`
-        # (see `ir.custom_styles`, threaded from `Site.custom_styles`
-        # through `build_website_ir`) after the fixed base stylesheet,
-        # so custom classes can override base rules by cascade order.
-        #
-        # CSS backend refactor: `:root` (+ its `@property` typing) is no
-        # longer part of the static BASE_CSS constant -- it's generated
-        # here from ROOT_VAR_DEFAULTS merged with `ir.css_var_overrides`
-        # (threaded from `Site(max_width=..., bg=...)`), so those two
-        # variables are finally reachable from site code instead of
-        # baked in. Everything else in BASE_CSS_BODY is unchanged.
-        root_and_properties = render_root_and_property_rules(ir.css_var_overrides)
+        # v0.002 ships a single, site-wide stylesheet. Cascade order
+        # matters: base rules, then `:root`/`@property` design tokens
+        # (`ir.css_var_overrides`, from `Site(max_width=..., bg=...)`),
+        # then the fixed tag/utility rules, then v0.042 custom classes
+        # (`ir.custom_styles`, from `site.style(...)`) last so they can
+        # override any of the above.
         css = (
             BASE_CSS_HEADER
             + "\n"
-            + root_and_properties
+            + render_root_and_property_rules(ir.css_var_overrides)
             + "\n\n"
             + BASE_CSS_BODY
             + render_custom_styles(ir.custom_styles)

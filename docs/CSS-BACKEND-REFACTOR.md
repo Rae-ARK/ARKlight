@@ -85,7 +85,7 @@ unchanged after every stage -- if they don't, that stage isn't done.
   `render_root_and_property_rules(overrides)`.
 - [x] **Stage 3** -- Extract `_render_custom_styles` into
   `custom_styles.py` as `render_custom_styles(custom_styles)`.
-- [ ] **Stage 4** -- `render.py` left holding only `STYLESHEET_PATH`
+- [x] **Stage 4** -- `render.py` left holding only `STYLESHEET_PATH`
   and `CSSBackend`, whose `render()` becomes a short composition of
   the three sibling modules. Split `tests/test_css_backend.py`'s
   cases across the new module boundaries where that adds clarity
@@ -95,7 +95,9 @@ unchanged after every stage -- if they don't, that stage isn't done.
 
 ## Status
 
-Stages 1-3 complete. Stage 4 not started. Resume by picking up Stage 4
-above -- trim `render.py` down to `STYLESHEET_PATH` + `CSSBackend`,
-optionally split `tests/test_css_backend.py` across module boundaries,
-update `README.md`'s CSS Backend line if it's gone stale.
+Stages 1-4 complete -- refactor done. `render.py` is now pure
+composition over `base_stylesheet.py`, `design_tokens.py`, and
+`custom_styles.py`; `tests/test_css_backend.py` was left as one file
+(splitting it didn't add clarity over moving code around); `README.md`'s
+CSS Backend line still describes external behavior, not internals, so
+it needed no update.
