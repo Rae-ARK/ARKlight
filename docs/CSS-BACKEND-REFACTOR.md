@@ -80,7 +80,7 @@ unchanged after every stage -- if they don't, that stage isn't done.
 - [x] **Stage 1** -- Extract `BASE_CSS_HEADER`/`BASE_CSS_BODY` into
   `base_stylesheet.py` (data only, zero logic). `render.py` now
   imports them.
-- [ ] **Stage 2** -- Extract `ROOT_VAR_DEFAULTS`, `ROOT_VAR_SYNTAX`,
+- [x] **Stage 2** -- Extract `ROOT_VAR_DEFAULTS`, `ROOT_VAR_SYNTAX`,
   and `_render_root_and_property_rules` into `design_tokens.py` as
   `render_root_and_property_rules(overrides)`.
 - [ ] **Stage 3** -- Extract `_render_custom_styles` into
@@ -95,8 +95,8 @@ unchanged after every stage -- if they don't, that stage isn't done.
 
 ## Status
 
-Stage 1 complete (this session). Stages 2-4 not started. Resume by
-picking up Stage 2 above -- `render.py`'s current
-`_render_root_and_property_rules` + `ROOT_VAR_DEFAULTS` +
-`ROOT_VAR_SYNTAX` are the extraction target, same pattern as Stage 1:
-new module, move code, update the one import site, run tests.
+Stages 1-2 complete. Stages 3-4 not started. Resume by picking up
+Stage 3 above -- `render.py`'s current `_render_custom_styles` is the
+extraction target, same pattern as Stages 1-2: new module
+(`custom_styles.py`), move code, update the one import site, run
+tests.
