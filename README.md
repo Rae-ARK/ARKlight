@@ -52,7 +52,15 @@ CLI discoverability) shipped just before this -- full detail in
 [`CHANGELOG.md`](./CHANGELOG.md); narrative/decision log in
 [`PROGRESS.md`](./PROGRESS.md).
 
-**Next up: v0.044 -- JS backend capability expansion.** Computed/
+**Next up: v0.048 -- CSS `@media` queries + `<head>` extension
+(Stage A in progress).** Started ahead of v0.044 in the previously
+announced order. Stage A adds optional, structured `meta`/`links`
+props to `Page(...)` (no raw HTML string escape hatch); Stage B (next)
+adds a `responsive_style` prop compiled by `CSSBackend` into real
+`@media` rules. See [`docs/DESIGN-NOTES.md`](./docs/DESIGN-NOTES.md)
+("v0.048: CSS media queries + `<head>` extension").
+
+**Also queued: v0.044 -- JS backend capability expansion.** Computed/
 derived state, watch effects, two-way input binding, per-item list
 rendering, conditional show/hide, event modifiers, and reactive class
 binding -- all via closed, described registries (no arbitrary JS, no
@@ -577,7 +585,7 @@ pytest
 Full milestone table (with status) lives in
 [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) -- kept as the single
 canonical copy rather than duplicated here, in `PROGRESS.md`, and in
-`CHANGELOG.md`. Short version: v0.001 through v0.043 are done; v0.044
-(JS backend capability expansion) is next, with v0.048 (CSS `@media` +
-`<head>`/`<header>` extension) queued right behind it; v0.010
-(components) and v0.100 (alternate backends) are further out.
+`CHANGELOG.md`. Short version: v0.001 through v0.043 are done; v0.048
+(CSS `@media` + `<head>`/`<header>` extension) is in progress (Stage A
+of 2), with v0.044 (JS backend capability expansion) queued behind it;
+v0.010 (components) and v0.100 (alternate backends) are further out.

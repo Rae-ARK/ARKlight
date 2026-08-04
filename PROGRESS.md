@@ -26,8 +26,8 @@ table, see [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md).
 | vdom-2   | Reactive-core vdom staging, Stage 2 of 8: reactive class binding (`Bind.when(...)`/`bind_class=`) | DONE |
 | v0.0431  | Emergency patch: build-time warning for unrouted `srcset`/`poster`/`action`/`formaction` | DONE |
 | v0.0438  | Android backend (`arklight android` -- `androidx.webkit.WebViewAssetLoader` packaging) | PLANNED |
+| v0.048   | CSS `@media` queries + `<head>`/`<header>` extension (Stage A of 2: `meta`/`links`) | IN PROGRESS |
 | v0.044   | JS backend capability expansion (reactive core parity with Vue 3) | PLANNED |
-| v0.048   | CSS `@media` queries + `<head>`/`<header>` extension         | PLANNED |
 | v0.010   | User-defined components                                     | PLANNED |
 | v0.100   | Alternate backends (Vue, Svelte)                             | PLANNED |
 | v1.0     | Stable compiler                                              | PLANNED |
@@ -49,6 +49,24 @@ go-ahead before implementation starts on any of these:
   `arklight.ir.schema.SCHEMA`, the same source of truth every compiler
   stage already reads from. Read-only reflection, no new data format.
 - **`arklight --help`** -- standard CLI usage/help text.
+
+## v0.048 -- Stage A: structured `<head>` extension (IN PROGRESS)
+
+Started ahead of v0.044 in the previously announced roadmap order
+(README/ARCHITECTURE said v0.044 next); v0.048 was picked up first
+instead. Design unchanged from `docs/DESIGN-NOTES.md` ("v0.048: CSS
+media queries + `<head>` extension") -- landing as two independent
+stages so each is reviewable/testable on its own:
+
+- **Stage A (this entry) -- `meta`/`links` on `Page(...)`.** Optional,
+  structured extension points -- `meta: dict[str, str] | None`
+  (name/content pairs -> `<meta name="..." content="...">`) and
+  `links: list[dict] | None` (each dict is attribute name -> value ->
+  a `<link ...>` tag, for preconnect/webfonts/icons beyond the
+  existing `favicon`). No raw HTML-injection escape hatch, matching
+  every other extension point in the project.
+- **Stage B (next) -- `responsive_style` + `@media` compilation.** Not
+  started. Depends on nothing from Stage A.
 
 ## v0.0431 -- Emergency patch: unrouted-reference build warning (DONE)
 

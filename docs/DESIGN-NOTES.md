@@ -488,12 +488,28 @@ props six months later):
 Both are additive CLI surface only; neither touches the compiler
 pipeline, the IR, or any backend.
 
-### v0.048: CSS media queries + `<head>` extension
+### v0.048: CSS media queries + `<head>` extension (Stage A IN PROGRESS)
 
 (Renumbered from the original "v0.004" combined heading once the CLI
 scaffolding piece of that heading shipped separately as v0.004a --
 see `PROGRESS.md`/`CHANGELOG.md`. Design below is unchanged from when
 it was first written.)
+
+Implementation started ahead of v0.044 in the announced roadmap order
+(README/ARCHITECTURE previously said v0.044 next) -- same
+out-of-sequence precedent as v0.0438 being cross-referenced rather
+than strictly ordered; see `PROGRESS.md` ("v0.048 -- Stage A") for the
+narrative record of why. Landing as two independent stages, each its
+own tagged sub-version, so "structured `<head>` extension" and
+"`@media` responsive styling" can each be reviewed/tested/shipped on
+their own rather than as one large patch:
+
+- **Stage A -- structured `<head>` extension (`meta`/`links` on
+  `Page(...)`).** IN PROGRESS.
+- **Stage B -- `@media` responsive styling (`responsive_style` prop +
+  `CSSBackend` compilation).** PLANNING, depends on nothing from Stage
+  A (different node prop, different backend) but sequenced second to
+  keep each patch reviewable in isolation.
 
 - `Page(...)` gains optional, *structured* extension points --
   deliberately not a raw HTML-injection escape hatch, to avoid
