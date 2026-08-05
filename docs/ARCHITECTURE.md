@@ -16,6 +16,11 @@ executes Python.
 - Beginner friendly.
 - AI-friendly API.
 - Backend independent compiler.
+- Configurable only where it needs to be -- an internal value gets a
+  user-facing override (`Site(...)`/`Page(...)` kwarg, `arklight build`
+  flag) only when a real site could want it different *and* nothing
+  already reaches it; otherwise it stays a plain internal constant. See
+  `docs/CONFIGURABILITY.md` for the full rule and worked examples.
 
 ## Compiler Pipeline
 
@@ -59,8 +64,13 @@ The IR models website intent rather than HTML.
 ## Backend Interface
 
 Current:
-- HTML (`arklight/backend/html/`)
-- CSS (`arklight/backend/css/`)
+- HTML (`arklight/backend/html/`) -- currently one file
+  (`render.py`); a service-oriented module split (mirroring the CSS
+  backend below) is designed but not started, see
+  `docs/HTML-BACKEND-REFACTOR.md`.
+- CSS (`arklight/backend/css/`) -- already split into
+  `base_stylesheet.py`/`design_tokens.py`/`custom_styles.py`/
+  `render.py`, see `docs/CSS-BACKEND-REFACTOR.md`.
 - JavaScript (`arklight/backend/js/`)
 
 Future:

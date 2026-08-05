@@ -180,10 +180,16 @@ reproduce -- `arklight/ir/validate.py` already hard-errors on any
 `on_click` outside `KNOWN_BEHAVIORS`.
 
 Three further findings (`<html lang="en">` hardcoded, `--ark-max-width`
-unreachable from any prop, untyped `--ark-*` custom properties) remain
-open but aren't build-time-detectable -- no prop exists yet for a site
-author to trigger them. Tracked against the CSS/HTML backend refactor
-in `docs/DESIGN-NOTES.md` instead.
+unreachable from any prop, untyped `--ark-*` custom properties) were
+open at the time but aren't build-time-detectable -- no prop existed
+yet for a site author to trigger them. `--ark-max-width` was fixed by
+the CSS backend refactor (`docs/CONTAINER-WIDTH-BUG.md`); `<html
+lang="en">` was fixed above, in `[0.0434]`. Untyped `--ark-*` custom
+properties remains open. These were tracked as "against the CSS/HTML
+backend refactor in `docs/DESIGN-NOTES.md`" -- that section was never
+written; the design doc that promise pointed to is now
+`docs/HTML-BACKEND-REFACTOR.md` (HTML side) and
+`docs/CSS-BACKEND-REFACTOR.md` (CSS side, already landed).
 
 `0.043` -> `0.0431` version bump only; no page-facing API change;
 existing builds produce byte-for-byte identical HTML/CSS/JS. See

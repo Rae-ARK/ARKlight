@@ -12,12 +12,16 @@ is now the single source of truth for both the default value of every
 passed via `Site(max_width=..., bg=...)`, and generates the
 `:root { ... }` block instead of it being hand-written CSS.
 
-Only variables `body` (or another element) reads *directly* belong
-here -- variables that already flow through a `var(--x, fallback)` call
-at their point of use (`--ark-grid-min`, `--ark-stack-space`, ...) are
-already reachable by a site overriding them via a `style=` prop on a
-wrapper, per the same reachability rule; adding them to this table is
-tracked as a follow-up, not done in this pass.
+Only variables `body` (or another element) reads *directly* strictly
+needed to be here -- variables that already flow through a
+`var(--x, fallback)` call at their point of use (`--ark-grid-min`,
+`--ark-stack-space`, ...) were already reachable by a site overriding
+them via a `style=` prop on a wrapper. Per the reachability rule (see
+docs/CONFIGURABILITY.md), that made them convenience additions rather
+than bug fixes -- lower priority than `--ark-max-width`/`--ark-bg`
+above, but still worth a sitewide path; they were added to this table
+in v0.0432 (`Site(stack_space=..., grid_min=..., ...)`), same shape as
+this table's other entries.
 """
 
 from __future__ import annotations

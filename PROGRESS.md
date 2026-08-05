@@ -101,16 +101,21 @@ reproduce on this branch. `arklight/ir/validate.py`'s
 `on_click` not in `KNOWN_BEHAVIORS`. No change made where there was
 nothing to fix.
 
-**Left open, deliberately.** Three more items from the same audit --
+**Left open at the time.** Three more items from the same audit --
 `<html lang="en">` hardcoded with no `Site`/`Page` override, the
 `--ark-max-width` CSS variable unreachable from any public API, and
 every `--ark-*` custom property being an untyped string substitution
 (no `@property`, so a bad value like `--ark-max-width: 75re;` fails
-silently) -- have **no code path a site author can hit today**, since
-no prop exists yet that would let them trigger the gap. There's nothing
-for a build-time warning to detect. These stay tracked against the
-CSS/HTML backend refactor in `docs/DESIGN-NOTES.md` rather than being
-faked here with a check that could never actually fire.
+silently) -- had **no code path a site author could hit at the time**,
+since no prop existed yet that would let them trigger the gap. Status
+since: `--ark-max-width` was fixed by the CSS backend refactor
+(`docs/CONTAINER-WIDTH-BUG.md`); `<html lang="en">` was fixed by
+`Site(lang=...)`/`Page(lang=...)`/`arklight build --lang` (see
+`CHANGELOG.md`'s `[0.0434]`); untyped `--ark-*` custom properties
+remains open. These were noted as "tracked against the CSS/HTML
+backend refactor in `docs/DESIGN-NOTES.md`" -- no such section was
+ever written there; the design doc is now `docs/HTML-BACKEND-REFACTOR.md`
+(HTML side) and `docs/CSS-BACKEND-REFACTOR.md` (CSS side, landed).
 
 **Real fix (route-rewriting `srcset`/`poster`/`action`/`formaction`
 the way `href`/`src` already are) is not in this patch** -- it needs
@@ -118,7 +123,9 @@ the way `href`/`src` already are) is not in this patch** -- it needs
 decision on whether `action`/`formaction` should warn-and-skip instead
 of rewrite (a form action is at least as likely to be an external API
 endpoint as an internal route). Tracked as a follow-up, not v0.0431's
-job -- this release is the safety net, not the repair.
+job -- this release is the safety net, not the repair. Now designed
+(not yet implemented) in `docs/HTML-BACKEND-REFACTOR.md`'s reachability
+audit, as part of that refactor's `routing.py` module.
 
 Version bumped `0.043` -> `0.0431` (`pyproject.toml`,
 `arklight/__init__.py`) so `arklight --version` and build-output banners
