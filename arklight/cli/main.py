@@ -30,6 +30,7 @@ from arklight import __version__, experimental
 from arklight.cli.scaffold import ScaffoldError, new_project
 from arklight.cli.search import search_component
 from arklight.cli.templates import TEMPLATES
+from arklight.cli.upgrade import upgrade_to_alpha
 from arklight.compiler.pipeline import BuildResult, CompileError, build
 from arklight.packer.bundle import PackError, pack, unpack
 from arklight.pwa import PWAError, enable_pwa
@@ -474,6 +475,16 @@ def _cmd_search(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="arklight", description="Python-first static site compiler.")
     parser.add_argument("--version", action="version", version=f"arklight {__version__}")
+    parser.add_argument(
+        "--upgrade-alpha",
+        action="store_true",
+        default=False,
+        help="Switch this (git-checkout) install over to the 'alpha' branch: "
+        "fetch, switch/create the local branch, pull, and reinstall in "
+        "place (pip install -e .) so the CLI reflects it immediately. "
+        "Only works for a git-checkout/editable install -- see the error "
+        "message if this isn't one.",
+    )
 
     subparsers = parser.add_subparsers(dest="command", required=False)
 
@@ -708,6 +719,13 @@ def main(argv: list[str] | None = None) -> int:
     search_parser.set_defaults(func=_cmd_search)
 
     args = parser.parse_args(argv)
+
+    if args.upgrade_alpha:
+        # Standalone action, same shape as --version: doesn't require
+        # (or care about) a subcommand, and short-circuits before the
+        # `command is None` help-text branch below so `arklight
+        # --upgrade-alpha` alone does the upgrade rather than printing help.
+        return upgrade_to_alpha()
 
     if args.command is None:
         # `arklight` with no subcommand -- print the same usage/help
