@@ -36,7 +36,8 @@ from arklight.cli.upgrade import upgrade_to_alpha
 from arklight.compiler.pipeline import BuildResult, CompileError, build
 from arklight.packer.bundle import PackError, pack, unpack
 from arklight.pwa import PWAError, enable_pwa
-from arklight.search.engine import SearchEngineError
+from arklight.search.endpoint import serve_stdio
+from arklight.search.engine import SearchEngineError, default_engine
 
 # Prefix every `--verbose`/`--debug` stage line gets, so pipeline
 # progress reads as ARKlight "thinking out loud" rather than bare,
@@ -471,6 +472,27 @@ def _cmd_new(args: argparse.Namespace) -> int:
 
 
 def _cmd_search(args: argparse.Namespace) -> int:
+    if args.serve:
+        if args.name is not None:
+            print(
+                "arklight search: 'name' and --serve are mutually exclusive -- "
+                "--serve starts a long-lived stdio server and never looks up a "
+                "single name itself; a client sends lookups as requests once "
+                "it's running.",
+                file=sys.stderr,
+            )
+            return 1
+        # Reuses the process-wide engine so a --serve session shares its
+        # knowledge base/usage graph/stats connection with anything else
+        # in this process, and so `.accept()`/`.record_confusion()` calls
+        # made through the endpoint are immediately visible to any other
+        # default_engine() caller in the same process.
+        return serve_stdio(default_engine())
+
+    if args.name is None:
+        print("arklight search: the 'name' argument is required unless --serve is given.", file=sys.stderr)
+        return 1
+
     try:
         print(search_component(args.name, limit=args.limit, near=args.near))
     except SearchEngineError as exc:
@@ -738,7 +760,12 @@ def main(argv: list[str] | None = None) -> int:
         "search",
         help="Look up a built-in component's schema by name (required props, children rules).",
     )
-    search_parser.add_argument("name", help="Component name to look up, e.g. Picture")
+    search_parser.add_argument(
+        "name",
+        nargs="?",
+        default=None,
+        help="Component name to look up, e.g. Picture. Omit when using --serve.",
+    )
     search_parser.add_argument(
         "--limit",
         type=int,
@@ -759,6 +786,16 @@ def main(argv: list[str] | None = None) -> int:
         default=False,
         help="On an exact match, record it in the usage store so future "
         "searches rank it higher (closes the learning loop).",
+    )
+    search_parser.add_argument(
+        "--serve",
+        action="store_true",
+        default=False,
+        help="Start the Stage 9 line-delimited JSON stdio server (see "
+        "arklight.search.endpoint) instead of doing a single lookup -- "
+        "for an editor/IDE extension to launch as a long-lived subprocess, "
+        "the same way an LSP client launches a language server. Runs "
+        "until stdin closes. 'name' must be omitted when this is given.",
     )
     search_parser.set_defaults(func=_cmd_search)
 

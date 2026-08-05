@@ -224,6 +224,26 @@ def test_cli_search_unrelated_query_says_nothing_close(capsys):
     assert "nothing close enough" in captured.out
 
 
+def test_cli_search_requires_name_unless_serve(capsys):
+    exit_code = main(["search"])
+
+    assert exit_code == 1
+    captured = capsys.readouterr()
+    assert "required" in captured.err
+    assert "--serve" in captured.err
+
+
+def test_cli_search_name_and_serve_are_mutually_exclusive(capsys):
+    # Doesn't actually start the stdio loop -- passing both `name` and
+    # `--serve` is rejected before serve_stdio() is ever called, so
+    # this can't hang waiting on stdin.
+    exit_code = main(["search", "Picture", "--serve"])
+
+    assert exit_code == 1
+    captured = capsys.readouterr()
+    assert "mutually exclusive" in captured.err
+
+
 def test_cli_pwa_icon_flag_adds_icons_to_manifest(tmp_path, capsys):
     import json
 
