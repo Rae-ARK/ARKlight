@@ -5,6 +5,22 @@ follows [Keep a Changelog](https://keepachangelog.com/); versions
 follow the milestone scheme from ARCHITECTURE.md rather than strict
 SemVer.
 
+## [0.0436] - Unreleased
+
+**`arklight pwa` can now register manifest icons via `--icon`.**
+`enable_pwa(icons=...)` already accepted a list of manifest icon
+dicts, but the CLI had no way to pass them -- every `arklight pwa`
+run shipped an empty `icons` list, which is enough for some browsers
+to decline to prompt an install. Added a repeatable `--icon
+SRC:SIZES[:TYPE]` flag (e.g. `--icon assets/icon-192.png:192x192`);
+`SRC` is a path relative to the build directory (same as an icon
+already copied into `assets/` by a normal build), `SIZES` is
+`WIDTHxHEIGHT` or `any`, and `TYPE` is optional, inferred from `SRC`'s
+extension via `mimetypes` when omitted. Malformed values (bad `SIZES`,
+an extension `mimetypes` can't resolve without an explicit `TYPE`)
+report a normal CLI error rather than a traceback or a silently wrong
+manifest.
+
 ## [0.0435] - Unreleased
 
 **`arklight new --template production` now recommends the layout it

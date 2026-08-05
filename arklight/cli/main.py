@@ -5,7 +5,7 @@ ARKlight CLI.
     arklight build site.py -o ARK
     arklight pack ARK -o site.ark
     arklight unpack site.ark -o ARK
-    arklight pwa ARK --name "My Site"
+    arklight pwa ARK --name "My Site" --icon assets/icon-192.png:192x192
     arklight search Picture
 
 Beginner-friendly by design: a handful of subcommands, sensible
@@ -17,6 +17,8 @@ Site(), unknown component, etc.) rather than a raw traceback.
 from __future__ import annotations
 
 import argparse
+import mimetypes
+import re
 import sys
 import traceback
 import warnings
@@ -299,7 +301,62 @@ def _cmd_unpack(args: argparse.Namespace) -> int:
     return 0
 
 
+_ICON_SIZES_RE = re.compile(r"^(\d+x\d+|any)$")
+
+
+def _parse_icon_spec(spec: str) -> dict[str, str]:
+    """
+    Parse one `--icon SRC:SIZES[:TYPE]` value into a manifest icon dict
+    (`{"src": ..., "sizes": ..., "type": ...}`), same shape
+    `enable_pwa(icons=...)` already accepts.
+
+    `SRC` is a path relative to the build directory root (same as
+    `manifest.json` itself), e.g. an icon already copied into the
+    build under `assets/`. `SIZES` is `WIDTHxHEIGHT` (e.g. `192x192`)
+    or `any`. `TYPE` is optional and inferred from `SRC`'s extension
+    via `mimetypes` when omitted -- pass it explicitly for anything
+    `mimetypes` doesn't resolve.
+
+    Raises `ValueError` (caught by `_cmd_pwa` and reported as a normal
+    CLI error) on anything malformed.
+    """
+    parts = spec.split(":")
+    if len(parts) not in (2, 3):
+        raise ValueError(
+            f"Invalid --icon value {spec!r} -- expected SRC:SIZES or "
+            f"SRC:SIZES:TYPE, e.g. --icon assets/icon-192.png:192x192"
+        )
+
+    src, sizes = parts[0], parts[1]
+    mime_type = parts[2] if len(parts) == 3 else None
+
+    if not src:
+        raise ValueError(f"Invalid --icon value {spec!r} -- SRC is empty")
+    if not _ICON_SIZES_RE.match(sizes):
+        raise ValueError(
+            f"Invalid --icon value {spec!r} -- SIZES must look like "
+            f"WIDTHxHEIGHT (e.g. 192x192) or 'any', got {sizes!r}"
+        )
+
+    if mime_type is None:
+        guessed, _ = mimetypes.guess_type(src)
+        if guessed is None:
+            raise ValueError(
+                f"Invalid --icon value {spec!r} -- couldn't infer a MIME type "
+                f"from {src!r}; pass one explicitly as SRC:SIZES:TYPE"
+            )
+        mime_type = guessed
+
+    return {"src": src, "sizes": sizes, "type": mime_type}
+
+
 def _cmd_pwa(args: argparse.Namespace) -> int:
+    try:
+        icons = [_parse_icon_spec(spec) for spec in (args.icon or [])]
+    except ValueError as exc:
+        print(f"ARKlight pwa failed: {exc}", file=sys.stderr)
+        return 1
+
     try:
         result = enable_pwa(
             args.build_dir,
@@ -309,6 +366,7 @@ def _cmd_pwa(args: argparse.Namespace) -> int:
             theme_color=args.theme_color,
             background_color=args.background_color,
             display=args.display,
+            icons=icons,
         )
     except PWAError as exc:
         print(f"ARKlight pwa failed: {exc}", file=sys.stderr)
@@ -320,6 +378,13 @@ def _cmd_pwa(args: argparse.Namespace) -> int:
     )
     print(f"  {result.manifest_path.relative_to(result.build_dir)}")
     print(f"  {result.service_worker_path.relative_to(result.build_dir)}")
+    if icons:
+        print(f"  {len(icons)} icon(s) registered in the manifest")
+    else:
+        print(
+            "  no --icon given -- manifest has an empty icons list; "
+            "browsers may decline to prompt an install"
+        )
     for path in result.updated_pages:
         print(f"  {path} (manifest link + SW registration injected)")
     print(
@@ -544,6 +609,20 @@ def main(argv: list[str] | None = None) -> int:
         default="standalone",
         choices=["standalone", "fullscreen", "minimal-ui", "browser"],
         help="Manifest display mode (default: standalone)",
+    )
+    pwa_parser.add_argument(
+        "--icon",
+        action="append",
+        dest="icon",
+        metavar="SRC:SIZES[:TYPE]",
+        help=(
+            "Add an icon to the manifest's icons list. SRC is a path relative "
+            "to the build directory (e.g. an icon already under assets/), "
+            "SIZES is WIDTHxHEIGHT or 'any', and TYPE is an optional MIME "
+            "type (inferred from SRC's extension if omitted). Repeatable, "
+            "e.g. --icon assets/icon-192.png:192x192 --icon "
+            "assets/icon-512.png:512x512."
+        ),
     )
     pwa_parser.set_defaults(func=_cmd_pwa)
 

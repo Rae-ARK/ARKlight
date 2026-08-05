@@ -213,6 +213,81 @@ def test_cli_search_unrelated_query_says_nothing_close(capsys):
     assert "nothing close enough" in captured.out
 
 
+def test_cli_pwa_icon_flag_adds_icons_to_manifest(tmp_path, capsys):
+    import json
+
+    site_path = write_site(tmp_path)
+    out_dir = tmp_path / "dist"
+    main(["build", str(site_path), "-o", str(out_dir), "--no-open"])
+    capsys.readouterr()
+
+    exit_code = main(
+        [
+            "pwa",
+            str(out_dir),
+            "--name",
+            "My Site",
+            "--icon",
+            "assets/icon-192.png:192x192",
+            "--icon",
+            "assets/icon-512.png:512x512:image/png",
+        ]
+    )
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "2 icon(s) registered" in captured.out
+
+    manifest = json.loads((out_dir / "manifest.json").read_text())
+    assert manifest["icons"] == [
+        {"src": "assets/icon-192.png", "sizes": "192x192", "type": "image/png"},
+        {"src": "assets/icon-512.png", "sizes": "512x512", "type": "image/png"},
+    ]
+
+
+def test_cli_pwa_without_icon_flag_reports_empty_icons(tmp_path, capsys):
+    site_path = write_site(tmp_path)
+    out_dir = tmp_path / "dist"
+    main(["build", str(site_path), "-o", str(out_dir), "--no-open"])
+    capsys.readouterr()
+
+    exit_code = main(["pwa", str(out_dir), "--name", "My Site"])
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "no --icon given" in captured.out
+
+
+def test_cli_pwa_icon_flag_rejects_bad_sizes(tmp_path, capsys):
+    site_path = write_site(tmp_path)
+    out_dir = tmp_path / "dist"
+    main(["build", str(site_path), "-o", str(out_dir), "--no-open"])
+    capsys.readouterr()
+
+    exit_code = main(
+        ["pwa", str(out_dir), "--name", "My Site", "--icon", "assets/icon.png:not-a-size"]
+    )
+
+    assert exit_code == 1
+    captured = capsys.readouterr()
+    assert "SIZES" in captured.err
+
+
+def test_cli_pwa_icon_flag_rejects_unknown_extension_without_type(tmp_path, capsys):
+    site_path = write_site(tmp_path)
+    out_dir = tmp_path / "dist"
+    main(["build", str(site_path), "-o", str(out_dir), "--no-open"])
+    capsys.readouterr()
+
+    exit_code = main(
+        ["pwa", str(out_dir), "--name", "My Site", "--icon", "assets/icon.weird:192x192"]
+    )
+
+    assert exit_code == 1
+    captured = capsys.readouterr()
+    assert "couldn't infer a MIME type" in captured.err
+
+
 def test_cli_no_command_prints_help_and_exits_zero(capsys):
     exit_code = main([])
 
