@@ -6,7 +6,8 @@ importance -> ranking, on top of the Stage 1 knowledge base and Stage
     engine.search(query, limit=5, near=None) -> list[RankedResult]
     engine.accept(name)                      -> None
 
-Callers (the Stage 7 CLI, the Stage 9 IDE endpoint) never touch
+Callers (the Stage 7 CLI, the Stage 8 compiler-pipeline feedback hook,
+the Stage 9 IDE endpoint) never touch
 `knowledge.py`/`retrieval.py`/`graph.py`/`ranking.py`/`stats.py`
 directly -- `SearchEngine` is the one seam between "the ranking
 pipeline" and "everything that uses it".
@@ -22,7 +23,7 @@ from arklight.search.graph import build_usage_graph, pagerank, personalized_page
 from arklight.search.knowledge import SymbolFact, build_knowledge_base
 from arklight.search.ranking import RankedResult, rank
 from arklight.search.retrieval import retrieve_candidates
-from arklight.search.stats import open_store, record_acceptance
+from arklight.search.stats import open_store, record_acceptance, record_confusion
 
 
 class SearchEngineError(Exception):
@@ -49,10 +50,8 @@ class SearchEngine:
     trade for repeated-query speed, not an oversight.
 
     The cache is cleared by anything that changes what a future
-    ranking call would produce: `.accept()` today (usage stats
-    changed); the Stage 8 compile-error feedback hook will clear it
-    too once it lands (the confusion table changing is the same kind
-    of event).
+    ranking call would produce: `.accept()` (usage stats changed) and
+    `.record_confusion()` (Stage 8's confusion table changed).
     """
 
     def __init__(
@@ -146,7 +145,7 @@ class SearchEngine:
     def _search_uncached(
         self, query: str, limit: int, near: str | None, now: float | None
     ) -> tuple[RankedResult, ...]:
-        candidates = retrieve_candidates(query, self.knowledge)
+        candidates = retrieve_candidates(query, self.knowledge, stats=self.stats)
         importance = self._importance(near)
         results = rank(query, candidates, self.knowledge, importance, self.stats, now=now)
         return tuple(results[:limit])
@@ -157,6 +156,18 @@ class SearchEngine:
         reflect the updated usage stats immediately, not stay stale
         until the process restarts."""
         record_acceptance(self.stats, name)
+        self._cached_search.cache_clear()
+
+    def record_confusion(self, typo: str, resolved: str) -> None:
+        """Record a real compile-time "unknown component type" error
+        (`typo`) against the ranking pipeline's own top suggestion for
+        it at the time (`resolved`) -- see `arklight.search.feedback`,
+        the Stage 8 hook that calls this from the compiler pipeline's
+        error-handling path. Invalidates the result cache like
+        `.accept()`, since the confusion table changing can change
+        what a future `known_typo` ranking signal (or Stage 2's typo
+        short-circuit) looks like for `typo`."""
+        record_confusion(self.stats, typo, resolved)
         self._cached_search.cache_clear()
 
     def close(self) -> None:

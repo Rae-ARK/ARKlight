@@ -6,13 +6,22 @@ import sys
 import time
 from pathlib import Path
 
-# Bumped whenever `_SCHEMA_SQL` changes shape. `_open_or_initialize`
-# uses this to decide, on every open, whether an existing on-disk
-# store can just be reused as-is, needs an in-place migration, or is
-# from an incompatible/unknown version and should be rebuilt fresh --
-# see DETERMINISTIC_RANKING_PLAN.md, "Stage 10" for why reuse is the
+# Bumped whenever `_SCHEMA_SQL` changes shape in a way that isn't
+# purely additive-and-idempotent. `_open_or_initialize` uses this to
+# decide, on every open, whether an existing on-disk store can just be
+# reused as-is, needs an in-place migration, or is from an
+# incompatible/unknown version and should be rebuilt fresh -- see
+# DETERMINISTIC_RANKING_PLAN.md, "Stage 10" for why reuse is the
 # silent default and rebuilding is the explicit, opt-in path rather
 # than the other way around.
+#
+# Stage 8's `confusions` table did NOT bump this: `_open_or_initialize`
+# always runs the *current* `_SCHEMA_SQL` via `CREATE TABLE IF NOT
+# EXISTS` before it even looks at the stored version, so adding a new,
+# independent table is already forward-compatible with every existing
+# on-disk store the moment this file ships -- no migration function
+# needed, and "same schema_version" is exactly the "confusions lives
+# in the same store/lifecycle as usage_stats" decision from the plan.
 SCHEMA_VERSION = 1
 
 _SCHEMA_SQL = """
@@ -20,6 +29,13 @@ CREATE TABLE IF NOT EXISTS usage_stats (
     name TEXT PRIMARY KEY,
     count INTEGER NOT NULL,
     last_seen REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS confusions (
+    typo TEXT NOT NULL,
+    resolved TEXT NOT NULL,
+    count INTEGER NOT NULL,
+    last_seen REAL NOT NULL,
+    PRIMARY KEY (typo, resolved)
 );
 CREATE TABLE IF NOT EXISTS schema_meta (
     key TEXT PRIMARY KEY,
@@ -72,6 +88,7 @@ def _read_schema_version(conn: sqlite3.Connection) -> int | None:
 def _initialize_fresh(conn: sqlite3.Connection) -> None:
     conn.executescript(_SCHEMA_SQL)
     conn.execute("DELETE FROM usage_stats")
+    conn.execute("DELETE FROM confusions")
     conn.execute("DELETE FROM schema_meta")
     conn.execute(
         "INSERT INTO schema_meta (key, value) VALUES ('schema_version', ?)",
@@ -199,3 +216,64 @@ def usage_score(
     age_days = max(0.0, (now - last_seen) / 86400.0)
     decayed = count * (0.5 ** (age_days / half_life_days))
     return decayed / (decayed + 1.0)
+
+
+def record_confusion(
+    conn: sqlite3.Connection,
+    typo: str,
+    resolved: str,
+    *,
+    now: float | None = None,
+) -> None:
+    """Record that a real compile-time "unknown component type" error
+    for `typo` had `resolved` as the ranking pipeline's own top
+    suggestion at the moment it happened (see
+    `arklight.search.feedback`). Same "just update counters" learning
+    story as `record_acceptance` -- increments count and stamps
+    recency for this exact `(typo, resolved)` pair; no inference about
+    whether the person actually used the suggestion afterward, since
+    this module has no way to observe that."""
+    if now is None:
+        now = time.time()
+
+    conn.execute(
+        """
+        INSERT INTO confusions (typo, resolved, count, last_seen)
+        VALUES (?, ?, 1, ?)
+        ON CONFLICT(typo, resolved) DO UPDATE SET
+            count = count + 1,
+            last_seen = excluded.last_seen
+        """,
+        (typo, resolved, now),
+    )
+    conn.commit()
+
+
+def resolved_for_typo(conn: sqlite3.Connection, typo: str) -> str | None:
+    """The most-recorded `resolved` name for `typo` across this
+    store's compile-error history, or `None` if `typo` has never been
+    recorded. If a typo has more than one recorded resolution over
+    time (e.g. usage patterns shifted), the most-recorded one wins;
+    ties broken by name, ascending -- same tie-break convention as
+    `arklight.search.ranking.rank`. Used by `retrieve_candidates`'s
+    typo short-circuit (Stage 8's addendum to Stage 2)."""
+    row = conn.execute(
+        "SELECT resolved FROM confusions WHERE typo = ? "
+        "ORDER BY count DESC, resolved ASC LIMIT 1",
+        (typo,),
+    ).fetchone()
+    return row[0] if row is not None else None
+
+
+def is_known_confusion(conn: sqlite3.Connection, typo: str, name: str) -> bool:
+    """Whether `(typo, name)` is a recorded confusion pair. This is
+    the raw signal behind `arklight.search.ranking.rank`'s
+    `known_typo` feature -- deliberately its own boolean, not folded
+    into `usage_score`, since a typo recurring is evidence about the
+    *misspelling*, not about the popularity of the name it resolves
+    to."""
+    row = conn.execute(
+        "SELECT 1 FROM confusions WHERE typo = ? AND resolved = ? LIMIT 1",
+        (typo, name),
+    ).fetchone()
+    return row is not None

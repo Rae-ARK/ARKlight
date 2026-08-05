@@ -1,7 +1,7 @@
 """
 Ranking layer: turns a set of candidate symbol names (Stage 2's
 `retrieve_candidates`) into an ordered, explainable list of results by
-combining three independent, individually-inspectable signals:
+combining four independent, individually-inspectable signals:
 
   - lexical similarity   -- whole-string ratio + token overlap against
                              the query (`arklight.search._tokenize`)
@@ -12,6 +12,11 @@ combining three independent, individually-inspectable signals:
   - usage score           -- from Stage 4's `arklight.search.stats`
                              (frequency + recency decay), already
                              bounded to [0, 1)
+  - known typo             -- Stage 8's addendum: 1.0 if `(query, name)`
+                             is a recorded compile-error confusion pair
+                             this project has actually seen before
+                             (`arklight.search.stats.is_known_confusion`),
+                             else 0.0
 
 This is the "attention conceptually, not a Transformer" layer the idea
 doc describes: fixed, named weights over a handful of inspectable
@@ -34,6 +39,7 @@ from dataclasses import dataclass, field
 
 from arklight.search._tokenize import tokenize
 from arklight.search.knowledge import SymbolFact
+from arklight.search.stats import is_known_confusion as _stats_is_known_confusion
 from arklight.search.stats import usage_score as _stats_usage_score
 
 # Default per-signal weights, summing to 1.0. Lexical similarity is
@@ -41,10 +47,20 @@ from arklight.search.stats import usage_score as _stats_usage_score
 # name plausibly match what was typed" -- structural importance and
 # usage score exist to break ties/reorder among otherwise-plausible
 # matches, not to override an obviously-wrong lexical match.
+#
+# `known_typo` (Stage 8) gets a deliberately small weight: it's this
+# project's own compile-error history outranking generic lexical
+# distance for a *specific misspelling it has already seen resolved
+# before* -- a real, strong signal when it fires, but one that fires
+# rarely (only on an exact previously-recorded typo), so it shouldn't
+# dominate the other three signals when it doesn't. Reducing the other
+# three proportionally (by 0.9x) keeps their old *relative* balance
+# intact while making room for it.
 DEFAULT_WEIGHTS: dict[str, float] = {
-    "lexical": 0.5,
-    "structural": 0.3,
-    "usage": 0.2,
+    "lexical": 0.45,
+    "structural": 0.27,
+    "usage": 0.18,
+    "known_typo": 0.10,
 }
 
 
@@ -119,11 +135,12 @@ def rank(
         within this candidate set (see `_normalized_importance`).
       - `stats`: an open `sqlite3.Connection` as returned by
         `arklight.search.stats.open_store` -- passed straight through
-        to `arklight.search.stats.usage_score` per candidate. `None`
-        is accepted and treated as "no usage history yet" (usage
-        signal 0.0 for every candidate) so callers without a store
-        open yet (e.g. tests, or a first-ever run) don't need to
-        special-case anything.
+        to `arklight.search.stats.usage_score` and
+        `arklight.search.stats.is_known_confusion` per candidate.
+        `None` is accepted and treated as "no usage/confusion history
+        yet" (both signals 0.0 for every candidate) so callers without
+        a store open yet (e.g. tests, or a first-ever run) don't need
+        to special-case anything.
 
     `now` defaults to `time.time()` if omitted -- pass an explicit
     value (as `arklight.search.stats.usage_score` itself allows) for
@@ -149,18 +166,27 @@ def rank(
         lexical = _lexical_similarity(query, name, tokens)
         structural = normalized_structural.get(name, 0.0)
         usage = 0.0 if stats is None else _stats_usage_score(stats, name, now=now)
+        known_typo = (
+            0.0 if stats is None else float(_stats_is_known_confusion(stats, query, name))
+        )
 
         score = (
             resolved_weights.get("lexical", 0.0) * lexical
             + resolved_weights.get("structural", 0.0) * structural
             + resolved_weights.get("usage", 0.0) * usage
+            + resolved_weights.get("known_typo", 0.0) * known_typo
         )
 
         results.append(
             RankedResult(
                 name=name,
                 score=score,
-                signals={"lexical": lexical, "structural": structural, "usage": usage},
+                signals={
+                    "lexical": lexical,
+                    "structural": structural,
+                    "usage": usage,
+                    "known_typo": known_typo,
+                },
                 weights_used=dict(resolved_weights),
             )
         )

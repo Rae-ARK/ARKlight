@@ -41,6 +41,8 @@ from arklight.ir.build import WebsiteIR, build_website_ir
 from arklight.ir.normalize import normalize_ark_ast
 from arklight.ir.validate import ValidationError, validate_ark_ast
 from arklight.parser.loader import SiteLoadError, load_site
+from arklight.search.engine import default_engine
+from arklight.search.feedback import record_validation_feedback
 
 # A stage callback: called with a short, human-readable message every
 # time the pipeline moves into a new stage (site discovery, AST build,
@@ -56,6 +58,25 @@ StageLogger = Callable[[str], None]
 
 def _noop_stage_logger(_message: str) -> None:
     return None
+
+
+def _record_validation_feedback_best_effort(message: str) -> None:
+    """Stage 8's compiler-pipeline hook into
+    `arklight.search.feedback`: records unknown-component-type typos
+    against the Stage 6 engine's own current top suggestion, purely so
+    future `arklight search` calls can learn from real, in-the-wild
+    mistakes. This is a background side effect, never a build
+    behavior -- any failure here (e.g. the on-disk usage-stats store
+    being unwritable, or a first-run knowledge/graph build hitting an
+    unexpected error) is swallowed on purpose, exactly as if this hook
+    weren't wired in at all. `compile_site_file` calls this right
+    before re-raising the same `CompileError` it always raised, with
+    the same message -- this only ever adds a record after the fact.
+    """
+    try:
+        record_validation_feedback(message, default_engine())
+    except Exception:  # noqa: BLE001 -- best-effort only, must never affect the build
+        pass
 
 # Name of the top-level, next-to-`site.py` folder ARKlight auto-copies
 # into the output directory (verbatim, recursively) if it exists. Fixes
@@ -131,6 +152,7 @@ def compile_site_file(
     try:
         validate_ark_ast(normalized)
     except ValidationError as exc:
+        _record_validation_feedback_best_effort(str(exc))
         raise CompileError(str(exc)) from exc
 
     # Experimental API warnings (docs/EXPERIMENTAL-APIS.md): every
