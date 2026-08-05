@@ -213,3 +213,71 @@ def test_css_backend_custom_style_properties_sorted_within_class():
     block = css[css.index(".box {") : css.index(".box {") + 60]
 
     assert block.index("color:") < block.index("z-index:")
+
+
+def test_css_backend_renders_pseudo_class_rule_as_its_own_block():
+    pages = {"/": Page(Text("hi"))}
+    normalized = normalize_ark_ast(pages)
+    validate_ark_ast(normalized)
+    ir = build_website_ir(
+        "site",
+        normalized,
+        custom_styles={"btn": {"background": "blue", ":hover:background": "red"}},
+    )
+
+    css = CSSBackend().render(ir)[STYLESHEET_PATH]
+
+    assert ".btn {" in css
+    assert "background: blue;" in css
+    assert ".btn:hover {" in css
+    assert "background: red;" in css
+
+
+def test_css_backend_pseudo_class_block_follows_base_block():
+    pages = {"/": Page(Text("hi"))}
+    normalized = normalize_ark_ast(pages)
+    validate_ark_ast(normalized)
+    ir = build_website_ir(
+        "site",
+        normalized,
+        custom_styles={"btn": {"background": "blue", ":hover:background": "red"}},
+    )
+
+    css = CSSBackend().render(ir)[STYLESHEET_PATH]
+
+    assert css.index(".btn {") < css.index(".btn:hover {")
+
+
+def test_css_backend_class_with_only_pseudo_rules_has_no_base_block():
+    pages = {"/": Page(Text("hi"))}
+    normalized = normalize_ark_ast(pages)
+    validate_ark_ast(normalized)
+    ir = build_website_ir(
+        "site",
+        normalized,
+        custom_styles={"btn": {":hover:color": "red"}},
+    )
+
+    css = CSSBackend().render(ir)[STYLESHEET_PATH]
+
+    assert ".btn {" not in css
+    assert ".btn:hover {" in css
+
+
+def test_css_backend_multiple_pseudo_classes_each_get_their_own_block():
+    pages = {"/": Page(Text("hi"))}
+    normalized = normalize_ark_ast(pages)
+    validate_ark_ast(normalized)
+    ir = build_website_ir(
+        "site",
+        normalized,
+        custom_styles={"btn": {":hover:color": "red", ":focus:color": "blue"}},
+    )
+
+    css = CSSBackend().render(ir)[STYLESHEET_PATH]
+
+    assert ".btn:hover {" in css
+    assert ".btn:focus {" in css
+    # Sorted alphabetically by pseudo-class name, same determinism
+    # guarantee as base properties/class names.
+    assert css.index(".btn:focus {") < css.index(".btn:hover {")

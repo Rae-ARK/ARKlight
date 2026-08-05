@@ -26,6 +26,61 @@ from arklight.ast.nodes import ActionRef, ARKNode, ClassBindSpec, node
 # selector in generated CSS with no further validation downstream.
 _CSS_CLASS_NAME_RE = re.compile(r"^-?[A-Za-z_][A-Za-z0-9_-]*$")
 
+# CSS Backend, pseudo-class shorthand (see docs/CSS-BACKEND-REFACTOR.md
+# "Stage 2"): a `site.style(...)` rules key is either a plain property
+# ("background") or a pseudo-class-scoped property (":hover:background"),
+# letting a class express a simple interactive state without opening up
+# raw CSS/selector strings. Plain property names allow a leading "--"
+# (custom properties) or a single leading "-" (vendor prefixes, e.g.
+# "-webkit-appearance"); pseudo names are letters/hyphens only and must
+# be one of `ALLOWED_PSEUDO_CLASSES` below.
+_CSS_PROPERTY_NAME_RE = re.compile(r"^(--[A-Za-z0-9-]+|-?[A-Za-z][A-Za-z0-9-]*)$")
+_CSS_PSEUDO_RULE_RE = re.compile(
+    r"^:(?P<pseudo>[A-Za-z-]+):(?P<prop>--[A-Za-z0-9-]+|-?[A-Za-z][A-Za-z0-9-]*)$"
+)
+
+# Deliberately a fixed, curated set rather than "any :whatever the user
+# types" -- same reasoning as `_CSS_CLASS_NAME_RE`: this becomes a
+# literal `.name:pseudo { ... }` selector with no further validation
+# downstream, so an open-ended pseudo name would reopen the "no
+# arbitrary CSS/selector strings" boundary `site.style(...)` otherwise
+# holds. Extend this set (not the regex) if a new pseudo-class is
+# needed later.
+ALLOWED_PSEUDO_CLASSES = frozenset(
+    {
+        "hover",
+        "focus",
+        "focus-visible",
+        "active",
+        "visited",
+        "disabled",
+        "checked",
+        "first-child",
+        "last-child",
+    }
+)
+
+# Characters that would let a "value" break out of its declaration and
+# inject a second declaration, a new selector, or close/reopen a rule
+# block (e.g. {"color": "red; } .evil { color"}). `site.style(...)`
+# rules are meant to be one property/value pair each, not a raw CSS
+# string, so any of these in a value is a syntax error, not something
+# to pass through.
+_CSS_VALUE_INJECTION_CHARS = frozenset("{};\n")
+
+
+class CSSSyntaxError(ValueError):
+    """
+    Raised by `Site.style(...)` when a rules key or value isn't valid
+    CSS syntax for the shape ARKlight accepts -- an unknown pseudo-class
+    in a ":pseudo:property" key, a malformed property name, or a value
+    that would break out of its declaration. Subclasses `ValueError` so
+    existing `except ValueError` call sites keep working unchanged; this
+    exists as its own type so callers that want to distinguish "bad CSS
+    syntax" from other `Site.style(...)` argument errors (bad class
+    name, wrong dict shape) can catch it specifically.
+    """
+
 # ---------------------------------------------------------------------------
 # Built-in components
 #
@@ -503,6 +558,13 @@ class Site:
         previous rules for that name (last call wins), which lets a site
         redefine a class as it's built up without needing a separate
         "update" method.
+
+        A key may also be a pseudo-class-scoped property, written
+        ":<pseudo>:<property>" (e.g. ":hover:background"), to reach a
+        simple interactive state -- `site.style("btn", {"background":
+        "blue", ":hover:background": "red"})` renders both `.btn { ... }`
+        and `.btn:hover { background: red; }`. `<pseudo>` must be one of
+        `ALLOWED_PSEUDO_CLASSES`; anything else raises `CSSSyntaxError`.
         """
         if not isinstance(name, str) or not _CSS_CLASS_NAME_RE.match(name):
             raise ValueError(
@@ -526,7 +588,47 @@ class Site:
                     f"site.style({name!r}, ...) property {prop!r} needs a "
                     f"non-empty string value, got {value!r}."
                 )
+            self._validate_css_syntax(name, prop, value)
         self.custom_styles[name] = dict(rules)
+
+    def _validate_css_syntax(self, name: str, prop: str, value: str) -> None:
+        """
+        Syntax-check one `site.style(...)` (property, value) pair --
+        called after the non-empty/is-a-string checks in `style()`
+        above, so `prop`/`value` are already known to be non-empty
+        strings here. Raises `CSSSyntaxError` (a `ValueError` subclass)
+        on anything that isn't valid CSS syntax for the shape ARKlight
+        accepts; returns `None` on a valid pair.
+        """
+        if prop.startswith(":"):
+            match = _CSS_PSEUDO_RULE_RE.match(prop)
+            if not match:
+                raise CSSSyntaxError(
+                    f"site.style({name!r}, ...) has an invalid pseudo-class "
+                    f"rule key {prop!r} -- expected the form "
+                    f"':pseudo:property', e.g. ':hover:background'."
+                )
+            pseudo = match.group("pseudo")
+            if pseudo not in ALLOWED_PSEUDO_CLASSES:
+                raise CSSSyntaxError(
+                    f"site.style({name!r}, ...) uses unsupported pseudo-class "
+                    f"{pseudo!r} in {prop!r}. Supported: "
+                    f"{', '.join(sorted(ALLOWED_PSEUDO_CLASSES))}."
+                )
+        elif not _CSS_PROPERTY_NAME_RE.match(prop):
+            raise CSSSyntaxError(
+                f"site.style({name!r}, ...) has an invalid CSS property name "
+                f"{prop!r} -- letters, digits, and hyphens only (or a "
+                f"'--custom-property'), and it can't start with a digit."
+            )
+
+        if any(ch in value for ch in _CSS_VALUE_INJECTION_CHARS):
+            raise CSSSyntaxError(
+                f"site.style({name!r}, ...) property {prop!r} has a value "
+                f"{value!r} containing '{{', '}}', or a newline -- that would "
+                f"break out of its declaration. Use one property/value pair "
+                f"per key instead of a raw CSS block."
+            )
 
     def page(self, route: str) -> Callable[[Callable[[], ARKNode]], Callable[[], ARKNode]]:
         if not route.startswith("/"):

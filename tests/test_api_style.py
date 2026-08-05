@@ -1,6 +1,6 @@
 import pytest
 
-from arklight.api import Site
+from arklight.api import CSSSyntaxError, Site
 
 
 def test_style_registers_rules_under_the_given_name():
@@ -82,3 +82,65 @@ def test_style_rejects_empty_property_name():
 def test_new_site_has_no_custom_styles_by_default():
     site = Site()
     assert site.custom_styles == {}
+
+
+# --- Pseudo-class shorthand (":pseudo:property") -----------------------
+
+
+def test_style_accepts_hover_pseudo_class_rule():
+    site = Site()
+    site.style("btn", {"background": "blue", ":hover:background": "red"})
+
+    assert site.custom_styles == {
+        "btn": {"background": "blue", ":hover:background": "red"}
+    }
+
+
+@pytest.mark.parametrize(
+    "pseudo",
+    ["hover", "focus", "focus-visible", "active", "visited", "disabled", "checked"],
+)
+def test_style_accepts_every_supported_pseudo_class(pseudo):
+    site = Site()
+    site.style("btn", {f":{pseudo}:color": "red"})
+
+    assert site.custom_styles == {"btn": {f":{pseudo}:color": "red"}}
+
+
+def test_style_rejects_unsupported_pseudo_class():
+    site = Site()
+    with pytest.raises(CSSSyntaxError, match="unsupported pseudo-class"):
+        site.style("btn", {":visited-evil:color": "red"})
+
+
+def test_style_rejects_unsupported_pseudo_class_is_also_a_value_error():
+    # CSSSyntaxError subclasses ValueError -- existing `except
+    # ValueError` call sites keep working unchanged.
+    site = Site()
+    with pytest.raises(ValueError):
+        site.style("btn", {":lang:color": "red"})
+
+
+def test_style_rejects_malformed_pseudo_class_key():
+    site = Site()
+    with pytest.raises(CSSSyntaxError, match="invalid pseudo-class rule key"):
+        site.style("btn", {":hover": "red"})  # missing ":property"
+
+
+def test_style_rejects_malformed_plain_property_name():
+    site = Site()
+    with pytest.raises(CSSSyntaxError, match="invalid CSS property name"):
+        site.style("btn", {"1invalid": "red"})
+
+
+def test_style_accepts_custom_property_name():
+    site = Site()
+    site.style("btn", {"--brand-color": "red"})
+    assert site.custom_styles == {"btn": {"--brand-color": "red"}}
+
+
+@pytest.mark.parametrize("bad_value", ["red; } .evil {", "red } .x {", "red\ninject: x"])
+def test_style_rejects_values_that_could_break_out_of_declaration(bad_value):
+    site = Site()
+    with pytest.raises(CSSSyntaxError, match="break out of its declaration"):
+        site.style("btn", {"color": bad_value})
