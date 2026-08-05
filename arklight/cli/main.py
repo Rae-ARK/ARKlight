@@ -387,10 +387,18 @@ def _cmd_pwa(args: argparse.Namespace) -> int:
             background_color=args.background_color,
             display=args.display,
             icons=icons,
+            install_button=args.install_button,
         )
     except PWAError as exc:
         print(f"ARKlight pwa failed: {exc}", file=sys.stderr)
         return 1
+
+    # Experimental API warning (docs/EXPERIMENTAL-APIS.md) -- printed
+    # inline before the normal success output, unconditionally (not
+    # gated behind any verbosity flag), same contract `arklight build`
+    # follows for `site.media_query(...)`.
+    for usage in result.experimental_usages:
+        print(experimental.format_inline_banner(usage))
 
     print(
         f"ARKlight v{__version__} enabled PWA support in {result.build_dir}/ "
@@ -412,6 +420,7 @@ def _cmd_pwa(args: argparse.Namespace) -> int:
         "to keep the manifest/service worker/precache list in sync -- it's "
         "idempotent, so this is always safe."
     )
+    experimental.print_summary(result.experimental_usages)
 
     return 0
 
@@ -642,6 +651,18 @@ def main(argv: list[str] | None = None) -> int:
             "type (inferred from SRC's extension if omitted). Repeatable, "
             "e.g. --icon assets/icon-192.png:192x192 --icon "
             "assets/icon-512.png:512x512."
+        ),
+    )
+    pwa_parser.add_argument(
+        "--install-button",
+        action="store_true",
+        help=(
+            "EXPERIMENTAL (see docs/EXPERIMENTAL-APIS.md): inject a native "
+            "install-prompt button into every page, via the "
+            "`beforeinstallprompt` browser event. Off by default -- prints "
+            "an experimental-API warning when used, since browser support "
+            "for `beforeinstallprompt` is neither standardized nor "
+            "universal."
         ),
     )
     pwa_parser.set_defaults(func=_cmd_pwa)

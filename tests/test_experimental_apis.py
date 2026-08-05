@@ -116,3 +116,73 @@ def test_experimental_print_summary_deduplicates(capsys):
     experimental.print_summary(usages)
     out = capsys.readouterr().out
     assert out.count("Legacy API detected: css-media-queries") == 1
+
+
+# --- experimental-install-pwa (arklight pwa --install-button) ---
+
+SIMPLE_SITE = """
+from arklight import *
+site = Site()
+
+@site.page("/")
+def home():
+    return Page(Heading("Hi"), Text("Hello from ARKlight."))
+"""
+
+
+def _build_dir(tmp_path):
+    from arklight.compiler.pipeline import build
+
+    site_path = tmp_path / "site.py"
+    site_path.write_text(SIMPLE_SITE)
+    out_dir = tmp_path / "ARK"
+    build(site_path, out_dir)
+    return out_dir
+
+
+def test_enable_pwa_without_install_button_has_no_experimental_usage(tmp_path):
+    from arklight.pwa import enable_pwa
+
+    out_dir = _build_dir(tmp_path)
+    result = enable_pwa(out_dir, name="My Site")
+    assert result.experimental_usages == []
+    html = (out_dir / "index.html").read_text(encoding="utf-8")
+    assert "ark-pwa-install" not in html
+
+
+def test_enable_pwa_with_install_button_records_experimental_usage_and_injects(tmp_path):
+    from arklight.pwa import enable_pwa
+
+    out_dir = _build_dir(tmp_path)
+    result = enable_pwa(out_dir, name="My Site", install_button=True)
+
+    assert len(result.experimental_usages) == 1
+    assert result.experimental_usages[0].feature_id == "experimental-install-pwa"
+    assert result.experimental_usages[0].component == "Button"
+
+    html = (out_dir / "index.html").read_text(encoding="utf-8")
+    assert 'id="ark-pwa-install"' in html
+    assert "beforeinstallprompt" in html
+
+
+def test_enable_pwa_install_button_is_idempotent_on_rerun(tmp_path):
+    from arklight.pwa import enable_pwa
+
+    out_dir = _build_dir(tmp_path)
+    enable_pwa(out_dir, name="My Site", install_button=True)
+    enable_pwa(out_dir, name="My Site", install_button=True)
+
+    html = (out_dir / "index.html").read_text(encoding="utf-8")
+    assert html.count('id="ark-pwa-install"') == 1
+
+
+def test_enable_pwa_install_button_removed_when_flag_dropped(tmp_path):
+    from arklight.pwa import enable_pwa
+
+    out_dir = _build_dir(tmp_path)
+    enable_pwa(out_dir, name="My Site", install_button=True)
+    result = enable_pwa(out_dir, name="My Site")
+
+    assert result.experimental_usages == []
+    html = (out_dir / "index.html").read_text(encoding="utf-8")
+    assert "ark-pwa-install" not in html

@@ -46,6 +46,8 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from arklight import experimental
+
 MANIFEST_NAME = "manifest.json"
 SERVICE_WORKER_NAME = "sw.js"
 
@@ -56,6 +58,12 @@ _HEAD_MARKER_START = "<!-- arklight:pwa:head -->"
 _HEAD_MARKER_END = "<!-- /arklight:pwa:head -->"
 _SW_MARKER_START = "<!-- arklight:pwa:sw -->"
 _SW_MARKER_END = "<!-- /arklight:pwa:sw -->"
+# EXPERIMENTAL (docs/EXPERIMENTAL-APIS.md, feature id
+# "experimental-install-pwa") -- markers for the opt-in native
+# install-prompt button (`arklight pwa ... --install-button`), same
+# find-and-replace-on-rerun pattern as the two pairs above.
+_INSTALL_MARKER_START = "<!-- arklight:pwa:install -->"
+_INSTALL_MARKER_END = "<!-- /arklight:pwa:install -->"
 
 _HEAD_BLOCK_RE = re.compile(
     re.escape(_HEAD_MARKER_START) + r".*?" + re.escape(_HEAD_MARKER_END) + r"\n?",
@@ -63,6 +71,10 @@ _HEAD_BLOCK_RE = re.compile(
 )
 _SW_BLOCK_RE = re.compile(
     re.escape(_SW_MARKER_START) + r".*?" + re.escape(_SW_MARKER_END) + r"\n?",
+    re.DOTALL,
+)
+_INSTALL_BLOCK_RE = re.compile(
+    re.escape(_INSTALL_MARKER_START) + r".*?" + re.escape(_INSTALL_MARKER_END) + r"\n?",
     re.DOTALL,
 )
 _HEAD_CLOSE_RE = re.compile(r"</head>", re.IGNORECASE)
@@ -81,6 +93,11 @@ class PWAResult:
     updated_pages: list[str] = field(default_factory=list)
     cached_paths: list[str] = field(default_factory=list)
     cache_name: str = ""
+    # EXPERIMENTAL (docs/EXPERIMENTAL-APIS.md): populated with one
+    # `ExperimentalUsage` when `install_button=True` was passed to
+    # `enable_pwa()`, empty otherwise. The CLI drains this the same
+    # way `arklight build` drains `WebsiteIR.experimental_usages`.
+    experimental_usages: list = field(default_factory=list)
 
 
 def _cache_name(paths: list[Path], build_dir: Path) -> str:
@@ -165,7 +182,54 @@ def _relative_href(target_name: str, page_rel_path: str) -> str:
     return posixpath.relpath(target_name, current_dir)
 
 
-def _inject_page(html: str, *, manifest_href: str, sw_href: str, theme_color: str) -> str:
+def _render_install_block() -> str:
+    """
+    EXPERIMENTAL (docs/EXPERIMENTAL-APIS.md, "experimental-install-pwa")
+    -- a small, dependency-free button that surfaces the browser's
+    native install prompt via `beforeinstallprompt`. Hidden by default
+    (`display: none` inline, matching the rest of ARKlight's "no
+    inline <style> block" avoidance being the exception rather than
+    the rule here -- there's no generated stylesheet hook to reach
+    from a post-build injection step, unlike `arklight build`'s own
+    CSS backend) and only shown if the browser actually fires the
+    event -- browsers that never fire it (most non-Chromium engines,
+    notably) leave the page with no button at all rather than a dead
+    one. See `arklight.experimental.FEATURES["experimental-install-pwa"]`
+    for the full caveat this trades off.
+    """
+    return (
+        f"{_INSTALL_MARKER_START}\n"
+        '  <button id="ark-pwa-install" type="button" style="display:none">Install</button>\n'
+        "  <script>\n"
+        "    (() => {\n"
+        "      let deferredPrompt = null;\n"
+        '      const btn = document.getElementById("ark-pwa-install");\n'
+        '      window.addEventListener("beforeinstallprompt", (event) => {\n'
+        "        event.preventDefault();\n"
+        "        deferredPrompt = event;\n"
+        '        if (btn) btn.style.display = "";\n'
+        "      });\n"
+        "      if (btn) {\n"
+        '        btn.addEventListener("click", async () => {\n'
+        "          if (!deferredPrompt) return;\n"
+        '          btn.style.display = "none";\n'
+        "          deferredPrompt.prompt();\n"
+        "          await deferredPrompt.userChoice;\n"
+        "          deferredPrompt = null;\n"
+        "        });\n"
+        "      }\n"
+        '      window.addEventListener("appinstalled", () => {\n'
+        '        if (btn) btn.style.display = "none";\n'
+        "      });\n"
+        "    })();\n"
+        "  </script>\n"
+        f"{_INSTALL_MARKER_END}\n"
+    )
+
+
+def _inject_page(
+    html: str, *, manifest_href: str, sw_href: str, theme_color: str, install_button: bool
+) -> str:
     head_block = (
         f"{_HEAD_MARKER_START}\n"
         f'  <link rel="manifest" href="{manifest_href}">\n'
@@ -188,6 +252,7 @@ def _inject_page(html: str, *, manifest_href: str, sw_href: str, theme_color: st
     # replaces its own output rather than piling up duplicate copies.
     html = _HEAD_BLOCK_RE.sub("", html)
     html = _SW_BLOCK_RE.sub("", html)
+    html = _INSTALL_BLOCK_RE.sub("", html)
 
     if not _HEAD_CLOSE_RE.search(html):
         raise PWAError("Could not find </head> to inject the PWA manifest link into.")
@@ -195,7 +260,8 @@ def _inject_page(html: str, *, manifest_href: str, sw_href: str, theme_color: st
         raise PWAError("Could not find </body> to inject the service worker registration into.")
 
     html = _HEAD_CLOSE_RE.sub(head_block + "</head>", html, count=1)
-    html = _BODY_CLOSE_RE.sub(sw_block + "</body>", html, count=1)
+    body_block = sw_block + (_render_install_block() if install_button else "")
+    html = _BODY_CLOSE_RE.sub(body_block + "</body>", html, count=1)
     return html
 
 
@@ -209,11 +275,19 @@ def enable_pwa(
     background_color: str = "#ffffff",
     display: str = "standalone",
     icons: list[dict[str, str]] | None = None,
+    install_button: bool = False,
 ) -> PWAResult:
     """
     Turn `build_dir` (an existing `arklight build` output directory)
     into a PWA: writes `manifest.json` + `sw.js` into it and injects
     the tags every `.html` page needs to pick them up.
+
+    `install_button` (EXPERIMENTAL, see docs/EXPERIMENTAL-APIS.md) --
+    when True, also injects a native install-prompt button into every
+    page (see `_render_install_block`). Off by default; every call
+    made with it on is recorded in the returned `PWAResult.
+    experimental_usages` so the CLI can print the same two-tier
+    warning `arklight build` prints for `site.media_query(...)`.
 
     Safe to call repeatedly on the same directory -- see the module
     docstring's "incremental" note. Raises PWAError if `build_dir`
@@ -247,7 +321,11 @@ def enable_pwa(
         sw_href = _relative_href(SERVICE_WORKER_NAME, page_rel)
         original = page_path.read_text(encoding="utf-8")
         updated = _inject_page(
-            original, manifest_href=manifest_href, sw_href=sw_href, theme_color=theme_color
+            original,
+            manifest_href=manifest_href,
+            sw_href=sw_href,
+            theme_color=theme_color,
+            install_button=install_button,
         )
         if updated != original:
             page_path.write_text(updated, encoding="utf-8")
@@ -287,4 +365,9 @@ def enable_pwa(
         updated_pages=updated_pages,
         cached_paths=sorted(set(precache_rel + [MANIFEST_NAME])),
         cache_name=cache_name,
+        experimental_usages=(
+            [experimental.emit("experimental-install-pwa", component="Button")]
+            if install_button
+            else []
+        ),
     )
