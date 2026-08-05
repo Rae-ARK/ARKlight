@@ -127,6 +127,61 @@ def test_known_route_href_rewritten_across_nested_depth():
     assert '<a href="../index.html">Home</a>' in output["blog/post.html"]
 
 
+def test_image_src_relative_asset_path_rewritten_for_nested_pages():
+    # Bugfix: a relative asset reference like "sprites/25.png" is
+    # root-relative (assets/ is copied to <output_dir>/assets by the
+    # build), same as styles.css/favicon -- so it must be corrected the
+    # same way when the page itself is nested, not left verbatim.
+    output = render(
+        {
+            "/": Page(Image(src="sprites/25.png", alt="pikachu")),
+            "/pokemon/pikachu": Page(Image(src="sprites/25.png", alt="pikachu")),
+        }
+    )
+    assert '<img src="sprites/25.png" alt="pikachu" />' in output["index.html"]
+    assert '<img src="../sprites/25.png" alt="pikachu" />' in output["pokemon/pikachu.html"]
+
+
+def test_image_src_leading_slash_asset_path_rewritten_for_nested_pages():
+    # Bugfix: a leading-slash "absolute" asset path is likewise a
+    # root-relative asset, not an (unregistered) route -- it must
+    # resolve the same way the equivalent value without the leading
+    # "/" does, not silently pass through unchanged.
+    output = render({"/pokemon/pikachu": Page(Image(src="/sprites/25.png", alt="pikachu"))})
+    assert '<img src="../sprites/25.png" alt="pikachu" />' in output["pokemon/pikachu.html"]
+
+
+def test_image_src_matching_known_route_still_resolved_as_route():
+    # If a `src` happens to match a real page route (e.g. an IFrame
+    # embedding another ARKlight page), that takes priority over
+    # treating it as a static asset.
+    output = render(
+        {
+            "/": Page(Text("home")),
+            "/pokemon/pikachu": Page(Image(src="/", alt="home thumbnail")),
+        }
+    )
+    assert '<img src="../index.html" alt="home thumbnail" />' in output["pokemon/pikachu.html"]
+
+
+def test_image_src_external_and_data_urls_left_untouched():
+    output = render(
+        {
+            "/pokemon/pikachu": Page(
+                Container(
+                    Image(src="https://example.com/a.png", alt="ext"),
+                    Image(src="data:image/png;base64,abc==", alt="inline"),
+                    Image(src="//cdn.example.com/a.png", alt="protocol-relative"),
+                )
+            )
+        }
+    )
+    html = output["pokemon/pikachu.html"]
+    assert '<img src="https://example.com/a.png" alt="ext" />' in html
+    assert '<img src="data:image/png;base64,abc==" alt="inline" />' in html
+    assert '<img src="//cdn.example.com/a.png" alt="protocol-relative" />' in html
+
+
 def test_stylesheet_link_present_and_relative_for_nested_pages():
     output = render(
         {

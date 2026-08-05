@@ -15,10 +15,17 @@ Three things beyond basic tag rendering are handled here:
    a domain root; opening the file directly (`file://.../index.html`)
    or serving it from a subdirectory would send the browser to
    `/about` on the local filesystem or wrong origin, not
-   `ARK/about.html`. So any href/src starting with "/" (and matching
-   a known route) is rewritten to the correct relative path from the
+   `ARK/about.html`. So any `href` starting with "/" (and matching a
+   known route) is rewritten to the correct relative path from the
    *current* page's output location. External URLs, `#fragments`,
    `mailto:`, and unrecognized paths are left untouched.
+
+   `src` (Image/Source/Track/IFrame) gets the same route treatment
+   *if* it matches a known route, but most `src` values are static
+   assets rather than page routes -- e.g. `Image(src="sprites/25.png")`
+   -- so any other `src` is instead rewritten as a root-relative asset
+   path, the same way the built-in `styles.css`/`arklight.js`/favicon/
+   `og_image` references already are. See `_resolve_src_ref`.
 
 2. **A stylesheet link and behavior-runtime script are always
    included**, pointing (relatively) at the CSS/JS backends' output --
@@ -223,8 +230,21 @@ BEHAVIOR_PROP_ATTRS = {
 }
 
 # Attribute names whose value may be resolved relative to the current
-# page ("/", "/about", ...) instead of emitted verbatim.
-ROUTE_AWARE_ATTRS = {"href", "src"}
+# page ("/", "/about", ...) instead of emitted verbatim. `href` (Link)
+# always points at a page route. `src` (Image/Source/Track/IFrame)
+# usually points at a static asset instead -- see `_resolve_src_ref`.
+ROUTE_AWARE_ATTRS = {"href"}
+ASSET_OR_ROUTE_AWARE_ATTRS = {"src"}
+
+# `src` needs different treatment than `href`: a Link's `href` always
+# names a *page route* ("/about"), but Image/Source/Track/IFrame's `src`
+# usually names a *static asset* ("assets/1.png" or "/assets/1.png") --
+# not a route at all. `_resolve_src_ref` below checks route_to_path
+# first (so an IFrame embedding another ARKlight page still works like
+# href) and otherwise falls back to root-relative asset resolution, the
+# same treatment `styles.css`/`arklight.js`/`favicon`/`og_image` already
+# get via `_relative_asset_path`. See CHANGELOG.md.
+SRC_ATTRS = {"src"}
 
 # v0.0431 emergency patch: these attributes can *also* carry an internal
 # route reference (Picture/PictureSource's `srcset`, Video's `poster`,
@@ -327,6 +347,46 @@ def _resolve_route_ref(value: str, *, current_route: str, route_to_path: dict[st
     return f"{relative}#{fragment}" if fragment else relative
 
 
+def _resolve_src_ref(value: str, *, current_route: str, route_to_path: dict[str, str]) -> str:
+    """Rewrite a `src` attribute value (Image, Source, Track, IFrame) so
+    it resolves correctly from the current page's output location.
+
+    Bugfix: unlike `href` (which always points at another ARKlight page
+    route), `src` most commonly points at a *static asset* -- e.g.
+    `assets/1.png` or `sprites/25.png`, copied verbatim into
+    `<output_dir>/assets` by the build (see
+    `compiler/pipeline.py::_copy_assets`) -- not a page route. Previously
+    only `href`/`src` values matching a *known route* were rewritten, so
+    an asset reference (not a route) was silently passed through
+    unchanged and broke on any page not at the output root -- exactly
+    the class of bug `_relative_asset_path` already exists to prevent
+    for `styles.css`/`arklight.js`/`favicon`/`og_image`, just never
+    applied here.
+
+    So: if the value matches a *known* page route, treat it as one (an
+    `IFrame` embedding another ARKlight page, say) and resolve it the
+    same way `href` does. Otherwise, treat it as a root-relative static
+    asset path and rewrite it with `_relative_asset_path`, stripping any
+    leading "/" first -- passing a leading-slash value straight into
+    `_relative_asset_path` would make the result depend on the build
+    process's current working directory instead of the site structure,
+    swapping one nondeterministic bug for another.
+
+    External URLs (`https://...`), protocol-relative URLs (`//...`),
+    and `data:` URIs are left untouched, same as `href`.
+    """
+    if value.startswith("//") or "://" in value:
+        return value  # protocol-relative or scheme:// external URL
+    if value.startswith("data:"):
+        return value
+
+    if _is_internal_route_ref(value) and value.partition("#")[0] in route_to_path:
+        return _resolve_route_ref(value, current_route=current_route, route_to_path=route_to_path)
+
+    asset_path = value.lstrip("/")
+    return _relative_asset_path(asset_path, current_route=current_route, route_to_path=route_to_path)
+
+
 def _relative_asset_path(asset_path: str, *, current_route: str, route_to_path: dict[str, str]) -> str:
     """Like `_resolve_route_ref`, but for a fixed root-level asset
     (e.g. styles.css) rather than a page route."""
@@ -406,6 +466,8 @@ def _attr_string(
 
             if attr_name in ROUTE_AWARE_ATTRS and isinstance(value, str) and _is_internal_route_ref(value):
                 value = _resolve_route_ref(value, current_route=current_route, route_to_path=route_to_path)
+            elif attr_name in ASSET_OR_ROUTE_AWARE_ATTRS and isinstance(value, str) and value:
+                value = _resolve_src_ref(value, current_route=current_route, route_to_path=route_to_path)
             elif attr_name in UNROUTED_REFERENCE_ATTRS and isinstance(value, str):
                 _warn_unrouted_reference(attr_name, value, node_type=node_type)
 
