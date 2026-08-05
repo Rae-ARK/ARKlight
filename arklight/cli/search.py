@@ -1,5 +1,6 @@
 """
-`arklight --search <name>` -- component schema lookup (v0.042).
+`arklight search <name>` -- component schema lookup, backed by the
+Stage 1-6 deterministic ranking pipeline (`arklight.search.engine`).
 
 Read-only reflection over `arklight.ir.schema.SCHEMA`, the single
 source of truth every compiler stage already reads from -- no new data
@@ -7,54 +8,51 @@ format, no compiler-pipeline changes. Exists so remembering "does
 `Picture` take `sources=` or `srcs=`" doesn't require opening
 `schema.py` by hand once the vocabulary is 80+ names deep.
 
-The typo-tolerant fallback (`_suggest`) is the same stdlib-only
-technique (`difflib.get_close_matches` over a camelCase-aware
-tokenizer) used for "did you mean" suggestions elsewhere in the
-ARKlight tooling ecosystem -- no external dependency, no network call,
-just `difflib` + `re` from the standard library.
+The typo-tolerant fallback (`_suggest`) now calls `SearchEngine.search`
+(retrieval -> structural importance -> ranking, see
+DETERMINISTIC_RANKING_PLAN.md) instead of bare `difflib`, but still
+returns a plain `list[str]` in the same order/shape it always has --
+`search_component()`'s exact-match branch, its message text, and
+`tests/test_search.py` are all unchanged by this.
 """
 
 from __future__ import annotations
 
-import difflib
-import re
-
 from arklight.ir.schema import SCHEMA, NodeSpec
-
-_CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
-
-
-def _tokenize(name: str) -> list[str]:
-    """Split `PascalCase`/`camelCase`/`snake_case` into lowercase tokens."""
-    spaced = _CAMEL_BOUNDARY.sub(" ", name).replace("_", " ").replace("-", " ")
-    return [t.lower() for t in spaced.split() if t]
+from arklight.search.engine import default_engine
 
 
-def _suggest(query: str, limit: int = 5) -> list[str]:
+def _suggest(query: str, limit: int = 5, near: str | None = None) -> list[str]:
     """
-    Typo-tolerant "did you mean" suggestions for `query` against every
-    known component name in `SCHEMA`, ranked by a blend of whole-name
-    similarity and token overlap (so `"pic"` -> `Picture` and
-    `"tbl-row"` -> `TableRow` both work, not just single-typo cases).
+    Typo-tolerant "did you mean" suggestions for `query`, ranked by
+    the Stage 5 pipeline (lexical similarity + structural importance +
+    usage history) over every known component name in `SCHEMA`. Same
+    external contract as the old `difflib`-only version: a plain,
+    already-ordered `list[str]`.
     """
-    names = sorted(SCHEMA)
-    query_tokens = set(_tokenize(query))
+    results = default_engine().search(query, limit=limit, near=near)
+    return [result.name for result in results]
 
-    scored: list[tuple[float, str]] = []
-    for candidate in names:
-        whole = difflib.SequenceMatcher(None, query.lower(), candidate.lower()).ratio()
-        overlap = len(query_tokens & set(_tokenize(candidate)))
-        score = whole + (overlap * 0.5)
-        # Require either a reasonably close whole-name match (catches
-        # typos like "Pictur") or at least one shared token (catches
-        # multi-word names like "tbl-row" -> TableRow) -- prevents
-        # unrelated short/common-letter names from scoring above the
-        # cutoff just from SequenceMatcher noise.
-        if score > 0.3 and (whole > 0.55 or overlap > 0):
-            scored.append((score, candidate))
 
-    scored.sort(key=lambda pair: (-pair[0], pair[1]))
-    return [name for _score, name in scored[:limit]]
+def record_acceptance(name: str) -> None:
+    """Thin wrapper around `SearchEngine.accept` -- records that
+    `name` was the symbol the user actually wanted, closing the
+    learning loop from the CLI's `--accept` flag."""
+    default_engine().accept(name)
+
+
+def resolve_exact(query: str) -> str | None:
+    """Case-insensitive exact-match lookup against `SCHEMA`, returning
+    the canonical (correctly-cased) name or `None`. Shared by
+    `search_component()`'s own exact-match branch and the CLI's
+    `--accept` flag, so "what counts as an exact match" has exactly
+    one definition."""
+    exact = SCHEMA.get(query)
+    if exact is not None:
+        return query
+
+    lowered = {name.lower(): name for name in SCHEMA}
+    return lowered.get(query.lower())
 
 
 def _format_spec(name: str, spec: NodeSpec) -> str:
@@ -79,25 +77,22 @@ def _format_spec(name: str, spec: NodeSpec) -> str:
     return "\n".join(lines)
 
 
-def search_component(query: str) -> str:
+def search_component(query: str, *, limit: int = 5, near: str | None = None) -> str:
     """
     Look `query` up in `SCHEMA` and return a formatted schema summary.
 
     Exact match (case-insensitive) wins outright. Otherwise, returns a
-    "not found" message with up to 5 typo-tolerant suggestions -- or
+    "not found" message with up to `limit` ranked suggestions -- or
     says plainly that nothing close was found, rather than guessing.
+    `near` optionally biases suggestion ranking toward symbols
+    structurally close to `near` (personalized PageRank seed); default
+    behavior (`near=None`) is unchanged from before Stage 7.
     """
-    exact = SCHEMA.get(query)
-    if exact is not None:
-        return _format_spec(query, exact)
-
-    # Case-insensitive exact match (e.g. "picture" -> "Picture").
-    lowered = {name.lower(): name for name in SCHEMA}
-    if query.lower() in lowered:
-        canonical = lowered[query.lower()]
+    canonical = resolve_exact(query)
+    if canonical is not None:
         return _format_spec(canonical, SCHEMA[canonical])
 
-    suggestions = _suggest(query)
+    suggestions = _suggest(query, limit=limit, near=near)
     if not suggestions:
         return (
             f"No component named {query!r} found, and nothing close enough "

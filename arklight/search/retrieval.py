@@ -35,7 +35,17 @@ def retrieve_candidates(
             candidates.add(name)
             continue
 
-        if lowered_name.startswith(lowered_query) or lowered_query.startswith(lowered_name):
+        if lowered_name.startswith(lowered_query):
+            candidates.add(name)
+            continue
+
+        # Query-starts-with-name only counts as a prefix match once the
+        # name has enough characters to be a meaningful prefix (>=3) --
+        # otherwise a two-letter component name (e.g. "Q", "Rt", "Em")
+        # is a "prefix" of nearly any query that happens to start with
+        # the same letter(s), turning this into an accidental catch-all
+        # rather than a real match.
+        if len(lowered_name) >= 3 and lowered_query.startswith(lowered_name):
             candidates.add(name)
             continue
 

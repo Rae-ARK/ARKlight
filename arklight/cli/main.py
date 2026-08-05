@@ -28,12 +28,13 @@ from pathlib import Path
 
 from arklight import __version__, experimental
 from arklight.cli.scaffold import ScaffoldError, new_project
-from arklight.cli.search import search_component
+from arklight.cli.search import record_acceptance, resolve_exact, search_component
 from arklight.cli.templates import TEMPLATES
 from arklight.cli.upgrade import upgrade_to_alpha
 from arklight.compiler.pipeline import BuildResult, CompileError, build
 from arklight.packer.bundle import PackError, pack, unpack
 from arklight.pwa import PWAError, enable_pwa
+from arklight.search.engine import SearchEngineError
 
 # Prefix every `--verbose`/`--debug` stage line gets, so pipeline
 # progress reads as ARKlight "thinking out loud" rather than bare,
@@ -468,7 +469,27 @@ def _cmd_new(args: argparse.Namespace) -> int:
 
 
 def _cmd_search(args: argparse.Namespace) -> int:
-    print(search_component(args.name))
+    try:
+        print(search_component(args.name, limit=args.limit, near=args.near))
+    except SearchEngineError as exc:
+        print(f"ARKlight search failed: {exc}", file=sys.stderr)
+        return 1
+
+    if args.accept:
+        # Only record acceptance on an exact match -- accepting a
+        # "did you mean" suggestion the user never confirmed would be
+        # guessing at intent, which the usage-stats signal deliberately
+        # never does (see arklight/search/stats.py).
+        canonical = resolve_exact(args.name)
+        if canonical is not None:
+            record_acceptance(canonical)
+        else:
+            print(
+                f"--accept ignored: {args.name!r} isn't an exact component "
+                f"name, so there's nothing to record.",
+                file=sys.stderr,
+            )
+
     return 0
 
 
@@ -716,6 +737,27 @@ def main(argv: list[str] | None = None) -> int:
         help="Look up a built-in component's schema by name (required props, children rules).",
     )
     search_parser.add_argument("name", help="Component name to look up, e.g. Picture")
+    search_parser.add_argument(
+        "--limit",
+        type=int,
+        default=5,
+        help="Max number of 'did you mean' suggestions to show on a miss (default: 5).",
+    )
+    search_parser.add_argument(
+        "--near",
+        metavar="NAME",
+        default=None,
+        help="Bias suggestion ranking toward components structurally close to "
+        "NAME in this project's own usage (personalized PageRank seed). "
+        "NAME must be a component the usage graph has actually seen used.",
+    )
+    search_parser.add_argument(
+        "--accept",
+        action="store_true",
+        default=False,
+        help="On an exact match, record it in the usage store so future "
+        "searches rank it higher (closes the learning loop).",
+    )
     search_parser.set_defaults(func=_cmd_search)
 
     args = parser.parse_args(argv)
