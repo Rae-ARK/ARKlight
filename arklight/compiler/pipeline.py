@@ -32,6 +32,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
+from arklight import experimental
 from arklight.backend.base import Backend
 from arklight.backend.css.render import CSSBackend
 from arklight.backend.html.render import HTMLBackend
@@ -132,6 +133,18 @@ def compile_site_file(
     except ValidationError as exc:
         raise CompileError(str(exc)) from exc
 
+    # Experimental API warnings (docs/EXPERIMENTAL-APIS.md): every
+    # opt-in call the site made (currently just `site.media_query(...)`)
+    # was already recorded on `site.experimental_usages` at call time --
+    # print the inline "[EXPERIMENTAL FEATURE ACTIVE]" banner for each
+    # one now, right after validation succeeds, so it's interleaved with
+    # stage narration instead of only showing up in an end-of-build
+    # summary. Not gated behind `on_stage`/`--verbose` being set for
+    # anything else: an experimental-feature warning always prints if
+    # a logger was supplied at all.
+    for usage in site.experimental_usages:
+        log(experimental.format_inline_banner(usage))
+
     log("Building website IR...")
     merged_css_var_overrides = dict(site.css_var_overrides)
     if css_var_overrides:
@@ -141,6 +154,8 @@ def compile_site_file(
         site.name,
         normalized,
         custom_styles=site.custom_styles,
+        media_queries=site.custom_media_queries,
+        experimental_usages=site.experimental_usages,
         css_var_overrides=merged_css_var_overrides,
         lang=lang if lang is not None else site.lang,
     )

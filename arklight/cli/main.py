@@ -17,6 +17,7 @@ Site(), unknown component, etc.) rather than a raw traceback.
 from __future__ import annotations
 
 import argparse
+import functools
 import mimetypes
 import re
 import sys
@@ -25,7 +26,7 @@ import warnings
 import webbrowser
 from pathlib import Path
 
-from arklight import __version__
+from arklight import __version__, experimental
 from arklight.cli.scaffold import ScaffoldError, new_project
 from arklight.cli.search import search_component
 from arklight.cli.templates import TEMPLATES
@@ -126,12 +127,26 @@ def open_in_browser(result: BuildResult, output_dir: str | Path) -> bool:
     return True
 
 
-def _stage_logger(message: str) -> None:
+def _stage_logger(message: str, *, verbose: bool) -> None:
     """`on_stage` callback for `build()` -- prints each pipeline stage
     as it starts, prefixed like the rest of ARKlight's CLI output.
-    Wired up only when `--verbose`/`--debug` is passed (see
-    `_cmd_build`); the pipeline itself never prints anything on its own."""
-    print(f"{_STAGE_PREFIX} {message}")
+
+    Two different things flow through this one callback:
+      - plain pipeline narration ("Running validation...", etc.) --
+        only printed when `verbose` (`--verbose`/`--debug`) is set,
+        same as before.
+      - an inline experimental-API banner (see
+        `arklight.experimental.format_inline_banner`; always starts
+        with the warning glyph) -- printed unconditionally, per
+        docs/EXPERIMENTAL-APIS.md's CLI contract ("neither surface is
+        gated behind --verbose/--debug"): an experimental-feature
+        warning isn't narration, it's the entire point of gating the
+        feature, so it always prints regardless of verbosity.
+    """
+    if message.startswith("\u26a0"):
+        print(message)
+    elif verbose:
+        print(f"{_STAGE_PREFIX} {message}")
 
 
 # v0.0431 emergency patch: marker prefix `arklight.backend.html.render`
@@ -173,7 +188,11 @@ def _cmd_build(args: argparse.Namespace) -> int:
     # with the stage-by-stage narration already on screen above the
     # traceback, so there's no reason to ask for both separately.
     verbose = args.verbose or args.debug
-    on_stage = _stage_logger if verbose else None
+    # Always wired up now, not just when verbose -- `_stage_logger`
+    # itself decides what to actually print (see its docstring): plain
+    # stage narration stays gated behind `verbose`, but an experimental-
+    # API inline banner always gets through regardless.
+    on_stage = functools.partial(_stage_logger, verbose=verbose)
 
     # --max-width/--bg let the *build invocation* set a design token
     # without touching the site file's Site(...) call -- e.g. CI
@@ -221,6 +240,7 @@ def _cmd_build(args: argparse.Namespace) -> int:
         print(f"  {path}")
 
     _print_alpha_warnings(caught)
+    experimental.print_summary(result.ir.experimental_usages)
 
     if args.open:
         opened = open_in_browser(result, args.output)

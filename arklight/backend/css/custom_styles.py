@@ -95,3 +95,31 @@ def render_custom_styles(custom_styles: dict[str, dict[str, str]]) -> str:
             blocks.append("\n".join(lines))
 
     return "\n\n".join(blocks) + "\n"
+
+
+def render_media_queries(media_queries: list[tuple[str, str, dict[str, str]]]) -> str:
+    """
+    EXPERIMENTAL (see `docs/EXPERIMENTAL-APIS.md`) -- turn
+    `site.media_query(condition, class_name, rules)` registrations
+    into real `@media (condition) { .class_name { ... } }` blocks,
+    kept in registration order (unlike `render_custom_styles`, which
+    sorts by class name -- media queries commonly rely on later blocks
+    winning the cascade for the same class, so preserving call order
+    matters here). Empty input -> empty string.
+    """
+    if not media_queries:
+        return ""
+
+    blocks = [
+        "\n/* Experimental: @media blocks -- registered via "
+        "`site.media_query(...)`. See docs/EXPERIMENTAL-APIS.md. */",
+    ]
+    for condition, class_name, rules in media_queries:
+        lines = [f"@media ({condition}) {{", f"  .{class_name} {{"]
+        for prop in sorted(rules):
+            lines.append(f"    {prop}: {rules[prop]};")
+        lines.append("  }")
+        lines.append("}")
+        blocks.append("\n".join(lines))
+
+    return "\n\n".join(blocks) + "\n"

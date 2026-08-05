@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from arklight.backend.base import Backend
 from arklight.backend.css.base_stylesheet import BASE_CSS_BODY, BASE_CSS_HEADER
-from arklight.backend.css.custom_styles import render_custom_styles
+from arklight.backend.css.custom_styles import render_custom_styles, render_media_queries
 from arklight.backend.css.design_tokens import render_root_and_property_rules
 from arklight.ir.build import WebsiteIR
 
@@ -45,8 +45,11 @@ class CSSBackend(Backend):
         # matters: base rules, then `:root`/`@property` design tokens
         # (`ir.css_var_overrides`, from `Site(max_width=..., bg=...)`),
         # then the fixed tag/utility rules, then v0.042 custom classes
-        # (`ir.custom_styles`, from `site.style(...)`) last so they can
-        # override any of the above.
+        # (`ir.custom_styles`, from `site.style(...)`), then EXPERIMENTAL
+        # `@media` blocks (`ir.media_queries`, from `site.media_query(...)`,
+        # see docs/EXPERIMENTAL-APIS.md) absolute last so a viewport-keyed
+        # override can still win the cascade against every intrinsic rule
+        # above it -- the whole point of reaching for one.
         css = (
             BASE_CSS_HEADER
             + "\n"
@@ -54,5 +57,6 @@ class CSSBackend(Backend):
             + "\n\n"
             + BASE_CSS_BODY
             + render_custom_styles(ir.custom_styles)
+            + render_media_queries(ir.media_queries)
         )
         return {STYLESHEET_PATH: css}

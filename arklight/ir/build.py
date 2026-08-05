@@ -56,6 +56,18 @@ class WebsiteIR:
     # dict), never a raw CSS string, same boundary the rest of the
     # project holds. Empty for sites that never call `site.style(...)`.
     custom_styles: dict[str, dict[str, str]] = field(default_factory=dict)
+    # EXPERIMENTAL (docs/EXPERIMENTAL-APIS.md): (condition, class_name,
+    # {prop: value}) triples registered via `site.media_query(...)`.
+    # Kept separate from `custom_styles` -- see `Site.media_query`'s
+    # docstring for why this isn't folded into the same dict. Empty
+    # for sites that never call `site.media_query(...)` (i.e. every
+    # site that stays fully within the intrinsic layout model).
+    media_queries: list = field(default_factory=list)
+    # EXPERIMENTAL (docs/EXPERIMENTAL-APIS.md): every `ExperimentalUsage`
+    # recorded during compilation, in call order -- the CLI drains this
+    # (deduplicated by feature id) to print the end-of-build summary
+    # block via `arklight.experimental.print_summary`.
+    experimental_usages: list = field(default_factory=list)
     # CSS backend refactor: `--ark-*` custom property overrides
     # registered via `Site(max_width=..., bg=...)` -- var name (e.g.
     # "--ark-max-width") -> value. Empty for sites that pass neither,
@@ -103,6 +115,8 @@ def build_website_ir(
     pages: dict[str, ARKNode],
     *,
     custom_styles: dict[str, dict[str, str]] | None = None,
+    media_queries: list | None = None,
+    experimental_usages: list | None = None,
     css_var_overrides: dict[str, str] | None = None,
     lang: str = "en",
 ) -> WebsiteIR:
@@ -124,6 +138,8 @@ def build_website_ir(
         site_name=site_name,
         pages=ir_pages,
         custom_styles=dict(custom_styles) if custom_styles else {},
+        media_queries=list(media_queries) if media_queries else [],
+        experimental_usages=list(experimental_usages) if experimental_usages else [],
         css_var_overrides=dict(css_var_overrides) if css_var_overrides else {},
         lang=lang,
     )

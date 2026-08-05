@@ -17,6 +17,7 @@ from __future__ import annotations
 import re
 from typing import Any, Callable
 
+from arklight import experimental
 from arklight.ast.nodes import ActionRef, ARKNode, ClassBindSpec, node
 
 # v0.042: custom CSS class names must look like a real, single CSS class
@@ -480,6 +481,18 @@ class Site:
         # `site.style(...)`. Structured input only -- see `style()` below
         # for why this isn't a raw CSS string.
         self.custom_styles: dict[str, dict[str, str]] = {}
+        # Experimental (docs/EXPERIMENTAL-APIS.md): (condition, class_name,
+        # rules) triples registered via `site.media_query(...)`, kept
+        # separate from `custom_styles` above rather than overloading
+        # `style()`'s key syntax -- an experimental escape hatch gets its
+        # own explicit opt-in surface, not a silently-expanded standard one.
+        self.custom_media_queries: list[tuple[str, str, dict[str, str]]] = []
+        # Every `ExperimentalUsage` recorded by an opt-in call
+        # (`media_query()` so far) on this Site, in call order --
+        # `arklight.compiler.pipeline` drains this to print the inline
+        # "[EXPERIMENTAL FEATURE ACTIVE]" banner and, deduplicated, the
+        # end-of-build summary block.
+        self.experimental_usages: list = []
         # CSS backend refactor: `max_width`/`bg` override two of the
         # `:root`-declared `--ark-*` custom properties that `CSSBackend`
         # used to bake in as constants. Both are read by `body`'s *own*
@@ -590,6 +603,70 @@ class Site:
                 )
             self._validate_css_syntax(name, prop, value)
         self.custom_styles[name] = dict(rules)
+
+    def media_query(self, condition: str, class_name: str, rules: dict[str, str]) -> None:
+        """
+        EXPERIMENTAL (see `docs/EXPERIMENTAL-APIS.md`) -- register a
+        `@media` block: `.class_name { ... }` rendered inside
+        `@media (condition) { ... }` in the generated stylesheet.
+
+        This is a deliberate, opt-in escape hatch from ARKlight's
+        intrinsic layout model, not a peer of `style()` -- viewport-
+        keyed rules are exactly the thing `.stack`/`.cluster`/
+        `.switcher`/`.grid`/`.sidebar` exist to make unnecessary, and
+        they're markedly less reliable on Android's device spread
+        (foldables, OEM WebViews, non-standard aspect ratios) than the
+        "phone vs desktop" case breakpoint intuition is usually built
+        around. Every call is flagged: an `[EXPERIMENTAL FEATURE
+        ACTIVE]` banner prints the moment the build detects it, and a
+        summary block prints again at the end of the build. Prefer an
+        intrinsic layout primitive first; reach for this only when the
+        design genuinely cannot be expressed without a viewport-keyed
+        rule.
+
+        `condition` is the raw text that goes inside `@media (...)`
+        (e.g. `"max-width: 600px"` or `"orientation: landscape"`) --
+        not validated beyond "non-empty string", since the space of
+        valid media-feature syntax is large; a malformed condition
+        surfaces as broken generated CSS, the same failure mode
+        hand-written `@media` would have. `class_name`/`rules` are
+        validated exactly like `style()`.
+        """
+        if not isinstance(condition, str) or not condition.strip():
+            raise ValueError(
+                f"site.media_query(condition, ...) needs a non-empty media "
+                f"condition string, e.g. 'max-width: 600px', got {condition!r}."
+            )
+        if not isinstance(class_name, str) or not _CSS_CLASS_NAME_RE.match(class_name):
+            raise ValueError(
+                f"site.media_query(..., {class_name!r}, ...) needs a valid CSS "
+                f"class name -- letters, digits, hyphens, and underscores "
+                f"only, and it can't start with a digit."
+            )
+        if not isinstance(rules, dict) or not rules:
+            raise ValueError(
+                f"site.media_query(..., {class_name!r}, rules) needs a "
+                f"non-empty dict of {{css-property: value}}, e.g. "
+                f"{{'flex-direction': 'column'}}."
+            )
+        for prop, value in rules.items():
+            if not isinstance(prop, str) or not prop.strip() or prop.startswith(":"):
+                raise ValueError(
+                    f"site.media_query(..., {class_name!r}, ...) has an "
+                    f"invalid CSS property name: {prop!r} (pseudo-class keys "
+                    f"aren't supported inside a media query block)."
+                )
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(
+                    f"site.media_query(..., {class_name!r}, ...) property "
+                    f"{prop!r} needs a non-empty string value, got {value!r}."
+                )
+            self._validate_css_syntax(class_name, prop, value)
+
+        self.custom_media_queries.append((condition.strip(), class_name, dict(rules)))
+        self.experimental_usages.append(
+            experimental.emit("css-media-queries")
+        )
 
     def _validate_css_syntax(self, name: str, prop: str, value: str) -> None:
         """
