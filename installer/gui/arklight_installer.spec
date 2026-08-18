@@ -17,7 +17,15 @@ a = Analysis(
     ['arklight_installer/__main__.py'],
     pathex=['.'],
     binaries=[],
-    datas=[],
+    # The .ark bundle opener and its desktop/MIME registration files are
+    # bundled here so `install_opener()` / `register_bundle_mime()` in
+    # launcher.py can find them under sys._MEIPASS at runtime, even though
+    # they live in installer/linux/opener/ (not installer/gui/) in source.
+    datas=[
+        ('../linux/opener/arklight-open', 'opener'),
+        ('../linux/opener/arklight-bundle.desktop', 'opener'),
+        ('../linux/opener/arklight-bundle-mime.xml', 'opener'),
+    ],
     hiddenimports=['tkinter'],
     hookspath=[],
     hooksconfig={},

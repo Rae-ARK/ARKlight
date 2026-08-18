@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=ARKlight Bundle Opener
+Comment=Open .ark bundles — unsealed ones go straight to your browser, sealed ones prompt for a password first
+Exec=arklight-open %f
+Icon=arklight-installer
+Terminal=false
+NoDisplay=true
+MimeType=application/x-arklight-bundle;
+Categories=Development;

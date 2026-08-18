@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/x-arklight-bundle">
+    <comment>ARKlight bundle</comment>
+    <comment xml:lang="en">ARKlight bundle</comment>
+    <!-- .ark bundles are valid HTML up to </html> (see
+         arklight/packer/bundle.py), so without this registration most
+         desktops fall back to treating them as plain text or refuse to
+         open them at all ("unrecognized file format"). Registering a
+         distinct MIME type lets xdg-mime point .ark specifically at
+         arklight-open instead of whatever handles .html generally. -->
+    <glob pattern="*.ark"/>
+    <magic priority="60">
+      <!-- Cheap, order-independent sanity check: real .ark bundles start
+           like any ARKlight HTML build output. This only disambiguates
+           against non-.ark files that got renamed with a .ark extension;
+           the glob above is what actually matches real bundles. -->
+      <match type="string" value="&lt;!DOCTYPE html" offset="0"/>
+    </magic>
+  </mime-type>
+</mime-info>

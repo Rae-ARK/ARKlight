@@ -1,0 +1,175 @@
+#!/usr/bin/env python3
+"""arklight-open: the double-click handler for `.ark` bundles.
+
+Registered as the default opener for the `application/x-arklight-bundle`
+MIME type (see arklight-bundle-mime.xml / arklight-bundle.desktop, and
+launcher.py's `install_opener()` which wires this up during the main
+ARKlight install).
+
+Behavior:
+- Unsealed (plain) bundles: opened directly in the default browser. A
+  `.ark` file is a valid HTML document up to its `</html>` tag (see
+  arklight/packer/bundle.py), so this needs no extra step -- browsers
+  simply stop reading at that point. Asset paths that rely on the
+  archive being unpacked next to the page won't resolve in this mode;
+  that's expected, documented behavior for viewing a bundle in place.
+- Sealed bundles: a small password dialog is shown first. Confirming it
+  unpacks the *entire* bundle (via `arklight unpack`, the same code path
+  the CLI uses) into a temp directory and opens the extracted
+  `index.html` instead -- so sealed bundles opened this way actually
+  get a fully working copy, assets included, not just the degraded
+  polyglot view. Embedded-key-sealed bundles (the default `arklight
+  pack` mode) don't need a real password, so the dialog for those shows
+  a single "Unlock and Open" button instead of a password field.
+
+This script deliberately does not import `arklight.packer` directly.
+It only peeks the few fixed-offset bytes needed to tell "unsealed" from
+"sealed" and "sealed w/ passphrase" from "sealed w/ embedded key" (see
+_read_seal_kind below, mirroring the layout documented in
+arklight/packer/seal.py), then shells out to the already-installed
+`arklight` CLI for the actual unseal/unpack. That keeps this opener
+working even if it ends up running under a different interpreter than
+the one ARKlight was installed into.
+"""
+from __future__ import annotations
+
+import subprocess
+import sys
+import tempfile
+import webbrowser
+from pathlib import Path
+from tkinter import Tk, StringVar, ttk, messagebox
+
+HTML_END_MARKER = b"</html>\n"
+SEAL_MAGIC = b"ARKSEAL1"
+SEAL_SALT_LEN = 16
+_MODE_PASSPHRASE = 0x00
+_MODE_EMBEDDED_KEY = 0x01
+
+
+class BundleReadError(Exception):
+    pass
+
+
+def _read_seal_kind(bundle_path: Path) -> str:
+    """Return "plain", "embedded", or "passphrase" for `bundle_path`.
+
+    Only reads the handful of bytes needed to classify the bundle --
+    never attempts to derive a key or decrypt anything itself.
+    """
+    try:
+        data = bundle_path.read_bytes()
+    except OSError as exc:
+        raise BundleReadError(f"Couldn't read {bundle_path}: {exc}") from exc
+
+    idx = data.find(HTML_END_MARKER)
+    if idx == -1:
+        raise BundleReadError(f"{bundle_path} doesn't look like a .ark bundle.")
+    archive = data[idx + len(HTML_END_MARKER):]
+
+    if not archive.startswith(SEAL_MAGIC):
+        return "plain"
+
+    mode_offset = len(SEAL_MAGIC) + SEAL_SALT_LEN
+    if mode_offset >= len(archive):
+        raise BundleReadError(f"{bundle_path}'s sealed archive is truncated.")
+    mode = archive[mode_offset]
+    if mode == _MODE_EMBEDDED_KEY:
+        return "embedded"
+    if mode == _MODE_PASSPHRASE:
+        return "passphrase"
+    raise BundleReadError(f"{bundle_path} has an unrecognized seal mode byte: {mode!r}.")
+
+
+def _open_in_browser(path: Path) -> None:
+    webbrowser.open(path.resolve().as_uri())
+
+
+def _unpack_and_open(bundle_path: Path, passphrase: str | None, on_error) -> None:
+    out_dir = Path(tempfile.mkdtemp(prefix="arklight-open-"))
+    cmd = ["arklight", "unpack", str(bundle_path), "-o", str(out_dir)]
+    if passphrase:
+        cmd += ["--passphrase", passphrase]
+
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        on_error(result.stderr.strip() or "arklight unpack failed with no output.")
+        return
+
+    index = out_dir / "index.html"
+    if not index.is_file():
+        on_error(f"Unpacked {bundle_path.name} but found no index.html in the result.")
+        return
+    _open_in_browser(index)
+
+
+def _show_unlock_dialog(bundle_path: Path, needs_passphrase: bool) -> None:
+    root = Tk()
+    root.title("ARKlight Bundle — Sealed")
+    root.resizable(False, False)
+    frame = ttk.Frame(root, padding=16)
+    frame.pack(fill="both", expand=True)
+
+    if needs_passphrase:
+        ttk.Label(
+            frame, wraplength=340, justify="left",
+            text=f'"{bundle_path.name}" is sealed with a passphrase. '
+                 "Enter it to unpack and open the full site.",
+        ).pack(anchor="w")
+        pw = StringVar()
+        entry = ttk.Entry(frame, textvariable=pw, show="•", width=32)
+        entry.pack(fill="x", pady=(12, 0))
+        entry.focus_set()
+        entry.bind("<Return>", lambda _e: on_unlock())
+    else:
+        ttk.Label(
+            frame, wraplength=340, justify="left",
+            text=f'"{bundle_path.name}" is sealed, but not passphrase-protected. '
+                 "Unlock it to open the full site with working assets.",
+        ).pack(anchor="w")
+        pw = StringVar(value="")
+
+    def on_error(message: str) -> None:
+        messagebox.showerror("ARKlight Bundle", message)
+
+    def on_unlock() -> None:
+        button_row.pack_forget()
+        ttk.Label(frame, text="Unpacking…").pack(anchor="w", pady=(12, 0))
+        root.update_idletasks()
+        _unpack_and_open(bundle_path, pw.get() or None, on_error)
+        root.destroy()
+
+    def on_view_anyway() -> None:
+        _open_in_browser(bundle_path)
+        root.destroy()
+
+    button_row = ttk.Frame(frame)
+    button_row.pack(fill="x", pady=(16, 0))
+    ttk.Button(button_row, text="Cancel", command=root.destroy).pack(side="left")
+    ttk.Button(button_row, text="View without unlocking",
+               command=on_view_anyway).pack(side="left", padx=(8, 0))
+    ttk.Button(button_row, text="Unlock and Open", command=on_unlock).pack(side="right")
+
+    root.mainloop()
+
+
+def main() -> None:
+    if len(sys.argv) != 2:
+        print("Usage: arklight-open BUNDLE.ark", file=sys.stderr)
+        sys.exit(2)
+
+    bundle_path = Path(sys.argv[1])
+    try:
+        kind = _read_seal_kind(bundle_path)
+    except BundleReadError as exc:
+        messagebox.showerror("ARKlight Bundle", str(exc))
+        sys.exit(1)
+
+    if kind == "plain":
+        _open_in_browser(bundle_path)
+    else:
+        _show_unlock_dialog(bundle_path, needs_passphrase=(kind == "passphrase"))
+
+
+if __name__ == "__main__":
+    main()

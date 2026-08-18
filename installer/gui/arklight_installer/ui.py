@@ -14,7 +14,10 @@ from tkinter import Tk, StringVar, BooleanVar, ttk, messagebox
 from . import __version__
 from .detect import fetch_min_python, find_system_pythons, compatible, PythonCandidate
 from .install import DEFAULT_INSTALL_ROOT, install_system, install_private
-from .launcher import create_launcher, create_desktop_entry, path_needs_update, DEFAULT_BIN_DIR
+from .launcher import (
+    create_launcher, create_desktop_entry, path_needs_update, DEFAULT_BIN_DIR,
+    install_opener, register_bundle_mime,
+)
 
 WINDOW_TITLE = f"ARKlight Installer {__version__}"
 PAD = 16
@@ -34,6 +37,7 @@ class InstallerApp:
         self.mode = StringVar(value="system")  # "system" or "private"
         self.selected_python = StringVar()
         self.create_menu_entry = BooleanVar(value=True)
+        self.associate_bundles = BooleanVar(value=True)
 
         self.container = ttk.Frame(self.root, padding=PAD)
         self.container.pack(fill="both", expand=True)
@@ -119,6 +123,10 @@ class InstallerApp:
             self.container, variable=self.create_menu_entry,
             text="Add ARKlight to the application menu",
         ).pack(anchor="w", pady=(PAD, 0))
+        ttk.Checkbutton(
+            self.container, variable=self.associate_bundles,
+            text="Open .ark bundles by double-clicking (sealed ones ask for a password)",
+        ).pack(anchor="w")
 
         button_row = ttk.Frame(self.container)
         button_row.pack(side="bottom", fill="x", pady=(PAD, 0))
@@ -149,6 +157,10 @@ class InstallerApp:
                 wrapper = create_launcher(entry, DEFAULT_BIN_DIR)
                 if self.create_menu_entry.get():
                     create_desktop_entry(wrapper)
+                if self.associate_bundles.get():
+                    report("Associating .ark bundles")
+                    opener = install_opener(DEFAULT_BIN_DIR)
+                    register_bundle_mime(opener)
                 needs_path = path_needs_update(DEFAULT_BIN_DIR)
             except Exception:
                 self.root.after(0, lambda: self._show_error(traceback.format_exc()))

@@ -8,7 +8,10 @@ from __future__ import annotations
 
 from .detect import fetch_min_python, find_system_pythons, compatible
 from .install import DEFAULT_INSTALL_ROOT, install_system, install_private
-from .launcher import create_launcher, create_desktop_entry, path_needs_update, DEFAULT_BIN_DIR
+from .launcher import (
+    create_launcher, create_desktop_entry, path_needs_update, DEFAULT_BIN_DIR,
+    install_opener, register_bundle_mime,
+)
 
 
 def main() -> None:
@@ -47,6 +50,14 @@ def main() -> None:
     menu_answer = input("Add ARKlight to the application menu? [Y/n] ").strip().lower()
     if menu_answer in ("", "y", "yes"):
         create_desktop_entry(wrapper)
+
+    bundle_answer = input(
+        "Open .ark bundles by double-clicking (sealed ones ask for a password)? [Y/n] "
+    ).strip().lower()
+    if bundle_answer in ("", "y", "yes"):
+        report("Associating .ark bundles")
+        opener = install_opener(DEFAULT_BIN_DIR)
+        register_bundle_mime(opener)
 
     print(f"\nInstalled the `arklight` command at:\n  {wrapper}")
     if path_needs_update(DEFAULT_BIN_DIR):
