@@ -309,6 +309,36 @@ features").
   `tests/test_search.py` (new), `tests/test_cli.py` (extended) --
   251 tests passing.
 
+**Fixed a real version-drift bug from the published PyPI release, and
+bumped to `0.42.0`.** The shipped `0.37`/`0.038`-internal release had
+`pyproject.toml`'s version and `arklight.__version__` disagreeing --
+two hardcoded copies of the same number, nothing keeping them in
+sync, and they'd drifted apart by release time. `arklight/__init__.py`
+no longer hardcodes a second copy: `__version__` is now read back
+from the installed package's own metadata
+(`importlib.metadata.version("arklight")`), so `pyproject.toml` is the
+single source of truth and there's no second place for it to drift
+from. Also moved off the old two/three-digit "milestone number as a
+decimal fraction" scheme (`0.037`, `0.041`, a future `0.100`) to a
+proper three-part `MAJOR.MINOR.PATCH` string -- the old scheme is a
+real PEP 440 hazard: `0.100` normalizes (trailing zeros stripped) to
+`0.1`, which would have sorted *below* `0.048`'s `0.48` the moment a
+`v0.100`-named milestone shipped. `0.100.0` compares each dotted
+component as an integer instead, so this can't happen again. Staying
+under `1.0` intentionally -- `1.0` is reserved for when ARKlight
+actually reaches that milestone, not a general "looks more mature"
+bump. New regression test (`tests/test_version.py`) locks
+`arklight.__version__` to installed package metadata so this can't
+silently drift apart again.
+
+Next up is **v0.048** (CSS `@media` queries + structured
+`<head>`/`<header>` extension) -- see the "Planned" section of
+[`PROGRESS.md`](./PROGRESS.md) and [`docs/DESIGN-NOTES.md`](./docs/DESIGN-NOTES.md)
+("v0.048: CSS media queries + `<head>` extension") for the design.
+Custom CSS class authoring and an `arklight --search <name>` schema
+lookup are sketched but not yet scheduled to a version -- also in
+`PROGRESS.md`.
+
 ## [0.041] -- CLI, pipeline & JS runtime hardening + stateful JS vocabulary addenda
 
 Four change sets that landed together and are released as one version.

@@ -6,4 +6,3 @@ dist/
 build/
 .venv/
 *.patch
-*.patch

@@ -27,6 +27,7 @@ import webbrowser
 from pathlib import Path
 
 from arklight import __version__, experimental
+from arklight.cli.license_gate import ensure_license_accepted
 from arklight.cli.scaffold import ScaffoldError, new_project
 from arklight.cli.search import record_acceptance, resolve_exact, search_component
 from arklight.cli.templates import TEMPLATES
@@ -778,6 +779,12 @@ def main(argv: list[str] | None = None) -> int:
         # get started, not a bare error.
         parser.print_help()
         return 0
+
+    # One-time GPLv3 + additional-terms acceptance gate -- see
+    # arklight/cli/license_gate.py for why this lives here rather than
+    # at `pip install` time.
+    if not ensure_license_accepted():
+        return 1
 
     try:
         return args.func(args)

@@ -1,15 +1,24 @@
 [build-system]
 requires = ["setuptools>=68.0"]
-build-backend = "setuptools.build_meta"
+# Wraps setuptools.build_meta to gate source-based builds (pip install .,
+# pip install -e ., pip install git+..., sdist builds) on ARKlight's
+# license terms -- see arklight/_pep517_backend.py for why this exists
+# and arklight/cli/license_gate.py for the complementary CLI-side gate
+# that covers plain `pip install arklight` (pre-built wheel) installs.
+build-backend = "arklight._pep517_backend"
+backend-path = ["."]
 
 [project]
 name = "arklight"
-version = "0.0431"
+version = "0.0436"
 description = "A Python-first compiler for building beautiful static websites."
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
+license = { text = "GPL-3.0-or-later" }
 authors = [{ name = "ARKlight" }]
+classifiers = [
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+]
 
 [project.scripts]
 arklight = "arklight.cli.main:main"
