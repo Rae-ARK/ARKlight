@@ -594,3 +594,116 @@ That rewrite is the majority of the calendar time in each stage.
 The fact that the rewrite cost is in the tests rather than the
 implementation is a sign the existing coverage is thorough enough to
 trust the refactor once they pass again.
+
+---
+
+## Native capability boundary
+
+HTMX does not provide native Android or desktop capabilities itself.
+Its role remains the client-side interaction layer. Native capabilities
+are provided by ARKlight's optional Android and desktop backends.
+
+The architecture is:
+
+```text
+ARKlight API
+    |
+    v
+Compiler / IR
+    |
+    +-----------------------------+
+    |                             |
+    v                             v
+HTML + CSS + HTMX          Native capability adapters
+    |                             |
+    v                             v
+Web deployment              Android / Desktop
+````
+
+The same ARKlight application can therefore use a capability API without
+requiring the site author to implement platform-specific JavaScript.
+
+Examples of capabilities that may be provided by native backends:
+
+* persistent application storage
+* filesystem access
+* native notifications
+* system clipboard
+* sharing
+* camera and other device APIs
+* background tasks
+* application lifecycle events
+* deep links
+* desktop system-tray integration
+* OS-level credential or secure-storage facilities
+
+The web backend uses browser capabilities where available. Android and
+desktop backends provide native implementations where browser APIs are
+insufficient or unavailable.
+
+### Capability abstraction
+
+A future ARKlight API may describe capability intent rather than a
+specific platform implementation:
+
+```python
+Share(...)
+Notify(...)
+Storage(...)
+File(...)
+Clipboard(...)
+```
+
+The compiler and selected backend determine how the capability is
+implemented.
+
+This keeps platform-specific functionality outside the core SSG model.
+A normal static deployment remains ordinary HTML, CSS, and optional
+HTMX. Packaging the same build through an Android or desktop backend
+adds the corresponding native capability adapter.
+
+HTMX therefore simplifies the interaction boundary without becoming the
+native runtime. It handles declarative browser interaction and event
+coordination; ARKlight's platform backends handle capabilities that only
+exist or are substantially better implemented at the native layer.
+
+### Optional local application bridge
+
+For packaged Android and desktop applications, a future backend may
+provide a local bridge between the generated page and the native
+runtime.
+
+```text
+Generated ARKlight application
+        |
+        v
+      HTMX
+        |
+        v
+ARKlight capability interface
+        |
+        +------------------+
+        |                  |
+        v                  v
+ Android adapter     Desktop adapter
+        |                  |
+        v                  v
+ Android APIs          OS APIs
+```
+
+The bridge may operate entirely locally. It does not require the
+application to become a conventional server-backed web application.
+
+HTMX remains responsible for declaring and coordinating client-side
+interaction. Native adapters handle operations that require platform
+privileges or platform-specific APIs.
+
+This preserves the primary ARKlight guarantee:
+
+**Build for the web first. Package for native platforms when native
+capabilities are actually required.**
+
+The Android and desktop backends are therefore deployment targets and
+capability providers, not alternative frontend frameworks.
+
+```
