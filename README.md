@@ -1,9 +1,14 @@
 # ARKlight
 
-A Python-first compiler for building beautiful static websites.
+**A Python-first compiler for building static websites where developers work
+with a structured component API, while the output remains ordinary, dependency-free HTML.**
 
-Users write Python. ARKlight produces standard HTML. **The browser never
-executes Python.**
+Write your site in Python. ARKlight compiles it to standard HTML with CSS and
+vanilla JavaScript. The browser never executes Python — you get predictable,
+inspectable, portable output that works anywhere static files are hosted.
+
+No Python runtime in production. No framework bloat. Just Python ergonomics at
+authorship time, and clean web artifacts at deployment time.
 
 ```python
 from arklight import *
@@ -613,4 +618,5 @@ canonical copy rather than duplicated here, in `PROGRESS.md`, and in
 `CHANGELOG.md`. Short version: v0.001 through v0.043 are done; v0.048
 (CSS `@media` + `<head>`/`<header>` extension) is in progress (Stage A
 of 2), with v0.044 (JS backend capability expansion) queued behind it;
-v0.010 (components) and v0.100 (alternate backends) are further out.
+v0.060 (Desktop backend), v0.080 (Android backend), and v0.100
+(user-defined components) are planned further out.

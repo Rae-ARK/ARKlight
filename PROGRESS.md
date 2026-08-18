@@ -25,11 +25,11 @@ table, see [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md).
 | vdom-1   | Reactive-core vdom staging, Stage 1 of 8: vendored snabbdom bare core swapped into `State`'s re-render pass | DONE |
 | vdom-2   | Reactive-core vdom staging, Stage 2 of 8: reactive class binding (`Bind.when(...)`/`bind_class=`) | DONE |
 | v0.0431  | Emergency patch: build-time warning for unrouted `srcset`/`poster`/`action`/`formaction` | DONE |
-| v0.0438  | Android backend (`arklight android` -- `androidx.webkit.WebViewAssetLoader` packaging) | PLANNED |
 | v0.048   | CSS `@media` queries + `<head>`/`<header>` extension (Stage A of 2: `meta`/`links`) | IN PROGRESS |
 | v0.044   | JS backend capability expansion (reactive core parity with Vue 3) | PLANNED |
-| v0.010   | User-defined components                                     | PLANNED |
-| v0.100   | Alternate backends (Vue, Svelte)                             | PLANNED |
+| v0.060   | Desktop backend (`arklight desktop` packaging)               | PLANNED |
+| v0.080   | Android backend (`arklight android` -- `androidx.webkit.WebViewAssetLoader` packaging) | PLANNED |
+| v0.100   | User-defined, reusable components                            | PLANNED |
 | v1.0     | Stable compiler                                              | PLANNED |
 
 ### Planned, not yet scheduled to a version

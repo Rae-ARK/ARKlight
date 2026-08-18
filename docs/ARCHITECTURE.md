@@ -2,11 +2,16 @@
 
 ## Vision
 
-ARKlight is a Python-first compiler for building beautiful static
-websites.
+**ARKlight is a Python-first compiler for building static websites where
+developers work with a structured component API, while the output remains
+ordinary, dependency-free HTML.**
 
-Users write Python. ARKlight produces standard HTML. The browser never
-executes Python.
+Write your site in Python. ARKlight compiles it to standard HTML with CSS and
+vanilla JavaScript. The browser never executes Python — you get predictable,
+inspectable, portable output that works anywhere static files are hosted.
+
+Python ergonomics at authorship time. Clean web artifacts at deployment time.
+No Python runtime in production. No framework bloat.
 
 ## Core Principles
 
@@ -141,12 +146,12 @@ here rather than keeping their own copies. Status: DONE / PLANNED.
 | v0.041 | CLI/pipeline/JS runtime error-handling hardening + stateful JS vocabulary addenda I & II (`Action.decrement/reset/append/remove`) | DONE |
 | v0.042 | Extra CSS features -- `Site.style(name, rules)` custom CSS class authoring, `arklight search <name>` component-schema lookup, `arklight --help`/bare `arklight` help text | DONE |
 | v0.043 | Optional `<head>` metadata props (`description`/`favicon`/`og_*` on `Page(...)`) + `Backend.postprocess(...)` extension hook | DONE |
-| v0.0438 | Android backend -- `arklight android` packages a `build-dir` into a native Android project via `androidx.webkit.WebViewAssetLoader` (staged `scaffold` -> `build` -> `--install` -> `--release` CLI ladder); design complete in `docs/DESIGN-NOTES.md`, implementation not started | PLANNED |
 | v0.044 | JS backend capability expansion -- computed/derived state, watch effects, two-way input binding, per-item list rendering, conditional show/hide, event modifiers, reactive class binding, all via closed registries (no arbitrary JS/eval) -- design complete in `docs/DESIGN-NOTES.md`, implementation not started | PLANNED |
 | vdom-staging | Reactive-core vdom staging, Stage 1 of 8 -- vendored snabbdom bare core (`init`/`h`/`vnode`/`htmlDomApi`) swapped into `State`'s re-render pass (Stage 1, DONE); reactive class binding via direct `classList.toggle` (Stage 2, DONE); event modifiers/computed state/two-way binding/watch effects/conditional show-hide/list rendering (Stages 3-7, feeding `v0.044`), then `localStorage` persistence (Stage 8) -- see `docs/DESIGN-NOTES.md` ("Reactive-core vdom staging") | IN PROGRESS |
 | v0.048 | CSS `@media` queries + structured `<head>`/`<header>` extension -- Stage A (`meta`/`links` on `Page(...)`) in progress, Stage B (`responsive_style` + `@media` compilation) planned; see `docs/DESIGN-NOTES.md` | IN PROGRESS |
-| v0.010 | User-defined, reusable components | PLANNED |
-| v0.100 | Alternate backends (Vue, Svelte) -- Backend interface ready today; IR needs a state/event-semantics milestone first | PLANNED |
+| v0.060 | Desktop backend -- `arklight desktop` packages a `build-dir` into a cross-platform desktop app (Tauri-based or similar); design pending | PLANNED |
+| v0.080 | Android backend -- `arklight android` packages a `build-dir` into a native Android project via `androidx.webkit.WebViewAssetLoader` (staged `scaffold` -> `build` -> `--install` -> `--release` CLI ladder); design complete in `docs/DESIGN-NOTES.md`, implementation not started | PLANNED |
+| v0.100 | User-defined, reusable components | PLANNED |
 | v1.0 | Stable compiler | PLANNED |
 
 v0.048 (CSS `@media` + `<head>` extension) has begun ahead of v0.044
@@ -154,12 +159,12 @@ in the previously-announced order -- Stage A (`meta`/`links` on
 `Page(...)`) is in progress, Stage B (`responsive_style` + `@media`
 compilation) is planned next within v0.048 itself; see
 `docs/DESIGN-NOTES.md` for both designs. v0.044 (JS backend capability
-expansion) remains queued. v0.0438 (Android backend) is designed but
-not yet greenlit for implementation -- it sits between v0.043 and
-v0.044 numerically, but isn't assumed to land in that order; see
-`docs/DESIGN-NOTES.md` ("v0.0438: Android backend") for why it's
-cross-referenced against the vdom-staging Stage 8 work rather than
-v0.044.
+expansion) remains queued. v0.060 (Desktop backend) and v0.080 (Android
+backend) are designed but implementation is deferred; v0.100
+(user-defined components) is planned as a future user-facing expansion
+to the component model. Alternate backends (Vue, Svelte) have been moved
+to unscheduled future work, pending further development of the IR and
+state/event semantics.
 
 ## Non-goals
 
