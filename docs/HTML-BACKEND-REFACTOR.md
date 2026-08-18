@@ -22,7 +22,8 @@ this doc's `arklight/backend/html/` scope. What sent the *original*
 external audit to the HTML backend in the first place --
 `UNROUTED_REFERENCE_ATTRS` (`srcset`/`poster`/`action`/`formaction`
 not route-rewritten the way `href`/`src` are) -- is still open; see
-the audit below.
+the audit below. Note: there is also a separate HTMX proposal, since 
+it was massive. it got it's own document refer, `docs/HTMX-INTEGRATION.md`.
 
 Scope: **`arklight/backend/html/` only.** No other backend, pipeline
 stage, or public API changes as part of this work.
