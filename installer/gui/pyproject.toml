@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "arklight-installer"
+version = "0.1.0"
+description = "Cross-platform GUI installer for ARKlight."
+readme = "../README.md"
+requires-python = ">=3.10"
+license = { text = "GPL-3.0-or-later" }
+authors = [{ name = "ARKlight" }]
+
+# Deliberately zero third-party runtime dependencies: Tkinter and urllib
+# both ship in the standard library, so the same interpreter that runs
+# `arklight` can run the installer with nothing extra to fetch.
+dependencies = []
+
+[project.scripts]
+arklight-installer = "arklight_installer.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["arklight_installer*"]

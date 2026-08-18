@@ -1,2 +1,10 @@
 *patch
 *.bundle
+
+# Installer build artifacts
+__pycache__/
+*.pyc
+build/
+dist/
+installer/gui/build/
+installer/gui/dist/

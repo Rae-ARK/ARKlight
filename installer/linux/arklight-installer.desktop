@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=ARKlight Installer
+Comment=Install ARKlight, the Python-first static site compiler
+Exec=arklight-installer
+Icon=arklight-installer
+Terminal=false
+Categories=Development;Utility;
