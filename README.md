@@ -356,4 +356,3 @@ ARKlight development
 The installer is infrastructure around ARKlight, not another version of
 ARKlight itself.
 
-```
