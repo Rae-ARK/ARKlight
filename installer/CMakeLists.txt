@@ -169,6 +169,13 @@ set(CPACK_PACKAGE_VENDOR "Rae ARK")
 set(CPACK_PACKAGE_VERSION "${ARK_VERSION}")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Installer for ARKlight, the Python-first static site compiler")
 set(CPACK_PACKAGE_CONTACT "horizonarkstudio@gmail.com")
-set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/../README.md")
+# WIX only accepts .txt/.rtf and productbuild only accepts
+# .rtfd/.rtf/.html/.txt for this field — README.md's own extension fails
+# both generators even though .deb/.rpm/AppImage don't care. Copy its
+# content, byte for byte, into a .txt CPack can actually consume rather
+# than renaming/faking a license file that isn't the real README.
+set(_ark_license_txt "${CMAKE_CURRENT_BINARY_DIR}/LICENSE.txt")
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../README.md" "${_ark_license_txt}" COPYONLY)
+set(CPACK_RESOURCE_FILE_LICENSE "${_ark_license_txt}")
 
 include(CPack)
