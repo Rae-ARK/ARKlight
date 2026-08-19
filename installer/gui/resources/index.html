@@ -7,7 +7,7 @@
   </head>
   <body>
     <div id="neutralinoapp">
-      <h1>ARKlight Installer — Stage 1</h1>
+      <h1>ARKlight Installer — Stage 2</h1>
       <p>Plain scaffolding. No styling yet — that's Stage 4.</p>
 
       <div id="state-panel">Checking install state…</div>
@@ -22,9 +22,16 @@
       <div id="maintenance-panel" hidden>
         <h2>Maintenance</h2>
         <p id="maintenance-summary"></p>
-        <button disabled>Update (Stage 2)</button>
-        <button disabled>Repair (Stage 2)</button>
-        <button disabled>Uninstall (Stage 2)</button>
+        <button id="btn-update" onclick="update();">Update</button>
+        <button id="btn-repair" onclick="repair();">Repair</button>
+        <button id="btn-uninstall" onclick="confirmUninstall();">Uninstall</button>
+        <div id="repair-status"></div>
+        <div id="uninstall-confirm" hidden>
+          <p>This removes ARKlight and its file associations. Continue?</p>
+          <button onclick="doUninstall();">Yes, uninstall</button>
+          <button onclick="document.getElementById('uninstall-confirm').hidden = true;">Cancel</button>
+        </div>
+        <pre id="maintenance-log">(no action taken)</pre>
       </div>
     </div>
     <!-- Neutralino.js client. This file is gitignored, 

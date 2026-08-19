@@ -1,7 +1,13 @@
-// Stage 1: launch-time state check, connectivity pre-flight, and the
-// real install-system/install-private calls. Still plain scaffolding —
-// no styling, no real screens for Update/Repair/Uninstall (those are
-// Stage 2). This file gets replaced by the real wizard in Stage 4.
+// Stage 2: launch-time state check, connectivity pre-flight, the real
+// install-system/install-private calls (Stage 1), plus real
+// Update/Repair/Uninstall (Stage 2). Still plain scaffolding — no
+// styling, no real screen flow or copy for the connectivity/repair-pivot
+// moments (that's Stage 4). This file gets replaced by the real wizard
+// in Stage 4.
+
+// Set once checkInstallState() sees an existing install; drives which
+// backend commands Update/Repair call ("system" vs "private").
+let currentMode = null;
 
 function onWindowClose() {
     Neutralino.app.exit();
@@ -31,6 +37,7 @@ async function checkInstallState() {
     try {
         const { result } = await runBackend('state');
         if (result.installed) {
+            currentMode = result.mode;
             statePanel.hidden = true;
             document.getElementById('maintenance-panel').hidden = false;
             document.getElementById('maintenance-summary').textContent =
@@ -110,6 +117,119 @@ async function install(command, pythonPath) {
                 : '');
     } catch (err) {
         logEl.textContent = `Install failed: ${err.message}`;
+    }
+}
+
+// Shared connectivity pre-flight for Update/Repair, same rule as Install
+// (Architecture.md §4): stop before touching the filesystem if this fails.
+async function requireConnectivity(logEl) {
+    logEl.textContent = 'Checking connectivity…';
+    let connResult;
+    try {
+        ({ result: connResult } = await runBackend('connectivity'));
+    } catch (err) {
+        logEl.textContent = `Connectivity check failed to run: ${err.message}`;
+        return false;
+    }
+    if (!connResult.reachable) {
+        logEl.textContent =
+            'No internet connection. This step needs one — the runtime ' +
+            'and package are downloaded, not bundled. Retry once connected.';
+        return false;
+    }
+    return true;
+}
+
+async function update() {
+    const logEl = document.getElementById('maintenance-log');
+    if (!(await requireConnectivity(logEl))) return;
+
+    logEl.textContent = 'Updating…\n';
+    try {
+        const command = currentMode === 'system' ? 'update-system' : 'update-private';
+        const { progressLines, result } = await runBackend(command);
+        logEl.textContent = progressLines.map(p => `-> ${p}`).join('\n')
+            + `\n\nUpdated (${result.mode}). arklight at: ${result.entry}`;
+    } catch (err) {
+        logEl.textContent = `Update failed: ${err.message}`;
+    }
+}
+
+async function repair() {
+    const logEl = document.getElementById('maintenance-log');
+    const statusEl = document.getElementById('repair-status');
+    statusEl.innerHTML = '';
+    if (!(await requireConnectivity(logEl))) return;
+
+    logEl.textContent = 'Checking install…\n';
+    let checkResult;
+    try {
+        ({ result: checkResult } = await runBackend('check-repair'));
+    } catch (err) {
+        logEl.textContent = `Repair check failed: ${err.message}`;
+        return;
+    }
+
+    if (checkResult.mode === 'private') {
+        await runRepair('repair-private', logEl);
+        return;
+    }
+
+    if (checkResult.mode === 'system' && checkResult.interpreter_valid) {
+        await runRepair('repair-system', logEl);
+        return;
+    }
+
+    if (checkResult.mode === 'system' && !checkResult.interpreter_valid) {
+        // The interpreter this install's venv depends on is gone —
+        // Architecture.md §3's pivot case. Offer, don't just fail.
+        statusEl.innerHTML = `
+            <p>The Python interpreter this install depends on
+            (${checkResult.interpreter || 'unknown path'}) is no longer
+            there. Repair can switch this install to a private, self
+            contained runtime instead.</p>
+            <button onclick="runRepair('repair-pivot', document.getElementById('maintenance-log'));">
+                Switch to a private runtime
+            </button>
+        `;
+        logEl.textContent = 'Waiting for a choice above.';
+        return;
+    }
+
+    logEl.textContent = 'Nothing found to repair.';
+}
+
+async function runRepair(command, logEl) {
+    logEl.textContent = 'Repairing…\n';
+    try {
+        const { progressLines, result } = await runBackend(command);
+        currentMode = result.mode;
+        logEl.textContent = progressLines.map(p => `-> ${p}`).join('\n')
+            + `\n\nRepaired (${result.mode}). arklight at: ${result.entry}`;
+    } catch (err) {
+        logEl.textContent = `Repair failed: ${err.message}`;
+    }
+}
+
+function confirmUninstall() {
+    document.getElementById('uninstall-confirm').hidden = false;
+}
+
+async function doUninstall() {
+    document.getElementById('uninstall-confirm').hidden = true;
+    const logEl = document.getElementById('maintenance-log');
+    logEl.textContent = 'Uninstalling…\n';
+    try {
+        const { progressLines } = await runBackend('uninstall');
+        logEl.textContent = progressLines.map(p => `-> ${p}`).join('\n')
+            + '\n\nUninstalled.';
+        // Installer-binary self-delete isn't wired up yet — there's no
+        // packaged single-binary artifact to point it at until Stage 3.
+        document.getElementById('btn-update').disabled = true;
+        document.getElementById('btn-repair').disabled = true;
+        document.getElementById('btn-uninstall').disabled = true;
+    } catch (err) {
+        logEl.textContent = `Uninstall failed: ${err.message}`;
     }
 }
 
