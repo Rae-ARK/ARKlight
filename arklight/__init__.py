@@ -142,6 +142,23 @@ except PackageNotFoundError:  # pragma: no cover -- only when running from
     # would break every test/tool that just wants the components.
     __version__ = "0+unknown"
 
+# Which branch/edition of ARKlight this install's *code* is, as opposed
+# to `__version__` (which milestone it is). Deliberately a static,
+# hardcoded string per branch -- NOT detected via `git branch`/`.git`
+# inspection at import time. A git-based check would silently go blank
+# (or lie) for the common case of a real `pip install arklight`, which
+# has no `.git` directory at all -- fragile for something call sites
+# may treat as authoritative. `main` and `alpha` diverge enough in
+# available subsystems (search engine, PWA, license gate, JS reactive
+# core, ...) that a tool wired into both trees -- e.g. a live-reload
+# dev server -- needs a reliable, install-method-independent way to ask
+# "which feature set do I actually have here", without maintaining a
+# parallel list of per-subsystem capability flags. This is that answer.
+# Bump/change this value only when cutting the string over to a
+# different branch's checkout -- same one-line-per-branch discipline as
+# every other branch-specific constant in this file.
+CHANNEL = "main"
+
 __all__ = [
     "Site",
     "Page",
@@ -238,4 +255,5 @@ __all__ = [
     "ActionRef",
     "ARKNode",
     "__version__",
+    "CHANNEL",
 ]

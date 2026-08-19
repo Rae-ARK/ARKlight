@@ -7,6 +7,18 @@ SemVer.
 
 ## [Unreleased]
 
+**Added `arklight.CHANNEL`, a static per-branch identity constant.**
+Ground work for tooling that needs to run against both `main` and
+`alpha` and behave correctly on either -- e.g. a planned live-reload
+dev server -- without guessing branch identity from `.git` (which is
+silently absent for a normal `pip install arklight`, the common case).
+`CHANNEL == "main"` on this branch; `alpha` carries its own copy set to
+`"alpha"`. Hardcoded per branch on purpose, same one-line-per-branch
+discipline `__version__` used to have before it moved to reading
+installed package metadata -- see `arklight/__init__.py` for the full
+rationale. New regression tests in `tests/test_version.py` lock the
+value and its `__all__` export the same way `__version__` is locked.
+
 **Fixed a real version-drift bug from the published PyPI release, and
 bumped to `0.42.0`.** The shipped `0.37`/`0.038`-internal release had
 `pyproject.toml`'s version and `arklight.__version__` disagreeing --
