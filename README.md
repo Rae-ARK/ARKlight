@@ -107,6 +107,19 @@ accordingly:
 This is the same binary handling the whole lifecycle — there is nothing
 running between one launch and the next to keep that state fresh.
 
+**Repair is not just "reinstall."** Its first job is validating that
+the existing install still points at something real. For a system-Python
+install, that means confirming the interpreter the virtual environment
+was built against still exists at that path — a global Python
+uninstall or upgrade after the fact is exactly what breaks this
+silently, surfacing later as an obscure path error instead of anything
+that explains itself. If that interpreter is gone, Repair doesn't just
+report the break: it offers to pivot the install onto the private
+standalone CPython runtime, the same one the private-runtime path
+already knows how to acquire, so the user ends up with a working
+`arklight` again without needing to understand why it broke or track
+down a matching Python themselves.
+
 Uninstalling is the one step with any platform-specific handling: on
 most platforms the installer can remove itself as its final action, but
 Windows cannot delete a program while it's still running, so uninstall
@@ -198,6 +211,17 @@ A virtual environment is used in this mode because the interpreter is
 shared with other software.
 
 The installer must not modify unrelated system Python packages.
+
+**Risk inherent to this mode:** the virtual environment depends on the
+system interpreter continuing to exist at the path it was created
+against. If the user later deletes or upgrades their global Python
+installation, the environment's internal links point at nothing, and
+`arklight` starts failing with an interpreter-path error that means
+nothing to someone who never chose to think about virtual environments
+in the first place. This isn't a bug to fix in the venv logic — it's a
+structural consequence of building on top of something outside the
+installer's control. See Application Lifecycle for how Repair detects
+and resolves this.
 
 ---
 
