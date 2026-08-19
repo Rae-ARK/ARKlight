@@ -7,7 +7,6 @@ __pycache__/
 build/
 dist/
 installer/gui/build/
-installer/gui/dist/
 
 aarch64/
 x86_64/

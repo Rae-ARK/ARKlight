@@ -1,0 +1,34 @@
+name: Installer build
+
+on:
+  push:
+    branches: [installer]
+    paths:
+      - 'installer/gui/**'
+      - '.github/workflows/installer-build.yml'
+  pull_request:
+    paths:
+      - 'installer/gui/**'
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: installer/gui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install neu CLI
+        run: npm install -g @neutralinojs/neu
+      - name: Fetch neutralino binaries/client
+        run: neu update
+      - name: Build
+        run: neu build
+      # CPack packaging joins this job in Stage 3 — this stub only
+      # proves the shell builds on all three OSes.
