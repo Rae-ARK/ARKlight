@@ -7,6 +7,56 @@ SemVer.
 
 ## [0.0436] - Unreleased
 
+**Added `arklight live-streaming`, an alpha-only dev server: watch,
+auto-rebuild, and auto-reload a project in the browser as you edit.**
+`arklight live-streaming --subscribe site.py [-o ARK] [--host H]
+[--port P]` blocks in the terminal it's run from, serves the build
+output over stdlib `http.server`, and re-runs the normal
+`arklight.compiler.pipeline.build()` pipeline (with full
+`--verbose`-style stage narration) whenever a `.py` file or `assets/`
+under the entry's directory changes on disk -- detected via a plain
+mtime-polling loop, no third-party watcher dependency (ARKlight stays
+zero-dependency). Reload is delivered over a Server-Sent-Events
+endpoint (`/__arklight_live__/events`) to a small vendored client
+script (`/__arklight_live__/client.js`), injected into every HTML page
+*only* during a live-streaming build via a new, purely additive
+`_LiveReloadBackend` (`Backend.postprocess`, same extension point
+`arklight/backend/base.py` already documents for "injecting
+analytics/OG tags... without editing that backend's source") -- a
+plain `arklight build` is byte-for-byte unaffected. `arklight
+live-streaming --unsubscribe [site.py]` and `--status [site.py]
+[--status-pin]` run from another terminal and talk to the running
+session via a small on-disk registry (`~/.arklight/live_streaming/
+registry.json`) keyed by the entry file's absolute path, plus a
+`SIGTERM` for shutdown; both are idempotent (`--unsubscribe` on a
+session that isn't running, or a second `--subscribe` on one already
+running, are no-ops rather than errors). `--status-pin` is a purely
+per-invocation formatting flag -- it's never written into the
+registry, so it has no effect on the running `--subscribe` session and
+isn't remembered for the next `--status` call. Host/port/poll-interval
+can also be pinned per-project via a new, deliberately small
+`arklight.config.py` (see `arklight/config.py` and next entry) instead
+of passed as flags every time. New regression tests in
+`tests/test_live_streaming.py` cover reload-script injection, registry
+read/write/corrupt-file recovery and stale-PID pruning, and session
+lookup/disambiguation; manually verified end-to-end (idempotent
+subscribe, live edit -> rebuild -> reload, clean `--unsubscribe`, and
+graceful shutdown on an external `SIGTERM`).
+
+**Added `arklight.config.py`, a minimal per-project config file.**
+Currently the only reader is `arklight live-streaming` (see above),
+which wants a place to pin `host`/`port`/`poll_interval` under a
+`live_streaming` section without flags on every `--subscribe`. Rather
+than design a full schema with no second consumer yet, `arklight/
+config.py` defines just enough to load a project's
+`arklight.config.py` (a plain Python file next to `site.py` containing
+a top-level `CONFIG = {...}` dict), merge a named section over a
+reader-supplied set of defaults, and fail loudly (`ConfigError`) on a
+present-but-broken file rather than silently falling back -- extending
+it later is a one-line addition to whichever module reads a new
+section, not a rewrite of the loader. New regression tests in
+`tests/test_config.py`.
+
 **`arklight pwa` can now register manifest icons via `--icon`.**
 `enable_pwa(icons=...)` already accepted a list of manifest icon
 dicts, but the CLI had no way to pass them -- every `arklight pwa`

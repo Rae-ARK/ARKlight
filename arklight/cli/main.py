@@ -27,6 +27,7 @@ import webbrowser
 from pathlib import Path
 
 from arklight import __version__, experimental
+from arklight.cli import live_streaming
 from arklight.cli.license_gate import ensure_license_accepted
 from arklight.cli.scaffold import ScaffoldError, new_project
 from arklight.cli.search import record_acceptance, resolve_exact, search_component
@@ -760,6 +761,8 @@ def main(argv: list[str] | None = None) -> int:
         "searches rank it higher (closes the learning loop).",
     )
     search_parser.set_defaults(func=_cmd_search)
+
+    live_streaming.add_subparser(subparsers)
 
     args = parser.parse_args(argv)
 
