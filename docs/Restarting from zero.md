@@ -34,6 +34,15 @@ way Windows/macOS webviews are) are the one place bleeding-edge CSS
 view-transitions) could render inconsistently. Not a portability
 problem in practice — just don't reach for this year's CSS spec.
 
+**Maintainer's ruling — non-negotiable:** the whole point of moving off
+Tkinter is a wizard that actually looks like something someone designed
+on purpose. Picking Neutralino and then shipping stock unstyled webview
+HTML defeats the reason it was picked in the first place — that's not a
+smaller version of this decision, it's the decision not being made. Real
+typography, spacing, a real theme (light/dark), motion on state
+transitions — that's the deliverable, not a stretch goal for later.
+Anything that ships as an unstyled form is a rejected PR, full stop.
+
 ---
 
 ## 2. No daemon. Launch-triggered, state-aware, closes when done.
@@ -102,6 +111,35 @@ touch this half of the codebase.
 
 ---
 
+## 4a. Dependencies are fetched, not bundled — offline is a hard stop
+
+**Decision:** CPython (the private-runtime path) and every other
+install-time dependency are retrieved from the internet at run time,
+the same way `install_private()` / `install_system()` already do it —
+nothing gets vendored into the Neutralino binary to make it work
+offline. That was never the design and isn't becoming one; a "no
+internet" binary would mean bundling a CPython per OS/arch into the
+installer artifact itself, which throws away the whole "small binary"
+property from §1.
+
+**Required behavior on launch, before any install/update/repair step
+starts:**
+- Do a connectivity check (reachability against PyPI /
+  python.org's release endpoint — whatever `detect.py`/`install.py`
+  already hit to resolve versions/downloads — is sufficient, no need
+  for a separate generic "ping the internet" check).
+- **If it fails, stop before touching the filesystem.** No partial
+  venv, no partially-unpacked private CPython, nothing left half-done
+  for the user to clean up by hand.
+- Tell the user plainly, in the GUI (not a console message they'll
+  never see): that ARKlight could not reach the internet, that
+  install/update needs a connection because CPython and dependencies
+  are downloaded rather than bundled, and what to do next
+  (check connection, retry). No silent fallback, no vague generic
+  error string.
+
+---
+
 ## 5. Build & CI: CPack still fits, now packaging a Neutralino binary instead of a PyInstaller one
 
 **Decision unchanged from the earlier report:** CMake/CPack was always
@@ -145,3 +183,13 @@ get fixed, and the GUI itself gets meaningfully nicer for free — all
 without adding OS-specific runtime complexity, since the only
 platform-specific code left is the Windows self-delete-on-uninstall
 helper.
+
+---
+
+## 6. Cleanup — what's dead as of this direction
+
+Superseded by §1 (Tkinter → Neutralino) and §5 (three bash scripts →
+CPack). `detect.py` and `install.py` are explicitly **not** in this
+list — they carry over per §4, minus the version-check function
+covered in §3. Removal command is in the maintainer's follow-up, not
+duplicated here so this doc doesn't drift out of sync with it.
