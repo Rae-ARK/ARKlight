@@ -103,3 +103,26 @@ description of it.
 no-connectivity stop and the Repair pivot both read clearly to someone
 who isn't a developer, and the whole thing matches the Design Goals in
 `README.md`.
+
+---
+
+## Stage 4b — Embedded content panel (optional, not blocking)
+
+Only worth doing once Stage 4 is done and there's an actual
+documentation/portfolio site to point it at — see `Architecture.md` §6
+for what this is and the constraints it has to respect (supplementary
+only, no effect on the real connectivity gate, user-initiated loads
+only, explicit domain allowlist).
+
+- Add the panel and its nav toggle to the finished wizard, wired to
+  bundled local content by default.
+- Point one nav option at the live external site; confirm the fallback
+  to bundled content actually fires when that site doesn't load,
+  rather than just leaving the frame blank.
+- Confirm this has zero effect on Stage 1–2 behavior with the panel
+  never opened — it should be possible to delete this stage's work
+  entirely without touching anything else.
+
+**Done when:** the panel loads bundled content with no network access
+at all, and — once the site exists — swaps to the live page on request
+without changing how install/update/repair/uninstall behave.
