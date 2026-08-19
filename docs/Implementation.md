@@ -111,19 +111,57 @@ who isn't a developer, and the whole thing matches the Design Goals in
 Only worth doing once Stage 4 is done and there's an actual
 documentation/portfolio site to point it at — see `Architecture.md` §6
 for what this is and the constraints it has to respect (supplementary
-only, no effect on the real connectivity gate, user-initiated loads
-only, explicit domain allowlist).
+only, no effect on the real connectivity gate, explicit domain
+allowlist, no fetch before an install/update/repair step is actually
+running).
 
-- Add the panel and its nav toggle to the finished wizard, wired to
-  bundled local content by default.
-- Point one nav option at the live external site; confirm the fallback
-  to bundled content actually fires when that site doesn't load,
-  rather than just leaving the frame blank.
+- Wire the panel into the Install/Update/Repair progress screen so it
+  auto-rotates between bundled local content and the live ARKfolio page
+  as the progress bar advances — keyed to real install steps
+  (per detect/install milestone), not a fixed timer running
+  independent of actual progress.
+- Confirm the fallback to bundled content actually fires per-rotation
+  when the live site doesn't load for that slot, rather than leaving
+  the frame blank or stalling the rotation.
+- Confirm rotation never delays, pauses, or otherwise gates the actual
+  install step it's layered over — panel timing follows install
+  progress, not the other way around.
 - Confirm this has zero effect on Stage 1–2 behavior with the panel
-  never opened — it should be possible to delete this stage's work
+  never shown — it should be possible to delete this stage's work
   entirely without touching anything else.
 - The URL to add: ARKfolio (My Portfolio) - https://rae-ark.horizonarkstudio.workers.dev/
 
-**Done when:** the panel loads bundled content with no network access
-at all, and — once the site exists — swaps to the live page on request
-without changing how install/update/repair/uninstall behave.
+**Done when:** with no network at all, the panel shows only bundled
+content for the whole install and the install itself still completes
+normally; with network, it rotates in the live ARKfolio page during
+real progress without changing how install/update/repair/uninstall
+behave or how long they take.
+
+---
+
+## Stage 5 — ARK bundle MIME association fix
+
+See `Architecture.md` §7 for the two gaps this closes: the `.ark`
+opener is Linux-only today, and its sealed-bundle path currently
+unpacks to a temp directory on disk before handing off to the browser.
+
+- Extend the per-OS install step (alongside `install_system()`/
+  `install_private()`, not touching their venv/CPython logic) to
+  register the `.ark` opener on all three OSes: keep the existing
+  `xdg-mime`/`.desktop` registration on Linux, add the Windows registry
+  ProgID + extension association, add the macOS `Info.plist`
+  `CFBundleDocumentTypes`/Launch Services equivalent.
+- Rework `arklight-open`'s sealed-bundle path so the unpacked archive
+  never touches disk — decrypt/unpack into memory, hand the result to
+  the default browser via an in-memory/loopback hand-off, then exit.
+  Same end result as today (the extracted site opens with working
+  assets), no temp directory left behind.
+- Uninstall removes whatever per-OS association was registered,
+  mirroring how it already removes the install itself
+  (`Architecture.md` §3).
+
+**Done when:** double-clicking a `.ark` bundle opens correctly
+(unsealed straight to the browser, sealed via the existing unlock flow)
+on all three OSes post-install, and a sealed bundle's unpacked contents
+are verified not to exist anywhere on disk once the browser has it
+open.
