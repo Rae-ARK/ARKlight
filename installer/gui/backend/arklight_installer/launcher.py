@@ -11,7 +11,6 @@ from __future__ import annotations
 import os
 import stat
 import subprocess
-import sys
 from pathlib import Path
 
 from .install import DEFAULT_BIN_DIR
@@ -44,11 +43,7 @@ def path_needs_update(bin_dir: Path = DEFAULT_BIN_DIR) -> bool:
 
 def _opener_assets_dir() -> Path:
     """Directory containing arklight-open, its .desktop entry, and its MIME
-    type XML. When running frozen (PyInstaller), these are bundled data
-    files under `sys._MEIPASS`; in a source checkout they live in
-    installer/linux/opener, two directories up from this file."""
-    if getattr(sys, "frozen", False):
-        return Path(getattr(sys, "_MEIPASS")) / "opener"
+    type XML: installer/linux/opener, two directories up from this file."""
     return Path(__file__).resolve().parents[2] / "linux" / "opener"
 
 

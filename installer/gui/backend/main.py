@@ -1,32 +1,131 @@
 """
-Stage 0 entry point.
+Neutralino shell entry point.
 
-Not real install logic yet — just proves the Neutralino shell can shell
-out to Python and get structured output back. This is the seam that
-Stage 1 replaces with real calls into detect.py / install.py.
-
-Contract: always print exactly one JSON object to stdout, nothing else.
-Errors go to stderr with a non-zero exit code so the JS side can tell
-"ran and failed" apart from "didn't run."
+Contract: each command prints exactly one JSON *result* object as its
+last line of stdout. install-system/install-private may print additional
+{"progress": "..."} lines before that, one per install.py progress
+callback — the caller should treat the last JSON line as the result and
+everything before it as a progress log. Errors go to stderr with a
+non-zero exit code, so the caller can tell "ran and failed" apart from
+"didn't run."
 """
+from __future__ import annotations
 
 import json
 import sys
+import urllib.error
+import urllib.request
+
+from arklight_installer.detect import find_system_pythons
+from arklight_installer.install import (
+    DEFAULT_BIN_DIR,
+    DEFAULT_INSTALL_ROOT,
+    install_private,
+    install_system,
+)
+from arklight_installer.launcher import create_launcher, path_needs_update
+
+# Same endpoint detect.py/install.py ultimately depend on: if this isn't
+# reachable, neither system nor private install can succeed anyway.
+CONNECTIVITY_CHECK_URL = "https://pypi.org/simple/arklight/"
 
 
-def ping() -> dict:
-    return {"ok": True, "stage": 0, "message": "python backend reachable"}
+def _emit(obj: dict) -> None:
+    print(json.dumps(obj), flush=True)
+
+
+def _progress(message: str) -> None:
+    _emit({"progress": message})
+
+
+def cmd_state() -> dict:
+    """Is ARKlight already installed? Drives the launch-time branch
+    between the Install flow and Update/Repair/Uninstall (Architecture.md
+    §3). Stage 1 only needs to answer this question — the maintenance
+    flows themselves are Stage 2.
+    """
+    system_entry = DEFAULT_INSTALL_ROOT / "venv" / "bin" / "arklight"
+    if system_entry.exists():
+        return {"installed": True, "mode": "system", "entry": str(system_entry)}
+
+    private_entry = DEFAULT_INSTALL_ROOT / "runtime" / "bin" / "arklight"
+    if private_entry.exists():
+        return {"installed": True, "mode": "private", "entry": str(private_entry)}
+
+    return {"installed": False}
+
+
+def cmd_connectivity() -> dict:
+    """Pre-flight reachability check (Architecture.md §4). Must run, and
+    pass, before install/update/repair touches the filesystem at all.
+    """
+    try:
+        with urllib.request.urlopen(CONNECTIVITY_CHECK_URL, timeout=5):
+            pass
+        return {"reachable": True}
+    except (urllib.error.URLError, OSError, TimeoutError) as exc:
+        return {"reachable": False, "reason": str(exc)}
+
+
+def cmd_list_pythons() -> dict:
+    candidates = find_system_pythons()
+    return {
+        "candidates": [
+            {"path": c.path, "version": c.version_str} for c in candidates
+        ]
+    }
+
+
+def cmd_install_system(python_path: str) -> dict:
+    entry = install_system(python_path, DEFAULT_INSTALL_ROOT, _progress)
+    wrapper = create_launcher(entry, DEFAULT_BIN_DIR)
+    return {
+        "ok": True,
+        "mode": "system",
+        "entry": str(entry),
+        "wrapper": str(wrapper),
+        "path_needs_update": path_needs_update(DEFAULT_BIN_DIR),
+    }
+
+
+def cmd_install_private() -> dict:
+    entry = install_private(DEFAULT_INSTALL_ROOT, _progress)
+    wrapper = create_launcher(entry, DEFAULT_BIN_DIR)
+    return {
+        "ok": True,
+        "mode": "private",
+        "entry": str(entry),
+        "wrapper": str(wrapper),
+        "path_needs_update": path_needs_update(DEFAULT_BIN_DIR),
+    }
 
 
 def main() -> int:
-    command = sys.argv[1] if len(sys.argv) > 1 else "ping"
+    args = sys.argv[1:]
+    command = args[0] if args else "state"
 
-    if command == "ping":
-        print(json.dumps(ping()))
-        return 0
+    try:
+        if command == "state":
+            _emit(cmd_state())
+        elif command == "connectivity":
+            _emit(cmd_connectivity())
+        elif command == "list-pythons":
+            _emit(cmd_list_pythons())
+        elif command == "install-system":
+            if len(args) < 2:
+                print("install-system requires a python path", file=sys.stderr)
+                return 1
+            _emit(cmd_install_system(args[1]))
+        elif command == "install-private":
+            _emit(cmd_install_private())
+        else:
+            print(f"unknown command: {command}", file=sys.stderr)
+            return 1
+    except Exception as exc:  # noqa: BLE001 - surfaced to the caller, not swallowed
+        print(str(exc), file=sys.stderr)
+        return 1
 
-    print(f"unknown command: {command}", file=sys.stderr)
-    return 1
+    return 0
 
 
 if __name__ == "__main__":

@@ -1,22 +1,18 @@
-"""Detect compatible CPython interpreters on the host system.
+"""Detect CPython interpreters on the host system.
 
-Per installer/README.md, the compatibility source of truth is ARKlight's
-own package metadata (`requires-python` on PyPI), not a constant baked
-into the installer. We fetch that metadata at install time and fall back
-to `FALLBACK_MIN_PYTHON` only if the network is unavailable.
+No version-compatibility filtering here: per docs/Architecture.md §2,
+the installer has one install target (current stable PyPI release) and
+lets that release's own package metadata be what fails, loudly, if an
+interpreter genuinely can't run it — rather than the installer
+predicting that ahead of time.
 """
 from __future__ import annotations
 
-import json
 import shutil
 import subprocess
 import sys
-import urllib.error
-import urllib.request
 from dataclasses import dataclass
 from typing import Optional
-
-from . import FALLBACK_MIN_PYTHON, PYPI_PROJECT
 
 _CANDIDATE_NAMES = [
     "python3", "python",
@@ -32,26 +28,6 @@ class PythonCandidate:
     @property
     def version_str(self) -> str:
         return ".".join(str(p) for p in self.version)
-
-
-def fetch_min_python() -> tuple[int, int]:
-    """Return ARKlight's minimum required (major, minor) Python version.
-
-    Reads `requires-python` from PyPI's JSON API. Falls back to the
-    baked-in constant if the lookup fails for any reason (offline, PyPI
-    unreachable, unexpected response shape).
-    """
-    url = f"https://pypi.org/pypi/{PYPI_PROJECT}/json"
-    try:
-        with urllib.request.urlopen(url, timeout=5) as resp:
-            data = json.load(resp)
-        requires = data["info"]["requires_python"]  # e.g. ">=3.10"
-        digits = "".join(c if c.isdigit() or c == "." else " " for c in requires)
-        parts = [p for p in digits.split() if p]
-        major, minor = (int(x) for x in parts[0].split(".")[:2])
-        return major, minor
-    except (urllib.error.URLError, KeyError, ValueError, IndexError, TimeoutError):
-        return FALLBACK_MIN_PYTHON
 
 
 def _probe(path: str) -> Optional[PythonCandidate]:
@@ -94,8 +70,3 @@ def find_system_pythons() -> list[PythonCandidate]:
             candidates.append(probed)
 
     return candidates
-
-
-def compatible(candidates: list[PythonCandidate], min_version: tuple[int, int]) -> list[PythonCandidate]:
-    """Filter candidates down to those meeting `min_version`."""
-    return [c for c in candidates if (c.version[0], c.version[1]) >= min_version]

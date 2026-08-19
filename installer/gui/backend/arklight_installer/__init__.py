@@ -13,10 +13,4 @@ See installer/README.md for the design goals this package implements.
 
 __version__ = "0.1.0"
 
-#: ARKlight's own minimum supported Python version, used as a fallback if
-#: the live PyPI metadata lookup in `detect.py` cannot be reached (e.g. the
-#: user is offline). Keep this in sync with ARKlight's `pyproject.toml`
-#: `requires-python` field; it is a fallback, not the source of truth.
-FALLBACK_MIN_PYTHON = (3, 10)
-
 PYPI_PROJECT = "arklight"

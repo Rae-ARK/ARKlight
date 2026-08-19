@@ -7,10 +7,25 @@
   </head>
   <body>
     <div id="neutralinoapp">
-      <h1>ARKlight Installer — Stage 0</h1>
-      <p>Shell scaffolding round-trip check.</p>
-      <button onclick="pingBackend();">Ping Python backend</button>
-      <pre id="result">(not run yet)</pre>
+      <h1>ARKlight Installer — Stage 1</h1>
+      <p>Plain scaffolding. No styling yet — that's Stage 4.</p>
+
+      <div id="state-panel">Checking install state…</div>
+
+      <div id="install-panel" hidden>
+        <h2>Install</h2>
+        <div id="connectivity-status"></div>
+        <div id="python-choices"></div>
+        <pre id="install-log">(no install started)</pre>
+      </div>
+
+      <div id="maintenance-panel" hidden>
+        <h2>Maintenance</h2>
+        <p id="maintenance-summary"></p>
+        <button disabled>Update (Stage 2)</button>
+        <button disabled>Repair (Stage 2)</button>
+        <button disabled>Uninstall (Stage 2)</button>
+      </div>
     </div>
     <!-- Neutralino.js client. This file is gitignored, 
         because `neu update` typically downloads it.

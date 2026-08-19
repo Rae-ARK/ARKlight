@@ -1,12 +1,13 @@
-"""Terminal fallback for environments without Tkinter (e.g. minimal/headless
-Python builds, some server distros that split Tk into a separate package).
+"""Terminal-only install flow, driven by prompts.
 
-Implements the same install flow as `ui.py`, driven by prompts instead of
-widgets, so the installer never simply fails when Tk is missing.
+Used directly by `python -m arklight_installer` (see __main__.py) for
+developer/debug use outside the Neutralino shell. The shell itself
+drives the same detect.py/install.py calls through backend/main.py
+instead of this module.
 """
 from __future__ import annotations
 
-from .detect import fetch_min_python, find_system_pythons, compatible
+from .detect import find_system_pythons
 from .install import DEFAULT_INSTALL_ROOT, install_system, install_private
 from .launcher import (
     create_launcher, create_desktop_entry, path_needs_update, DEFAULT_BIN_DIR,
@@ -17,24 +18,20 @@ from .launcher import (
 def main() -> None:
     print("ARKlight Installer (terminal mode)\n")
 
-    print("Checking for a compatible Python…")
-    min_version = fetch_min_python()
+    print("Checking for a system Python…")
     candidates = find_system_pythons()
-    compat = compatible(candidates, min_version)
-    min_str = ".".join(map(str, min_version))
-    print(f"ARKlight requires Python {min_str}+.\n")
 
     use_private = True
     chosen_path = None
-    if compat:
-        best = compat[0]
-        print(f"Found a compatible system Python: {best.version_str} at {best.path}")
+    if candidates:
+        best = candidates[0]
+        print(f"Found a system Python: {best.version_str} at {best.path}")
         answer = input("Use it? [Y/n] ").strip().lower()
         if answer in ("", "y", "yes"):
             use_private = False
             chosen_path = best.path
     else:
-        print("No compatible system Python found; a private runtime will be installed.")
+        print("No system Python found; a private runtime will be installed.")
 
     def report(msg: str) -> None:
         print(f"  -> {msg}")
