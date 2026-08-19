@@ -1,17 +1,84 @@
-// Stage 2: launch-time state check, connectivity pre-flight, the real
-// install-system/install-private calls (Stage 1), plus real
-// Update/Repair/Uninstall (Stage 2). Still plain scaffolding — no
-// styling, no real screen flow or copy for the connectivity/repair-pivot
-// moments (that's Stage 4). This file gets replaced by the real wizard
-// in Stage 4.
+// Stage 4: the real wizard. Backend contract (command names, args,
+// result shapes) is unchanged from Stage 1-2 — see backend/main.py's
+// module docstring. What changes here is presentation only: a screen
+// per moment instead of hidden <div> panels, the beam rail tracking
+// progress, and real explanatory copy for the connectivity-failure and
+// repair-pivot moments instead of raw log lines.
 
 // Set once checkInstallState() sees an existing install; drives which
 // backend commands Update/Repair call ("system" vs "private").
 let currentMode = null;
 
+const content = document.getElementById('content');
+const beamEl = document.getElementById('beam');
+const modeLabel = document.getElementById('mode-label');
+
+const INSTALL_STAGES = ['Check', 'Connect', 'Runtime', 'Install', 'Done'];
+
 function onWindowClose() {
     Neutralino.app.exit();
 }
+
+// --- Theme -----------------------------------------------------------
+
+function toggleTheme() {
+    const root = document.documentElement;
+    const current = root.getAttribute('data-theme')
+        || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    root.setAttribute('data-theme', current === 'dark' ? 'light' : 'dark');
+}
+
+// --- Beam rail ---------------------------------------------------------
+
+// items: [{label, state}] where state is 'pending' | 'active' | 'done' | 'error'
+function renderBeam(items) {
+    beamEl.innerHTML = '';
+    for (const item of items) {
+        const row = document.createElement('div');
+        row.className = `beam-step ${item.state}`;
+        row.innerHTML = `<span class="track"><span class="beam-dot"></span></span><span class="beam-label">${item.label}</span>`;
+        beamEl.appendChild(row);
+    }
+}
+
+function beamForInstall(activeIndex, errorIndex) {
+    renderBeam(INSTALL_STAGES.map((label, i) => ({
+        label,
+        state: errorIndex === i ? 'error' : i < activeIndex ? 'done' : i === activeIndex ? 'active' : 'pending',
+    })));
+}
+
+function beamForMaintenance(busy) {
+    renderBeam([{ label: 'Installed', state: busy ? 'active' : 'done' }]);
+    modeLabel.textContent = currentMode ? `${currentMode} mode` : '';
+}
+
+// --- Screen rendering ----------------------------------------------------
+
+function render(html) {
+    const screen = document.createElement('div');
+    screen.className = 'screen';
+    screen.innerHTML = html;
+    content.innerHTML = '';
+    content.appendChild(screen);
+    return screen;
+}
+
+function stepListHtml(lines) {
+    if (!lines.length) return '';
+    const items = lines.map((line, i) =>
+        `<li style="animation-delay:${i * 70}ms"><span class="mark">&#10003;</span>${escapeHtml(line)}</li>`
+    ).join('');
+    return `<ul class="step-list">${items}</ul>`;
+}
+
+function escapeHtml(s) {
+    const div = document.createElement('div');
+    div.textContent = s;
+    return div.innerHTML;
+}
+
+// --- Backend bridge --------------------------------------------------------
 
 // Runs a backend command, returns { progressLines, result }. Progress
 // lines are {"progress": "..."} objects the backend may emit before its
@@ -32,206 +99,442 @@ async function runBackend(args) {
     return { progressLines, result };
 }
 
+// --- Launch: state check -----------------------------------------------
+
 async function checkInstallState() {
-    const statePanel = document.getElementById('state-panel');
+    beamForInstall(0);
+    render(`
+        <p class="eyebrow">Starting up</p>
+        <h1 class="screen-title">Checking your system</h1>
+        <p class="screen-body">Looking for an existing ARKlight install…</p>
+    `);
+
     try {
         const { result } = await runBackend('state');
         if (result.installed) {
             currentMode = result.mode;
-            statePanel.hidden = true;
-            document.getElementById('maintenance-panel').hidden = false;
-            document.getElementById('maintenance-summary').textContent =
-                `ARKlight is installed (${result.mode} mode) at ${result.entry}.`;
+            renderMaintenanceHome(result);
         } else {
-            statePanel.hidden = true;
-            document.getElementById('install-panel').hidden = false;
             await runInstallFlow();
         }
     } catch (err) {
-        statePanel.textContent = `State check failed: ${err.message}`;
+        beamForInstall(0, 0);
+        render(`
+            <p class="eyebrow">Startup failed</p>
+            <h1 class="screen-title">Couldn't check install state</h1>
+            <div class="callout callout-warn">
+                <p class="callout-title">${escapeHtml(err.message)}</p>
+                <p class="callout-body">This runs before anything else — nothing on your system has been touched.</p>
+            </div>
+            <div class="btn-row">
+                <button class="btn btn-primary" onclick="checkInstallState();">Try again</button>
+            </div>
+        `);
     }
 }
+
+// --- Install flow --------------------------------------------------------
 
 // Pre-flight connectivity check per Architecture.md §4: must pass before
 // anything below touches the filesystem. On failure, stop here — no
 // partial venv, no partially unpacked runtime.
 async function runInstallFlow() {
-    const connEl = document.getElementById('connectivity-status');
-    connEl.textContent = 'Checking connectivity…';
+    beamForInstall(1);
+    render(`
+        <p class="eyebrow">Install &middot; 1 of 3</p>
+        <h1 class="screen-title">Checking your connection</h1>
+        <div class="status-row"><span class="status-dot busy"></span><span class="screen-body" style="margin:0;">Reaching out to PyPI…</span></div>
+    `);
 
     let connResult;
     try {
         ({ result: connResult } = await runBackend('connectivity'));
     } catch (err) {
-        connEl.textContent = `Connectivity check failed to run: ${err.message}`;
+        renderConnectivityCheckFailed(err);
         return;
     }
 
     if (!connResult.reachable) {
-        connEl.innerHTML = `
-            <strong>No internet connection.</strong>
-            ARKlight can't be installed, updated, or repaired without one —
-            the Python runtime and package are downloaded, not bundled.
-            <br/>
-            <button onclick="runInstallFlow();">Retry</button>
-        `;
+        renderNoConnection();
         return;
     }
-    connEl.textContent = 'Connected.';
 
-    const choicesEl = document.getElementById('python-choices');
-    choicesEl.textContent = 'Looking for a system Python…';
+    await showRuntimeChoice();
+}
+
+function renderConnectivityCheckFailed(err) {
+    beamForInstall(1, 1);
+    render(`
+        <p class="eyebrow">Install &middot; 1 of 3</p>
+        <h1 class="screen-title">Checking your connection</h1>
+        <div class="callout callout-warn">
+            <p class="callout-title">The connection check itself didn't run</p>
+            <p class="callout-body mono">${escapeHtml(err.message)}</p>
+        </div>
+        <div class="btn-row">
+            <button class="btn btn-primary" onclick="runInstallFlow();">Retry</button>
+        </div>
+    `);
+}
+
+function renderNoConnection() {
+    beamForInstall(1, 1);
+    render(`
+        <p class="eyebrow">Install &middot; 1 of 3</p>
+        <h1 class="screen-title">No internet connection</h1>
+        <div class="callout callout-warn">
+            <p class="callout-title">ARKlight can't be installed offline</p>
+            <p class="callout-body">
+                The Python runtime and the ARKlight package itself are
+                downloaded during install, not bundled into this installer —
+                that's what keeps it small. Reconnect, then retry.
+            </p>
+        </div>
+        <div class="btn-row">
+            <button class="btn btn-primary" onclick="runInstallFlow();">Retry</button>
+        </div>
+    `);
+}
+
+async function showRuntimeChoice() {
+    beamForInstall(2);
+    render(`
+        <p class="eyebrow">Install &middot; 2 of 3</p>
+        <h1 class="screen-title">Choose a Python runtime</h1>
+        <div class="status-row"><span class="status-dot busy"></span><span class="screen-body" style="margin:0;">Looking for a system Python…</span></div>
+    `);
+
     let pyResult;
     try {
         ({ result: pyResult } = await runBackend('list-pythons'));
     } catch (err) {
-        choicesEl.textContent = `Python detection failed: ${err.message}`;
+        beamForInstall(2, 2);
+        render(`
+            <p class="eyebrow">Install &middot; 2 of 3</p>
+            <h1 class="screen-title">Python detection failed</h1>
+            <div class="callout callout-warn">
+                <p class="callout-title">${escapeHtml(err.message)}</p>
+            </div>
+            <div class="btn-row">
+                <button class="btn btn-primary" onclick="showRuntimeChoice();">Try again</button>
+            </div>
+        `);
         return;
     }
 
-    choicesEl.innerHTML = '';
-    for (const candidate of pyResult.candidates) {
-        const btn = document.createElement('button');
-        btn.textContent = `Use system Python ${candidate.version} (${candidate.path})`;
-        btn.onclick = () => install('install-system', candidate.path);
-        choicesEl.appendChild(btn);
-        choicesEl.appendChild(document.createElement('br'));
-    }
-    const privateBtn = document.createElement('button');
-    privateBtn.textContent = 'Use a private runtime instead';
-    privateBtn.onclick = () => install('install-private');
-    choicesEl.appendChild(privateBtn);
+    const choices = pyResult.candidates.map(c => `
+        <button class="choice" onclick="beginInstall('install-system', '${escapeHtml(c.path).replace(/'/g, "\\'")}');">
+            <span class="choice-title">System Python ${escapeHtml(c.version)}</span>
+            <span class="choice-sub">${escapeHtml(c.path)}</span>
+        </button>
+    `).join('');
+
+    render(`
+        <p class="eyebrow">Install &middot; 2 of 3</p>
+        <h1 class="screen-title">Choose a Python runtime</h1>
+        <p class="screen-body">
+            ${pyResult.candidates.length
+                ? 'Use an interpreter already on your system, or install a private one just for ARKlight.'
+                : "No system Python was found — a private runtime downloaded just for ARKlight is the way to go."}
+        </p>
+        <div class="choice-list">
+            ${choices}
+            <button class="choice" onclick="beginInstall('install-private');">
+                <span class="choice-title">Private runtime</span>
+                <span class="choice-sub">downloads its own Python, self-contained</span>
+            </button>
+        </div>
+    `);
 }
 
-async function install(command, pythonPath) {
-    const logEl = document.getElementById('install-log');
-    logEl.textContent = 'Starting install…\n';
+async function beginInstall(command, pythonPath) {
+    beamForInstall(3);
+    render(`
+        <p class="eyebrow">Install &middot; 3 of 3</p>
+        <h1 class="screen-title">Installing ARKlight</h1>
+        <div class="status-row"><span class="status-dot busy"></span><span class="screen-body" style="margin:0;">This takes a moment…</span></div>
+    `);
 
     try {
         const args = pythonPath ? `${command} ${pythonPath}` : command;
         const { progressLines, result } = await runBackend(args);
-        logEl.textContent = progressLines.map(p => `-> ${p}`).join('\n')
-            + `\n\nInstalled (${result.mode}). arklight at: ${result.wrapper}`
-            + (result.path_needs_update
-                ? `\n\n${result.wrapper} is not on PATH yet.`
-                : '');
+        currentMode = result.mode;
+        beamForInstall(4);
+        render(`
+            <p class="eyebrow">Install &middot; 3 of 3</p>
+            <h1 class="screen-title">Installing ARKlight</h1>
+            ${stepListHtml(progressLines)}
+            <div class="card">
+                <p class="card-title">Installed (${escapeHtml(result.mode)} mode)</p>
+                <p class="card-body">Run <span class="entry-path">arklight</span> from
+                <span class="entry-path">${escapeHtml(result.wrapper)}</span></p>
+            </div>
+            ${result.path_needs_update ? `
+                <div class="callout callout-info" style="margin-top:10px;">
+                    <p class="callout-title">One more step</p>
+                    <p class="callout-body">
+                        <code>${escapeHtml(result.wrapper)}</code> isn't on your
+                        PATH yet — add its folder to your shell's PATH to run
+                        <code>arklight</code> directly.
+                    </p>
+                </div>
+            ` : ''}
+            <div class="btn-row">
+                <button class="btn btn-primary" onclick="checkInstallState();">Continue</button>
+            </div>
+        `);
     } catch (err) {
-        logEl.textContent = `Install failed: ${err.message}`;
+        beamForInstall(3, 3);
+        render(`
+            <p class="eyebrow">Install &middot; 3 of 3</p>
+            <h1 class="screen-title">Install failed</h1>
+            <div class="callout callout-warn">
+                <p class="callout-title">${escapeHtml(err.message)}</p>
+            </div>
+            <div class="btn-row">
+                <button class="btn btn-primary" onclick="showRuntimeChoice();">Back to runtime choice</button>
+            </div>
+        `);
     }
+}
+
+// --- Maintenance mode: Update / Repair / Uninstall -----------------------
+
+function renderMaintenanceHome(stateResult) {
+    beamForMaintenance(false);
+    render(`
+        <p class="eyebrow">${escapeHtml(currentMode)} mode</p>
+        <h1 class="screen-title">ARKlight is installed</h1>
+        <div class="card" style="margin-bottom:20px;">
+            <p class="card-title">Entry point</p>
+            <p class="card-body"><span class="entry-path">${escapeHtml(stateResult.entry)}</span></p>
+        </div>
+        <div class="btn-row">
+            <button class="btn btn-primary" onclick="runUpdate();">Update</button>
+            <button class="btn" onclick="runRepairCheck();">Repair</button>
+            <button class="btn btn-danger" onclick="showUninstallConfirm();">Uninstall</button>
+        </div>
+    `);
 }
 
 // Shared connectivity pre-flight for Update/Repair, same rule as Install
 // (Architecture.md §4): stop before touching the filesystem if this fails.
-async function requireConnectivity(logEl) {
-    logEl.textContent = 'Checking connectivity…';
+async function requireConnectivity(onFail) {
+    beamForMaintenance(true);
     let connResult;
     try {
         ({ result: connResult } = await runBackend('connectivity'));
     } catch (err) {
-        logEl.textContent = `Connectivity check failed to run: ${err.message}`;
+        onFail(`The connection check itself didn't run: ${err.message}`);
         return false;
     }
     if (!connResult.reachable) {
-        logEl.textContent =
-            'No internet connection. This step needs one — the runtime ' +
-            'and package are downloaded, not bundled. Retry once connected.';
+        onFail(
+            "No internet connection. This step needs one — the runtime and " +
+            "ARKlight itself are downloaded, not bundled, so there's nothing " +
+            "to fall back to offline."
+        );
         return false;
     }
     return true;
 }
 
-async function update() {
-    const logEl = document.getElementById('maintenance-log');
-    if (!(await requireConnectivity(logEl))) return;
+function renderMaintenanceBlocked(eyebrow, title, message) {
+    beamForMaintenance(false);
+    render(`
+        <p class="eyebrow">${escapeHtml(eyebrow)}</p>
+        <h1 class="screen-title">${escapeHtml(title)}</h1>
+        <div class="callout callout-warn">
+            <p class="callout-body" style="margin:0;">${escapeHtml(message)}</p>
+        </div>
+        <div class="btn-row">
+            <button class="btn btn-primary" onclick="renderMaintenanceHomeAgain();">Back</button>
+        </div>
+    `);
+}
 
-    logEl.textContent = 'Updating…\n';
+async function renderMaintenanceHomeAgain() {
     try {
-        const command = currentMode === 'system' ? 'update-system' : 'update-private';
-        const { progressLines, result } = await runBackend(command);
-        logEl.textContent = progressLines.map(p => `-> ${p}`).join('\n')
-            + `\n\nUpdated (${result.mode}). arklight at: ${result.entry}`;
+        const { result } = await runBackend('state');
+        renderMaintenanceHome(result);
     } catch (err) {
-        logEl.textContent = `Update failed: ${err.message}`;
+        renderMaintenanceBlocked('Maintenance', "Couldn't refresh state", err.message);
     }
 }
 
-async function repair() {
-    const logEl = document.getElementById('maintenance-log');
-    const statusEl = document.getElementById('repair-status');
-    statusEl.innerHTML = '';
-    if (!(await requireConnectivity(logEl))) return;
+async function runUpdate() {
+    let blocked = false;
+    const ok = await requireConnectivity((msg) => {
+        blocked = true;
+        renderMaintenanceBlocked('Update', 'No connection', msg);
+    });
+    if (!ok) return;
 
-    logEl.textContent = 'Checking install…\n';
+    render(`
+        <p class="eyebrow">Update</p>
+        <h1 class="screen-title">Updating ARKlight</h1>
+        <div class="status-row"><span class="status-dot busy"></span><span class="screen-body" style="margin:0;">Fetching the current release…</span></div>
+    `);
+
+    try {
+        const command = currentMode === 'system' ? 'update-system' : 'update-private';
+        const { progressLines, result } = await runBackend(command);
+        beamForMaintenance(false);
+        render(`
+            <p class="eyebrow">Update</p>
+            <h1 class="screen-title">ARKlight is up to date</h1>
+            ${stepListHtml(progressLines)}
+            <div class="card">
+                <p class="card-title">Updated (${escapeHtml(result.mode)} mode)</p>
+                <p class="card-body"><span class="entry-path">${escapeHtml(result.entry)}</span></p>
+            </div>
+            <div class="btn-row">
+                <button class="btn btn-primary" onclick="renderMaintenanceHomeAgain();">Back</button>
+            </div>
+        `);
+    } catch (err) {
+        renderMaintenanceBlocked('Update', 'Update failed', err.message);
+    }
+}
+
+async function runRepairCheck() {
+    let blocked = false;
+    const ok = await requireConnectivity((msg) => {
+        blocked = true;
+        renderMaintenanceBlocked('Repair', 'No connection', msg);
+    });
+    if (!ok) return;
+
+    render(`
+        <p class="eyebrow">Repair</p>
+        <h1 class="screen-title">Checking your install</h1>
+        <div class="status-row"><span class="status-dot busy"></span><span class="screen-body" style="margin:0;">Validating the Python interpreter this install depends on…</span></div>
+    `);
+
     let checkResult;
     try {
         ({ result: checkResult } = await runBackend('check-repair'));
     } catch (err) {
-        logEl.textContent = `Repair check failed: ${err.message}`;
+        renderMaintenanceBlocked('Repair', 'Repair check failed', err.message);
         return;
     }
 
     if (checkResult.mode === 'private') {
-        await runRepair('repair-private', logEl);
+        await runRepair('repair-private');
         return;
     }
 
     if (checkResult.mode === 'system' && checkResult.interpreter_valid) {
-        await runRepair('repair-system', logEl);
+        await runRepair('repair-system');
         return;
     }
 
     if (checkResult.mode === 'system' && !checkResult.interpreter_valid) {
-        // The interpreter this install's venv depends on is gone —
-        // Architecture.md §3's pivot case. Offer, don't just fail.
-        statusEl.innerHTML = `
-            <p>The Python interpreter this install depends on
-            (${checkResult.interpreter || 'unknown path'}) is no longer
-            there. Repair can switch this install to a private, self
-            contained runtime instead.</p>
-            <button onclick="runRepair('repair-pivot', document.getElementById('maintenance-log'));">
-                Switch to a private runtime
-            </button>
-        `;
-        logEl.textContent = 'Waiting for a choice above.';
+        // Architecture.md §3's pivot case: the interpreter this install's
+        // venv depends on is gone. Offer the fix, don't just fail.
+        beamForMaintenance(false);
+        render(`
+            <p class="eyebrow">Repair</p>
+            <h1 class="screen-title">The original Python is gone</h1>
+            <div class="callout callout-info">
+                <p class="callout-title">Switch to a private runtime?</p>
+                <p class="callout-body">
+                    This install depends on
+                    <code>${escapeHtml(checkResult.interpreter || 'an interpreter that')}</code>
+                    still existing at its original path, and it no longer
+                    does — likely removed or upgraded outside ARKlight.
+                    Repair can move this install onto a private, self
+                    contained Python that only ARKlight uses, so this can't
+                    happen again.
+                </p>
+                <div class="btn-row">
+                    <button class="btn btn-primary" onclick="runRepair('repair-pivot');">Switch to a private runtime</button>
+                    <button class="btn" onclick="renderMaintenanceHomeAgain();">Cancel</button>
+                </div>
+            </div>
+        `);
         return;
     }
 
-    logEl.textContent = 'Nothing found to repair.';
+    renderMaintenanceBlocked('Repair', 'Nothing to repair', 'No issue was found with the current install.');
 }
 
-async function runRepair(command, logEl) {
-    logEl.textContent = 'Repairing…\n';
+async function runRepair(command) {
+    beamForMaintenance(true);
+    render(`
+        <p class="eyebrow">Repair</p>
+        <h1 class="screen-title">Repairing ARKlight</h1>
+        <div class="status-row"><span class="status-dot busy"></span><span class="screen-body" style="margin:0;">This takes a moment…</span></div>
+    `);
+
     try {
         const { progressLines, result } = await runBackend(command);
         currentMode = result.mode;
-        logEl.textContent = progressLines.map(p => `-> ${p}`).join('\n')
-            + `\n\nRepaired (${result.mode}). arklight at: ${result.entry}`;
+        beamForMaintenance(false);
+        render(`
+            <p class="eyebrow">Repair</p>
+            <h1 class="screen-title">Repaired</h1>
+            ${stepListHtml(progressLines)}
+            <div class="card">
+                <p class="card-title">Now running in ${escapeHtml(result.mode)} mode</p>
+                <p class="card-body"><span class="entry-path">${escapeHtml(result.entry)}</span></p>
+            </div>
+            <div class="btn-row">
+                <button class="btn btn-primary" onclick="renderMaintenanceHomeAgain();">Back</button>
+            </div>
+        `);
     } catch (err) {
-        logEl.textContent = `Repair failed: ${err.message}`;
+        renderMaintenanceBlocked('Repair', 'Repair failed', err.message);
     }
 }
 
-function confirmUninstall() {
-    document.getElementById('uninstall-confirm').hidden = false;
+function showUninstallConfirm() {
+    beamForMaintenance(false);
+    render(`
+        <p class="eyebrow">Uninstall</p>
+        <h1 class="screen-title">Remove ARKlight?</h1>
+        <div class="callout callout-warn">
+            <p class="callout-body" style="margin:0;">
+                This removes the ARKlight install and its <code>.ark</code>
+                bundle file association. This can't be undone from here.
+            </p>
+        </div>
+        <div class="confirm-actions">
+            <button class="btn btn-danger" onclick="doUninstall();">Yes, uninstall</button>
+            <button class="btn" onclick="renderMaintenanceHomeAgain();">Cancel</button>
+        </div>
+    `);
 }
 
 async function doUninstall() {
-    document.getElementById('uninstall-confirm').hidden = true;
-    const logEl = document.getElementById('maintenance-log');
-    logEl.textContent = 'Uninstalling…\n';
+    beamForMaintenance(true);
+    render(`
+        <p class="eyebrow">Uninstall</p>
+        <h1 class="screen-title">Uninstalling ARKlight</h1>
+        <div class="status-row"><span class="status-dot busy"></span><span class="screen-body" style="margin:0;">This takes a moment…</span></div>
+    `);
+
     try {
         const { progressLines } = await runBackend('uninstall');
-        logEl.textContent = progressLines.map(p => `-> ${p}`).join('\n')
-            + '\n\nUninstalled.';
+        renderBeam([{ label: 'Uninstalled', state: 'done' }]);
+        modeLabel.textContent = '';
+        render(`
+            <p class="eyebrow">Uninstall</p>
+            <h1 class="screen-title">ARKlight has been removed</h1>
+            ${stepListHtml(progressLines)}
+            <p class="screen-body">
+                You can close this window. Run the installer again any time
+                to reinstall ARKlight.
+            </p>
+        `);
         // Installer-binary self-delete isn't wired up yet — there's no
         // packaged single-binary artifact to point it at until Stage 3.
-        document.getElementById('btn-update').disabled = true;
-        document.getElementById('btn-repair').disabled = true;
-        document.getElementById('btn-uninstall').disabled = true;
     } catch (err) {
-        logEl.textContent = `Uninstall failed: ${err.message}`;
+        renderMaintenanceBlocked('Uninstall', 'Uninstall failed', err.message);
     }
 }
+
+// --- Boot -----------------------------------------------------------------
 
 Neutralino.init();
 Neutralino.events.on('windowClose', onWindowClose);
