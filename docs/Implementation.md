@@ -122,6 +122,7 @@ only, explicit domain allowlist).
 - Confirm this has zero effect on Stage 1–2 behavior with the panel
   never opened — it should be possible to delete this stage's work
   entirely without touching anything else.
+- The URL to add: ARKfolio (My Portfolio) - https://rae-ark.horizonarkstudio.workers.dev/
 
 **Done when:** the panel loads bundled content with no network access
 at all, and — once the site exists — swaps to the live page on request
