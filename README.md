@@ -6,6 +6,10 @@ The ARKlight Installer installs the current stable release of ARKlight
 without requiring the user to understand Python, `pip`, virtual
 environments, or package management.
 
+It is a desktop GUI application — a single wizard the user opens, runs,
+and closes when it's done. Nothing stays running in the background
+afterward.
+
 The installer is a distribution layer, not part of the ARKlight compiler
 or runtime.
 
@@ -32,6 +36,13 @@ A user should be able to:
 
 No Python knowledge should be required.
 
+### Deliberately designed
+
+The installer is a real interface, not a bare form. Typography, spacing,
+theming (light/dark), and motion on state changes are part of what
+ships — not something bolted on afterward. An unstyled wizard is not an
+acceptable version of this tool.
+
 ### Lightweight
 
 The installer should not bundle:
@@ -44,7 +55,8 @@ The installer should not bundle:
 - Unnecessary runtime dependencies
 
 A private Python runtime, when selected, is acquired as a prebuilt
-CPython distribution.
+CPython distribution — downloaded at install time, not shipped inside
+the installer binary.
 
 ### Current by default
 
@@ -66,6 +78,62 @@ implementation.
 
 ARKlight can change internally without requiring the installer itself
 to be redesigned.
+
+---
+
+## Application Lifecycle
+
+The installer has no background presence. There is no service, no tray
+icon, and nothing registered to launch automatically. It runs only when
+the user opens it, and exits fully when the task is done.
+
+On launch, it checks whether ARKlight is already installed and branches
+accordingly:
+
+```text
+                    Launch
+                       │
+                       ▼
+              Is ARKlight installed?
+                       │
+          ┌────────────┴────────────┐
+          │                         │
+         No                        Yes
+          │                         │
+          ▼                         ▼
+     Install flow          Update / Repair / Uninstall
+```
+
+This is the same binary handling the whole lifecycle — there is nothing
+running between one launch and the next to keep that state fresh.
+
+Uninstalling is the one step with any platform-specific handling: on
+most platforms the installer can remove itself as its final action, but
+Windows cannot delete a program while it's still running, so uninstall
+there ends by handing off to a small helper that finishes the cleanup
+after the installer has closed. This only happens on the uninstall path
+— installing, updating, and repairing never touch it.
+
+---
+
+## Dependencies & Connectivity
+
+Nothing the installer needs — the private CPython runtime, ARKlight
+itself, any supporting packages — is bundled into the installer binary.
+All of it is fetched at install time, the same way `pip install
+arklight` or a private CPython download would be run manually. This is
+what keeps the installer small.
+
+That means an internet connection is required to install, update, or
+repair. Before making any change to the system, the installer checks
+that it can actually reach what it needs. If it can't:
+
+- Nothing is installed, partially or otherwise. No half-created virtual
+  environment, no partially unpacked runtime left behind to clean up.
+- The user is told clearly, in the wizard itself, that a connection is
+  required because the runtime and package are downloaded rather than
+  shipped with the installer — with the option to retry once
+  connectivity is back.
 
 ---
 
@@ -100,18 +168,15 @@ to be redesigned.
 
 The installer checks for an installed CPython interpreter.
 
-Presence alone is not sufficient.
+If a system Python is found, the installer presents it as an available
+option. If none is found, the system-Python option is unavailable and
+the private runtime becomes the path forward.
 
-The interpreter must satisfy ARKlight's declared Python compatibility
-requirements.
-
-The compatibility source of truth is ARKlight's package metadata, not a
-separately maintained installer version constant.
-
-If a compatible system Python exists, the installer presents it as an
-available option.
-
-If it is missing or incompatible, the system-Python option is disabled.
+The installer does not maintain its own Python version compatibility
+matrix. It has one install step — the current stable ARKlight release —
+and lets that release's own package metadata be the thing that fails
+loudly if an interpreter genuinely can't run it, rather than trying to
+predict that in the installer ahead of time.
 
 ---
 
@@ -214,33 +279,27 @@ package tooling.
 
 ## Platform Support
 
-### Windows
+The installer is a single codebase, built once and compiled per
+platform, so Windows, Linux, and macOS all get the same wizard rather
+than three separate implementations. Platform differences show up only
+in how the result is packaged for that OS's native install experience —
+one packaging configuration, multiple installable formats (Windows,
+Linux, and macOS package formats), produced from the same build.
 
-The installer provides a conventional Windows installation experience.
+### Windows
 
 Responsibilities include:
 
 * Python detection
-* Python compatibility checking
 * Runtime selection
 * ARKlight installation
 * CLI launcher configuration
-* Uninstallation
-
-The installer may use a native Windows installer framework such as NSIS
-or Inno Setup.
+* Update, repair, and uninstallation
 
 ### Linux
 
-Linux distribution should respect existing platform conventions.
-
-Possible outputs include:
-
-* Native distribution packages
-* Portable archives
-* A bootstrap installer
-
-The exact packaging format is platform-specific.
+Linux distribution respects existing platform conventions, producing
+native distribution packages appropriate to the target system.
 
 The underlying ARKlight installation model remains the same.
 
@@ -268,12 +327,11 @@ The installer does not:
 * Compile ARKlight.
 * Compile carklight.
 * Require a C compiler.
-* Require CMake.
-* Require CPack at runtime.
 * Maintain a separate ARKlight package implementation.
 * Bundle development dependencies.
 * Modify unrelated Python environments.
 * Expose ARKlight's internal compiler architecture to the user.
+* Run in the background between launches.
 
 ---
 
@@ -320,8 +378,9 @@ ARKlight/
 ├── docs/
 ├── pyproject.toml
 └── installer/
-    ├── windows/
+    ├── gui/
     ├── linux/
+    ├── windows/
     ├── macos/
     └── README.md
 ```
@@ -355,4 +414,3 @@ ARKlight development
 
 The installer is infrastructure around ARKlight, not another version of
 ARKlight itself.
-
