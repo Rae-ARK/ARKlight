@@ -1,0 +1,6 @@
+#!/bin/sh
+# AppImage entrypoint. Deliberately does NOT hardcode /usr — inside a
+# mounted/extracted AppImage this file's own location is the AppDir root,
+# so everything is resolved relative to $0, not to a real filesystem path.
+HERE="$(dirname "$(readlink -f "$0")")"
+exec "$HERE/usr/share/arklight-installer/gui-linux_x64" "$@"

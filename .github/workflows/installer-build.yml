@@ -5,10 +5,18 @@ on:
     branches: [installer]
     paths:
       - 'installer/gui/**'
+      - 'installer/CMakeLists.txt'
+      - 'installer/packaging/**'
+      - 'installer/linux/**'
       - '.github/workflows/installer-build.yml'
+    tags:
+      - 'installer-v*'
   pull_request:
     paths:
       - 'installer/gui/**'
+      - 'installer/CMakeLists.txt'
+      - 'installer/packaging/**'
+      - 'installer/linux/**'
 
 jobs:
   build:
@@ -16,9 +24,6 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
-    defaults:
-      run:
-        working-directory: installer/gui
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -27,8 +32,72 @@ jobs:
       - name: Install neu CLI
         run: npm install -g @neutralinojs/neu
       - name: Fetch neutralino binaries/client
+        working-directory: installer/gui
         run: neu update
       - name: Build
+        working-directory: installer/gui
         run: neu build
-      # CPack packaging joins this job in Stage 3 — this stub only
-      # proves the shell builds on all three OSes.
+
+      # --- Stage 3: CPack packaging per OS ---
+
+      - name: Install packaging tools (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake rpm
+      - name: Install appimagetool (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          curl -fsSL -o /usr/local/bin/appimagetool \
+            "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage"
+          chmod +x /usr/local/bin/appimagetool
+      - name: Install packaging tools (Windows)
+        if: runner.os == 'Windows'
+        run: choco install wixtoolset -y
+
+      - name: Configure (CMake)
+        working-directory: installer
+        run: cmake -S . -B build
+      - name: Package (.deb / .rpm / .msi / .dmg+.pkg)
+        working-directory: installer/build
+        run: cpack -C Release
+      - name: Package AppImage (Linux only)
+        if: runner.os == 'Linux'
+        working-directory: installer/build
+        run: cmake --build . --target appimage
+
+      - name: Sanity install (Linux, .deb)
+        if: runner.os == 'Linux'
+        working-directory: installer/build
+        run: |
+          sudo dpkg -i arklight-installer_*_amd64.deb
+          command -v arklight-installer
+          # Headless CI runner: expect a display-connection failure, not
+          # "command not found" — that's what actually validates the
+          # package wired the binary + resources.neu correctly.
+          arklight-installer || true
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: arklight-installer-${{ runner.os }}
+          path: |
+            installer/build/*.deb
+            installer/build/*.rpm
+            installer/build/*.AppImage
+            installer/build/*.msi
+            installer/build/*.dmg
+            installer/build/*.pkg
+          if-no-files-found: ignore
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/installer-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            installer/build/*.deb
+            installer/build/*.rpm
+            installer/build/*.AppImage
+            installer/build/*.msi
+            installer/build/*.dmg
+            installer/build/*.pkg
