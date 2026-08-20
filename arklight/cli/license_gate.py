@@ -36,9 +36,9 @@ ACCEPT_ENV_VAR = "ARKLIGHT_ACCEPT_LICENSE"
 HOME_ENV_VAR = "ARKLIGHT_HOME"
 
 NOTICE_TEXT = """\
-ARKlight is licensed under the GNU GPLv3 (or later), with additional
-terms added under GPLv3 Section 7 -- see the LICENSE file for the
-full text. In short, those additional terms require:
+ARKlight is licensed under the GNU GPLv3 (or later), with the ARKlight
+Additional Terms added under GPLv3 Section 7 -- see the LICENSE file
+for the full text. In short, those additional terms require:
 
   1. Copies you convey of ARKlight's own source (or a work based on
      it) keep a visible "Based on ARKlight" / "Powered by ARKlight"
@@ -50,6 +50,10 @@ full text. In short, those additional terms require:
 These terms do NOT apply to your own site's source or to the HTML/CSS
 output `arklight build` produces from it -- only to ARKlight's own
 code and runtime files, as described above and in LICENSE.
+
+If you're linking against carklight (the separate C library) instead
+of running this compiler, it's covered by its own LICENSE -- GPLv3
+plus the CARKLIGHT LINKING EXCEPTION -- not by the terms above.
 """
 
 
