@@ -15,13 +15,25 @@ You should have received a copy of the GNU General Public License
 along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 ================================================================================
-ADDITIONAL TERMS UNDER GPLv3 SECTION 7
+THE ARKLIGHT ADDITIONAL TERMS
+Version 1.0, 2026
 ================================================================================
+
+Everyone is permitted to copy and distribute verbatim copies of this
+additional-terms text, but changing it is not allowed.
 
 Pursuant to Section 7 of the GNU General Public License, version 3
 ("GPLv3"), the copyright holder(s) of ARKlight add the following
 additional terms, which apply on top of (and do not replace or
-narrow) the base GPLv3 terms below:
+narrow) the base GPLv3 terms below.
+
+ARKlight (this project) is the Python site compiler. Rae-ARK also
+publishes carklight (C_ARKlight), a separate compiled C library that
+shares ARKlight's name and lineage but is distributed under its own
+terms -- GPLv3 plus the CARKLIGHT LINKING EXCEPTION -- because a
+linkable C library needs a linking exception rather than the scope
+carve-out below. See carklight's own LICENSE for those terms; nothing
+in this document alters them.
 
 1. Attribution on conveyed copies (GPLv3 Section 7(b)). Any copy of
    the ARKlight compiler's source code, or of a work based on it,
@@ -50,7 +62,9 @@ narrow) the base GPLv3 terms below:
    consistent with the GPL's long-standing position that a program's
    mere output is not automatically a derivative work of the program
    (see the Free Software Foundation's GPL FAQ on this point,
-   <https://www.gnu.org/licenses/gpl-faq.html>).
+   <https://www.gnu.org/licenses/gpl-faq.html>). Programs that link
+   against carklight instead of running the ARKlight compiler are
+   governed by carklight's own LICENSE, not by this scope carve-out.
 
 These additional terms are themselves removable by anyone who
 redistributes ARKlight under GPLv3 Section 7's own removal
