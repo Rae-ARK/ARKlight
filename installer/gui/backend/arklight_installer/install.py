@@ -42,6 +42,30 @@ def _noop(_msg: str) -> None:
     pass
 
 
+def _run(cmd: list[str]) -> subprocess.CompletedProcess:
+    """Run a subprocess with its stdout/stderr captured, never inherited.
+
+    This backend's own stdout is a line-oriented JSON protocol main.js
+    parses (see main.py's module docstring) — letting a child process
+    (venv, pip, ensurepip...) write its normal chatter straight to our
+    stdout corrupts that stream. A completely unremarkable line like
+    "Requirement already satisfied: pip in ..." is exactly what broke it:
+    main.js's JSON.parse choked on the bare word "Requirement".
+
+    On failure, re-raises with the child's actual stderr attached — a
+    bare CalledProcessError's default message is just the exit code, not
+    why it failed.
+    """
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, check=True)
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or "").strip()
+        raise RuntimeError(
+            f"`{' '.join(cmd)}` failed (exit {exc.returncode})"
+            + (f": {detail}" if detail else "")
+        ) from exc
+
+
 def _install_arklight(pip_argv: list[str], progress: ProgressFn, upgrade: bool = False) -> None:
     """Install ARKlight, preferring the published PyPI release and falling
     back to building from GitHub's `main` branch if PyPI install fails —
@@ -57,9 +81,9 @@ def _install_arklight(pip_argv: list[str], progress: ProgressFn, upgrade: bool =
     progress("Installing ARKlight from PyPI" if not upgrade else "Updating ARKlight from PyPI")
     pypi_args = [*pip_argv, "install", *(["--upgrade"] if upgrade else []), PYPI_PROJECT]
     try:
-        subprocess.run(pypi_args, check=True)
+        _run(pypi_args)
         return
-    except subprocess.CalledProcessError as exc:
+    except RuntimeError as exc:
         progress(f"PyPI install failed ({exc}) — falling back to GitHub")
 
     progress("Downloading ARKlight source from GitHub")
@@ -84,7 +108,7 @@ def _install_arklight(pip_argv: list[str], progress: ProgressFn, upgrade: bool =
         # compare against an already-installed PyPI release, so plain
         # --upgrade can no-op when we actually need the GitHub copy in.
         github_args = [*pip_argv, "install", *(["--force-reinstall"] if upgrade else []), str(extracted_dirs[0])]
-        subprocess.run(github_args, check=True)
+        _run(github_args)
 
 
 def _arch_tag() -> str:
@@ -108,10 +132,10 @@ def install_system(python_path: str, install_root: Path = DEFAULT_INSTALL_ROOT,
 
     # Build the venv using the *chosen* interpreter, not the one running the
     # installer, since the installer may itself be a bundled private Python.
-    subprocess.run([python_path, "-m", "venv", str(venv_dir)], check=True)
+    _run([python_path, "-m", "venv", str(venv_dir)])
 
     pip = venv_dir / "bin" / "pip"
-    subprocess.run([str(pip), "install", "--upgrade", "pip"], check=True)
+    _run([str(pip), "install", "--upgrade", "pip"])
     _install_arklight([str(pip)], progress)
 
     return venv_dir / "bin" / "arklight"
@@ -173,8 +197,8 @@ def install_private(install_root: Path = DEFAULT_INSTALL_ROOT,
     runtime_dir = install_root / "runtime"
     python_bin = _download_private_cpython(runtime_dir, progress)
 
-    subprocess.run([str(python_bin), "-m", "ensurepip", "--upgrade"], check=True)
-    subprocess.run([str(python_bin), "-m", "pip", "install", "--upgrade", "pip"], check=True)
+    _run([str(python_bin), "-m", "ensurepip", "--upgrade"])
+    _run([str(python_bin), "-m", "pip", "install", "--upgrade", "pip"])
     _install_arklight([str(python_bin), "-m", "pip"], progress)
 
     return python_bin.parent / "arklight"
