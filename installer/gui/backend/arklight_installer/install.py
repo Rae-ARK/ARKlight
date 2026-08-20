@@ -28,6 +28,11 @@ ProgressFn = Callable[[str], None]
 #: "private runtime" install path. https://github.com/astral-sh/python-build-standalone
 PBS_RELEASES_API = "https://api.github.com/repos/astral-sh/python-build-standalone/releases/latest"
 
+#: Fallback source if PyPI install fails — codeload is a plain archive
+#: download (no API rate limit, no git dependency on the target machine),
+#: unlike the GitHub REST API used for the private-runtime feed above.
+GITHUB_SOURCE_ARCHIVE_URL = "https://codeload.github.com/Rae-ARK/ARKlight/tar.gz/refs/heads/main"
+
 #: Default install roots.
 DEFAULT_INSTALL_ROOT = Path.home() / ".local" / "share" / "arklight"
 DEFAULT_BIN_DIR = Path.home() / ".local" / "bin"
@@ -35,6 +40,51 @@ DEFAULT_BIN_DIR = Path.home() / ".local" / "bin"
 
 def _noop(_msg: str) -> None:
     pass
+
+
+def _install_arklight(pip_argv: list[str], progress: ProgressFn, upgrade: bool = False) -> None:
+    """Install ARKlight, preferring the published PyPI release and falling
+    back to building from GitHub's `main` branch if PyPI install fails —
+    e.g. PyPI itself is unreachable/down, or a version hasn't been
+    published there yet.
+
+    `pip_argv` is the pip invocation prefix: `[str(pip)]` for a venv's own
+    pip executable, or `[str(python_bin), "-m", "pip"]` for a private
+    runtime that only exposes pip as a module. `upgrade` is for Update
+    (Stage 2), which needs `pip install --upgrade` rather than a fresh
+    install of an interpreter that may already have ARKlight in it.
+    """
+    progress("Installing ARKlight from PyPI" if not upgrade else "Updating ARKlight from PyPI")
+    pypi_args = [*pip_argv, "install", *(["--upgrade"] if upgrade else []), PYPI_PROJECT]
+    try:
+        subprocess.run(pypi_args, check=True)
+        return
+    except subprocess.CalledProcessError as exc:
+        progress(f"PyPI install failed ({exc}) — falling back to GitHub")
+
+    progress("Downloading ARKlight source from GitHub")
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        archive_path = tmp_path / "arklight-src.tar.gz"
+        urllib.request.urlretrieve(GITHUB_SOURCE_ARCHIVE_URL, archive_path)
+
+        with tarfile.open(archive_path) as tf:
+            tf.extractall(tmp_path)
+
+        # GitHub's tarball extracts to a single "<repo>-<branch>/" directory.
+        extracted_dirs = [p for p in tmp_path.iterdir() if p.is_dir()]
+        if len(extracted_dirs) != 1:
+            raise RuntimeError(
+                "Unexpected GitHub archive layout: expected exactly one "
+                f"top-level directory, found {len(extracted_dirs)}"
+            )
+
+        progress("Installing ARKlight from GitHub source")
+        # --force-reinstall: a local source install has no version to
+        # compare against an already-installed PyPI release, so plain
+        # --upgrade can no-op when we actually need the GitHub copy in.
+        github_args = [*pip_argv, "install", *(["--force-reinstall"] if upgrade else []), str(extracted_dirs[0])]
+        subprocess.run(github_args, check=True)
 
 
 def _arch_tag() -> str:
@@ -61,9 +111,8 @@ def install_system(python_path: str, install_root: Path = DEFAULT_INSTALL_ROOT,
     subprocess.run([python_path, "-m", "venv", str(venv_dir)], check=True)
 
     pip = venv_dir / "bin" / "pip"
-    progress("Installing ARKlight from PyPI")
     subprocess.run([str(pip), "install", "--upgrade", "pip"], check=True)
-    subprocess.run([str(pip), "install", PYPI_PROJECT], check=True)
+    _install_arklight([str(pip)], progress)
 
     return venv_dir / "bin" / "arklight"
 
@@ -124,10 +173,9 @@ def install_private(install_root: Path = DEFAULT_INSTALL_ROOT,
     runtime_dir = install_root / "runtime"
     python_bin = _download_private_cpython(runtime_dir, progress)
 
-    progress("Installing ARKlight into the private runtime")
     subprocess.run([str(python_bin), "-m", "ensurepip", "--upgrade"], check=True)
     subprocess.run([str(python_bin), "-m", "pip", "install", "--upgrade", "pip"], check=True)
-    subprocess.run([str(python_bin), "-m", "pip", "install", PYPI_PROJECT], check=True)
+    _install_arklight([str(python_bin), "-m", "pip"], progress)
 
     return python_bin.parent / "arklight"
 

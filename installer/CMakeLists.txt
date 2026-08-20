@@ -58,6 +58,13 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR UNIX AND NOT APPLE)
     RENAME "${ARK_BINARY_NAME}-linux_x64")
   install(FILES "${ARK_GUI_DIST}/resources.neu"
     DESTINATION "share/arklight-installer")
+  # The Python backend (installer/gui/backend/) is a sibling of resources/,
+  # not part of it, so `neu build` never bundles it into resources.neu.
+  # main.js shells out to it directly (see runBackend() in
+  # gui/resources/js/main.js), so it has to land next to the binary or
+  # every install is a "Couldn't check install state" crash.
+  install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/gui/backend/"
+    DESTINATION "share/arklight-installer/backend")
   install(PROGRAMS "${CMAKE_CURRENT_BINARY_DIR}/arklight-installer"
     DESTINATION "bin")
   install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/linux/arklight-installer.desktop"
@@ -103,6 +110,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR UNIX AND NOT APPLE)
       COMMAND ${CMAKE_COMMAND} -E make_directory "${APPDIR}/usr/share/icons/hicolor/256x256/apps"
       COMMAND ${CMAKE_COMMAND} -E copy "${ARK_LINUX_BIN}" "${APPDIR}/usr/share/arklight-installer/${ARK_BINARY_NAME}-linux_x64"
       COMMAND ${CMAKE_COMMAND} -E copy "${ARK_GUI_DIST}/resources.neu" "${APPDIR}/usr/share/arklight-installer/resources.neu"
+      COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/gui/backend" "${APPDIR}/usr/share/arklight-installer/backend"
       COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/linux/arklight-installer.desktop" "${APPDIR}/usr/share/applications/arklight-installer.desktop"
       COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/linux/arklight-installer.desktop" "${APPDIR}/arklight-installer.desktop"
       COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/gui/resources/icons/appIcon.png" "${APPDIR}/usr/share/icons/hicolor/256x256/apps/arklight-installer.png"

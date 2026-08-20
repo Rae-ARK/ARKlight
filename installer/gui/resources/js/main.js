@@ -19,6 +19,16 @@ function onWindowClose() {
     Neutralino.app.exit();
 }
 
+// Neutralino's own console forwarding stringifies rejection reasons as
+// "[object Object]", which is unreadable. Log the actual message/stack
+// (or the raw reason for non-Error rejections) so failures here are
+// diagnosable instead of just noise.
+window.addEventListener('unhandledrejection', (event) => {
+    const reason = event.reason;
+    const detail = reason && (reason.stack || reason.message) || JSON.stringify(reason);
+    console.error('Unhandled promise rejection:', detail);
+});
+
 // --- Theme -----------------------------------------------------------
 
 function toggleTheme() {
@@ -84,9 +94,18 @@ function escapeHtml(s) {
 // lines are {"progress": "..."} objects the backend may emit before its
 // final result line — see backend/main.py's module docstring.
 async function runBackend(args) {
+    // NL_PATH is the directory the app itself is installed/running from
+    // (where CMakeLists.txt installs backend/ alongside the binary — see
+    // installer/CMakeLists.txt). NL_CWD is wherever the user's shell
+    // happened to be when they launched the AppImage/binary, which has
+    // nothing to do with where backend/ actually lives — using it here
+    // was the "can't open file .../backend/main.py" bug. Quote the path:
+    // real install locations can contain spaces (e.g. a partition or
+    // folder name with a space in it).
+    const backendMain = `${NL_PATH}/backend/main.py`;
     const proc = await Neutralino.os.execCommand(
-        `python3 backend/main.py ${args}`,
-        { cwd: NL_CWD }
+        `python3 "${backendMain}" ${args}`,
+        { cwd: NL_PATH }
     );
 
     if (proc.exitCode !== 0) {

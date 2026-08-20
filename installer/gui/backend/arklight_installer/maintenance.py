@@ -18,6 +18,7 @@ from typing import Callable, Optional
 from .install import (
     DEFAULT_BIN_DIR,
     DEFAULT_INSTALL_ROOT,
+    _install_arklight,
     install_private,
     install_system,
 )
@@ -141,8 +142,7 @@ def update_system(install_root: Path = DEFAULT_INSTALL_ROOT,
             "this is a Repair situation, not Update."
         )
     pip = venv_dir / "bin" / "pip"
-    progress("Updating ARKlight to the current stable release")
-    subprocess.run([str(pip), "install", "--upgrade", "arklight"], check=True)
+    _install_arklight([str(pip)], progress, upgrade=True)
     return venv_dir / "bin" / "arklight"
 
 
@@ -152,8 +152,7 @@ def update_private(install_root: Path = DEFAULT_INSTALL_ROOT,
     python_bin = runtime_dir / "bin" / "python3"
     if not python_bin.exists():
         raise RuntimeError("update_private() called with no private runtime present.")
-    progress("Updating ARKlight to the current stable release")
-    subprocess.run([str(python_bin), "-m", "pip", "install", "--upgrade", "arklight"], check=True)
+    _install_arklight([str(python_bin), "-m", "pip"], progress, upgrade=True)
     return runtime_dir / "bin" / "arklight"
 
 

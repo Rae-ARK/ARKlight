@@ -35,9 +35,12 @@ from arklight_installer.maintenance import (
     update_system,
 )
 
-# Same endpoint detect.py/install.py ultimately depend on: if this isn't
-# reachable, neither system nor private install can succeed anyway.
-CONNECTIVITY_CHECK_URL = "https://pypi.org/simple/arklight/"
+# Same endpoints detect.py/install.py ultimately depend on: if neither is
+# reachable, neither the PyPI install nor its GitHub fallback can succeed.
+CONNECTIVITY_CHECK_URLS = [
+    "https://pypi.org/simple/arklight/",
+    "https://codeload.github.com/Rae-ARK/ARKlight/tar.gz/refs/heads/main",
+]
 
 
 def _emit(obj: dict) -> None:
@@ -68,13 +71,19 @@ def cmd_state() -> dict:
 def cmd_connectivity() -> dict:
     """Pre-flight reachability check (Architecture.md §4). Must run, and
     pass, before install/update/repair touches the filesystem at all.
+    Reachable if either the PyPI install path or the GitHub fallback path
+    can be reached — a PyPI-specific outage shouldn't block an install
+    that GitHub could still serve.
     """
-    try:
-        with urllib.request.urlopen(CONNECTIVITY_CHECK_URL, timeout=5):
-            pass
-        return {"reachable": True}
-    except (urllib.error.URLError, OSError, TimeoutError) as exc:
-        return {"reachable": False, "reason": str(exc)}
+    last_reason = "unknown"
+    for url in CONNECTIVITY_CHECK_URLS:
+        try:
+            with urllib.request.urlopen(url, timeout=5):
+                return {"reachable": True}
+        except (urllib.error.URLError, OSError, TimeoutError) as exc:
+            last_reason = str(exc)
+            continue
+    return {"reachable": False, "reason": last_reason}
 
 
 def cmd_list_pythons() -> dict:
