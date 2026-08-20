@@ -54,18 +54,41 @@ jobs:
           chmod +x /usr/local/bin/appimagetool
       - name: Install packaging tools (Windows)
         if: runner.os == 'Windows'
+        shell: pwsh
         run: |
           # CPack's WIX generator only drives WiX v3's candle.exe/light.exe.
-          # An unpinned `choco install wixtoolset` pulls the latest WiX
-          # (v4/v5, dotnet-based wix.exe) and overwrites the v3 toolset that
-          # windows-latest ships preinstalled, which breaks `cpack -C Release`
-          # with "candle.exe not found". Pin to the v3 line CPack expects.
-          choco install wixtoolset --version=3.14.1 -y --no-progress
-          $wixBin = "${env:WIX}bin"
-          if (Test-Path $wixBin) {
-            echo $wixBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          # windows-latest already ships WiX v3 preinstalled, but NOT via
+          # Chocolatey, so `choco install wixtoolset` doesn't recognize it
+          # as already present and collides with the existing Windows
+          # Installer registration, failing this step outright. Reuse the
+          # preinstalled candle.exe if it's already on PATH or in one of
+          # its known install locations, and only fall back to choco (pinned
+          # to the v3 line CPack expects — v4+'s dotnet-based wix.exe won't
+          # work) if no v3 toolset can be found at all.
+          $candle = Get-Command candle.exe -ErrorAction SilentlyContinue
+          if ($candle) {
+            Write-Host "Found preinstalled WiX v3 at $($candle.Source)"
+            Split-Path $candle.Source | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           } else {
-            echo "C:\Program Files (x86)\WiX Toolset v3.14\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+            $knownDirs = @(
+              "$env:WIX" + "bin",
+              "C:\Program Files (x86)\WiX Toolset v3.14\bin",
+              "C:\Program Files (x86)\WiX Toolset v3.11\bin"
+            )
+            $found = $knownDirs | Where-Object { $_ -and (Test-Path (Join-Path $_ 'candle.exe')) } | Select-Object -First 1
+            if ($found) {
+              Write-Host "Found preinstalled WiX v3 at $found"
+              echo $found | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+            } else {
+              Write-Host "No preinstalled WiX v3 found, installing via choco"
+              choco install wixtoolset --version=3.14.1 -y --no-progress
+              $wixBin = "$env:WIX" + "bin"
+              if (Test-Path $wixBin) {
+                echo $wixBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+              } else {
+                echo "C:\Program Files (x86)\WiX Toolset v3.14\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+              }
+            }
           }
 
       - name: Configure (CMake)
