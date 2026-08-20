@@ -133,7 +133,12 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows" OR WIN32)
     DESTINATION ".")
 
   set(CPACK_GENERATOR "WIX")
-  set(CPACK_WIX_UPGRADE_GUID "8f2e3a10-4c2b-4e7a-9c1d-arklight0003")
+  # Must be a *valid* GUID (hex digits only in each segment) or WiX's
+  # candle.exe rejects the generated .wxs outright ("Problem running WiX" /
+  # "Problem compressing the directory" in CPack, with the real reason only
+  # visible in wix.log). Keep this constant across releases -- changing it
+  # breaks MSI upgrade/uninstall detection for existing installs.
+  set(CPACK_WIX_UPGRADE_GUID "09a03fac-edc8-4ca3-bd48-94401e54f8af")
   set(CPACK_PACKAGE_EXECUTABLES "arklight-installer;ARKlight Installer")
   # NOTE: no .ico bundled yet (only resources/icons/appIcon.png exists) —
   # WIX/CPACK_PACKAGE_ICON left unset until one is added. Real gap, not
