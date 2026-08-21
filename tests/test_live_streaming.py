@@ -14,7 +14,7 @@ import json
 
 import pytest
 
-from arklight.cli import live_streaming as ls
+from arklight.cli import cctv, live_streaming as ls
 
 
 class _FakeIR:
@@ -129,3 +129,80 @@ def test_changed_path_detects_deleted_file():
 def test_changed_path_none_when_unchanged():
     snapshot = {"a.py": 1.0}
     assert ls._changed_path(snapshot, dict(snapshot)) is None
+
+
+# --------------------------------------------------------------------
+# --channel -- the unified CLI surface for what used to be the
+# separate `arklight cctv` subcommand (see test_cctv.py for the
+# state/hub/backend/page-selection building blocks this drives).
+# --------------------------------------------------------------------
+
+
+def test_add_subparser_channel_defaults_to_disabled():
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers(dest="command")
+    ls.add_subparser(subparsers)
+
+    args = parser.parse_args(["live-streaming", "--subscribe", "site.py"])
+    assert args.channel is None
+    assert args.route is None
+
+
+def test_add_subparser_bare_channel_is_const_zero():
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers(dest="command")
+    ls.add_subparser(subparsers)
+
+    args = parser.parse_args(["live-streaming", "--subscribe", "site.py", "--channel"])
+    assert args.channel == 0
+
+
+def test_add_subparser_channel_accepts_explicit_port():
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers(dest="command")
+    ls.add_subparser(subparsers)
+
+    args = parser.parse_args(
+        ["live-streaming", "--subscribe", "site.py", "--channel", "2172", "--route", "/about"]
+    )
+    assert args.channel == 2172
+    assert args.route == "/about"
+
+
+def test_bind_channel_server_explicit_port_fails_loud_on_collision():
+    handler_cls = cctv._make_handler(cctv._State({}), cctv._SSEHub())
+    blocker = ls._bind_channel_server(handler_cls, "127.0.0.1", 0)
+    try:
+        port = blocker.server_address[1]
+        with pytest.raises(OSError, match="--channel"):
+            ls._bind_channel_server(handler_cls, "127.0.0.1", port)
+    finally:
+        blocker.server_close()
+
+
+def test_bind_channel_server_bare_flag_gets_a_free_port():
+    handler_cls = cctv._make_handler(cctv._State({}), cctv._SSEHub())
+    server = ls._bind_channel_server(handler_cls, "127.0.0.1", 0)
+    try:
+        # Port 0 asks the OS for any free port -- confirm we got a real,
+        # concrete one back rather than the literal sentinel.
+        assert server.server_address[1] != 0
+    finally:
+        server.server_close()
+
+
+def test_rebuild_returns_none_on_compile_error(tmp_path, monkeypatch):
+    from arklight.compiler.pipeline import CompileError
+
+    def _fake_build(*_args, **_kwargs):
+        raise CompileError("boom")
+
+    monkeypatch.setattr(ls, "build", _fake_build)
+    result = ls._rebuild(tmp_path / "site.py", tmp_path / "ARK", [])
+    assert result is None

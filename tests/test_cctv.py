@@ -3,10 +3,15 @@ Regression tests for `arklight.cli.cctv`.
 
 Deliberately unit-level, same philosophy as test_live_streaming.py:
 these lock the pieces most likely to silently break (state merge/bump
-semantics, SSE broadcast + one-way field exclusion, page selection,
-port-binding fallback behavior, CLI wiring) rather than spinning up a
-real server/socket in every test -- that's covered by manual
-end-to-end verification.
+semantics, SSE broadcast + one-way field exclusion, page selection)
+rather than spinning up a real server/socket in every test -- that's
+covered by manual end-to-end verification.
+
+`cctv` is no longer its own CLI subcommand -- its port-binding and
+argparse wiring moved into `arklight.cli.live_streaming` as the
+`--channel` flag (see test_live_streaming.py's `--channel` tests for
+that coverage). This module still owns the state/hub/backend/
+page-selection building blocks `live_streaming` imports and drives.
 """
 
 from __future__ import annotations
@@ -200,82 +205,3 @@ def test_backend_render_on_empty_site_still_returns_files():
     out = backend.render(ir)
     assert cctv._CLIENT_JS_PATH.lstrip("/") in out
     assert '"route": null' in out["__cctv_schema__.json"]
-
-
-# --------------------------------------------------------------------
-# Port binding -- SS5's "scan on default, fail-loud on --tune"
-# --------------------------------------------------------------------
-
-
-def test_bind_server_tune_fails_loud_on_collision():
-    handler_cls = cctv._make_handler(cctv._State({}), cctv._SSEHub())
-    blocker, _ = cctv._bind_server(handler_cls, "127.0.0.1", None)
-    try:
-        port = blocker.server_address[1]
-        with pytest.raises(OSError, match="--tune"):
-            cctv._bind_server(handler_cls, "127.0.0.1", port)
-    finally:
-        blocker.server_close()
-
-
-def test_bind_server_default_scans_forward_on_collision(monkeypatch):
-    handler_cls = cctv._make_handler(cctv._State({}), cctv._SSEHub())
-    # Pin the module's default port to a high, unlikely-to-collide-with-
-    # anything-real port for this test, then occupy it first so the scan
-    # is forced to move to default+1.
-    monkeypatch.setattr(cctv, "_DEFAULT_PORT", 41242)
-    blocker, _ = cctv._bind_server(handler_cls, "127.0.0.1", 41242)
-    try:
-        server, bumped = cctv._bind_server(handler_cls, "127.0.0.1", None)
-        try:
-            assert bumped is True
-            assert server.server_address[1] == 41243
-        finally:
-            server.server_close()
-    finally:
-        blocker.server_close()
-
-
-# --------------------------------------------------------------------
-# CLI wiring
-# --------------------------------------------------------------------
-
-
-def test_add_subparser_registers_cctv_command():
-    import argparse
-
-    parser = argparse.ArgumentParser()
-    subparsers = parser.add_subparsers(dest="command")
-    cctv.add_subparser(subparsers)
-
-    args = parser.parse_args(["cctv", "site.py", "--tune", "9999"])
-    assert args.command == "cctv"
-    assert args.entry == "site.py"
-    assert args.tune == 9999
-    assert args.func is cctv._cmd_cctv
-
-
-def test_add_subparser_default_tune_is_none():
-    import argparse
-
-    parser = argparse.ArgumentParser()
-    subparsers = parser.add_subparsers(dest="command")
-    cctv.add_subparser(subparsers)
-
-    args = parser.parse_args(["cctv", "site.py"])
-    assert args.tune is None
-    assert args.host == cctv._DEFAULT_HOST
-    assert args.output == "ARK"
-
-
-def test_cmd_cctv_fails_cleanly_on_missing_entry(tmp_path, capsys):
-    import argparse
-
-    parser = argparse.ArgumentParser()
-    subparsers = parser.add_subparsers(dest="command")
-    cctv.add_subparser(subparsers)
-    args = parser.parse_args(["cctv", str(tmp_path / "nope.py")])
-
-    exit_code = cctv._cmd_cctv(args)
-    assert exit_code == 1
-    assert "no such file" in capsys.readouterr().err

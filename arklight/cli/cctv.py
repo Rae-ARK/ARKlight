@@ -1,8 +1,15 @@
 """
-`arklight cctv` -- a live-channel dev-server backend.
+CCTV -- the state-channel building blocks behind `arklight
+live-streaming --channel`.
 
-    arklight cctv                 # ARK_CCTV_DEFAULT_PORT, scan forward on collision
-    arklight cctv --tune 8080     # bind exactly 8080; fail (do not silently scan) if busy
+This used to be its own `arklight cctv` subcommand; it's now folded
+into `arklight live-streaming` as an opt-in flag instead of a second
+CLI entry point (see `arklight.cli.live_streaming`'s module docstring
+for the unified surface: `--channel [PORT]`). The concepts here are
+unchanged, only where they're invoked from:
+
+    arklight live-streaming --subscribe site.py --channel        # random free port
+    arklight live-streaming --subscribe site.py --channel 2172   # bind exactly 2172
 
 Python port of carklight's `CCTV-BACKEND-PROPOSAL.md` -- the same
 concepts (a long-running state object, SSE channels, per-field
@@ -14,18 +21,17 @@ this is not a wrapper around either the C build or the JS prototype --
 a from-scratch Python implementation of the same protocol, using
 `http.server`/`socketserver` -- the same building blocks
 `arklight.cli.live_streaming` already uses for its own dev server, so
-this introduces no new stdlib surface to the project, and (per the
-C proposal's own framing) is a lot less work here than in C: no socket
-plumbing or request-line parser to write, `http.server` already does
-that.
+this introduces no new stdlib surface to the project.
 
-This is deliberately NOT `arklight live-streaming` (auto-rebuild +
-browser reload on file change). `cctv` never rebuilds anything and
-never touches the filesystem after its one-shot `render()`. It serves
-one page's declared `State(...)` fields live over SSE to *any* HTTP
-client -- a Flask app, curl, a second browser tab -- for the lifetime
-of the process. Two servers, two different jobs, matching the
-distinction CCTV-BACKEND-PROPOSAL.md draws in its own SS1/SS2.
+This module still isn't `arklight live-streaming`'s own auto-rebuild +
+browser-reload server -- it's the second, independent server
+`live-streaming --channel` binds *alongside* it. The state object built
+here is seeded once from the selected page's declared `State(...)` at
+session start and is never reset by a rebuild; it serves that one
+page's fields live over SSE to *any* HTTP client -- a Flask app, curl,
+a second browser tab -- for the lifetime of the `--subscribe` session.
+Two servers, two different jobs, matching the distinction
+CCTV-BACKEND-PROPOSAL.md draws in its own SS1/SS2.
 
 Two halves, same split the C proposal calls for (SS2/SS3):
 
@@ -37,12 +43,15 @@ Two halves, same split the C proposal calls for (SS2/SS3):
     an *optional* extra backend, the same way
     `live_streaming._LiveReloadBackend` is -- not part of
     `default_backends()`.
-  - The actual server (`_serve`) is a separate, blocking call the
-    `arklight cctv` subcommand runs *after* a normal batch build --
+  - The actual server (the `_CCTVHTTPServer`/`_make_handler` pair
+    below) is a separate, long-running object `live_streaming`'s
+    `--channel` handling binds and serves on its own thread --
     never inside a `postprocess()` that's expected to return (the C
     proposal's SS3 makes the same distinction for the same reason: a
     build pipeline stage that never returns blocks every backend
-    registered behind it).
+    registered behind it). Port selection (an exact `--channel PORT`
+    vs. a random free one for bare `--channel`) is `live_streaming`'s
+    job, not this module's -- see `live_streaming._bind_channel_server`.
 
 Routes (mirrors the JS prototype's `index.js` route list, and the C
 proposal's SS4/SS5):
@@ -63,40 +72,25 @@ CPython embedding, ARKVM.js-style client latency logic, persistence,
 auth, and multi-route/site_name support are explicitly out of scope
 here too -- same reasoning as CCTV-BACKEND-PROPOSAL.md SS6. This module
 also inherits the C proposal's single-root scaffold gap (SS6, "A
-route/site_name concept"): one running `cctv` process serves exactly
-one page's state, selectable with `--route` but defaulting to the
-site's first page.
+route/site_name concept"): one `--channel` session serves exactly one
+page's state, selectable with `--route` but defaulting to the site's
+first page.
 """
 
 from __future__ import annotations
 
-import argparse
 import http.server
 import json
 import socketserver
-import sys
 import threading
 import time
 import uuid
-from pathlib import Path
 from queue import Empty, Queue
 from typing import Any
 
 from arklight.backend.base import Backend
-from arklight.compiler.pipeline import CompileError, build, default_backends
 from arklight.ir.build import IRPage, WebsiteIR
 
-_STAGE_PREFIX = "[ARKlight]"
-_CCTV_PREFIX = "[ARKlight] CCTV:"
-
-_DEV_ONLY_BANNER = (
-    f"{_STAGE_PREFIX} CCTV is a development tool only -- do not run it in production/CI."
-)
-
-_DEFAULT_HOST = "127.0.0.1"
-_DEFAULT_PORT = 4242
-_MAX_PORT_SCAN_ATTEMPTS = 20
-_SSE_KEEPALIVE_SECONDS = 15
 _QUEUE_POLL_SECONDS = 1.0
 
 _CLIENT_JS_PATH = "/__arklight_cctv__/client.js"
@@ -428,129 +422,3 @@ def _make_handler(
             self._send_json(404, {"error": f"no such route: POST {path}"})
 
     return Handler
-
-
-# --------------------------------------------------------------------
-# Port binding -- SS5's "scan on default, fail-loud on --tune".
-# --------------------------------------------------------------------
-
-
-def _bind_server(handler_cls: type, host: str, requested_port: int | None) -> tuple[_CCTVHTTPServer, bool]:
-    """Returns (server, was_default_port_bumped). Raises OSError with a
-    clear message if `requested_port` (a `--tune`) is already in use --
-    an explicit port request fails loudly rather than silently
-    scanning to a port the user didn't ask for (SS5)."""
-    if requested_port is not None:
-        try:
-            return _CCTVHTTPServer((host, requested_port), handler_cls), False
-        except OSError as exc:
-            raise OSError(
-                f"--tune {requested_port} requested but couldn't bind {host}:{requested_port} -- {exc}"
-            ) from exc
-
-    port = _DEFAULT_PORT
-    last_error: OSError | None = None
-    for attempt in range(_MAX_PORT_SCAN_ATTEMPTS):
-        candidate = _DEFAULT_PORT + attempt
-        try:
-            server = _CCTVHTTPServer((host, candidate), handler_cls)
-            return server, candidate != _DEFAULT_PORT
-        except OSError as exc:
-            last_error = exc
-            continue
-    raise OSError(
-        f"couldn't bind any port in [{_DEFAULT_PORT}, {_DEFAULT_PORT + _MAX_PORT_SCAN_ATTEMPTS}) "
-        f"-- last error: {last_error}"
-    )
-
-
-# --------------------------------------------------------------------
-# CLI wiring
-# --------------------------------------------------------------------
-
-
-def add_subparser(subparsers: argparse._SubParsersAction) -> None:
-    parser = subparsers.add_parser(
-        "cctv",
-        help="Alpha-only dev tool: serve a page's live State(...) over SSE channels.",
-    )
-    parser.add_argument("entry", help="Site entry file, e.g. site.py")
-    parser.add_argument(
-        "-o", "--output", default="ARK", help="Output directory for the batch build (default: ARK)"
-    )
-    parser.add_argument(
-        "--route",
-        default=None,
-        help="Which page's State(...) to serve, by route (default: the site's first page).",
-    )
-    parser.add_argument(
-        "--host", default=_DEFAULT_HOST, help=f"Host to bind (default: {_DEFAULT_HOST})"
-    )
-    parser.add_argument(
-        "--tune",
-        type=int,
-        default=None,
-        metavar="PORT",
-        help=f"Bind exactly PORT; fail if it's busy instead of scanning forward. "
-        f"Default: start at {_DEFAULT_PORT} and scan forward on collision.",
-    )
-    parser.set_defaults(func=_cmd_cctv)
-
-
-def _cmd_cctv(args: argparse.Namespace) -> int:
-    entry = Path(args.entry).resolve()
-    if not entry.is_file():
-        print(f"ARKlight cctv failed: no such file -- {entry}", file=sys.stderr)
-        return 1
-
-    print(_DEV_ONLY_BANNER)
-
-    backend = _CCTVBackend(route=args.route)
-    output_dir = Path(args.output).resolve()
-    try:
-        result = build(entry, output_dir, backends=[*default_backends(), backend])
-    except CompileError as exc:
-        print(f"ARKlight cctv failed: {exc}", file=sys.stderr)
-        return 1
-
-    try:
-        page = select_page(result.ir, args.route)
-    except ValueError as exc:
-        print(f"ARKlight cctv failed: {exc}", file=sys.stderr)
-        return 1
-    if page is None:
-        print("ARKlight cctv failed: this site has no pages.", file=sys.stderr)
-        return 1
-
-    state = _State(page.state)
-    hub = _SSEHub()
-    handler_cls = _make_handler(state, hub)
-
-    try:
-        server, bumped = _bind_server(handler_cls, args.host, args.tune)
-    except OSError as exc:
-        print(f"ARKlight cctv failed: {exc}", file=sys.stderr)
-        return 1
-
-    _, port = server.server_address[:2]
-    if bumped:
-        print(f"\u279c  ARKlight CCTV ready (port {port}, default {_DEFAULT_PORT} was in use)\n")
-    else:
-        print(f"\u279c  ARKlight CCTV ready (port {port})\n")
-    print(f"\u279c  Channel [state]     http://{args.host}:{port}/state/stream")
-    print(f"\u279c  Channel [fragment]  http://{args.host}:{port}/fragment/stream")
-    print(f"\u279c  Legacy poll         http://{args.host}:{port}/state")
-    print(f"\n{_CCTV_PREFIX} serving route {page.route!r} -- Ctrl-C to stop.")
-
-    server_thread = threading.Thread(target=server.serve_forever, daemon=True)
-    server_thread.start()
-    try:
-        while server_thread.is_alive():
-            server_thread.join(timeout=1)
-    except KeyboardInterrupt:
-        print(f"\n{_CCTV_PREFIX} shutting down (keyboard interrupt).")
-    finally:
-        server.shutdown()
-        server_thread.join(timeout=5)
-
-    return 0

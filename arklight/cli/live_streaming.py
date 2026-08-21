@@ -1,13 +1,24 @@
 """
 `arklight live-streaming` -- a dev-only auto-rebuild + browser-reload
-server. Alpha-only (see `arklight.CHANNEL`): this is exactly the kind
-of experimental, moving-fast dev tool alpha exists for.
+server, plus (opt-in) a live `State(...)` SSE channel. Alpha-only (see
+`arklight.CHANNEL`): this is exactly the kind of experimental,
+moving-fast dev tool alpha exists for.
 
     arklight live-streaming --subscribe site.py [-o ARK] [--host H] [--port P]
+    arklight live-streaming --subscribe site.py --channel               # + random free port
+    arklight live-streaming --subscribe site.py --channel 2172          # + bind exactly 2172
     arklight live-streaming --status [site.py] [--status-pin]
     arklight live-streaming --unsubscribe [site.py]
 
-Two halves, deliberately not overlapping in responsibility:
+This is the unified CLI surface for both of the dev servers ARKlight's
+alpha channel used to expose as two separate subcommands
+(`arklight live-streaming` and `arklight cctv`). `arklight cctv` no
+longer exists on its own; what it did is now `--channel`, a flag on
+this command, since both are the same kind of thing -- a foreground,
+`--subscribe`-scoped dev server -- and a project almost always wants
+either or both together, not a second command to remember. The two
+halves still don't overlap in responsibility, they just now share one
+CLI entry point and one running process:
 
   - This module (stdlib-only Python -- ARKlight ships zero third-party
     runtime dependencies, see pyproject.toml) watches the entry file's
@@ -23,6 +34,17 @@ Two halves, deliberately not overlapping in responsibility:
     that SSE endpoint and call `location.reload()`. It has no
     filesystem access and can't invoke the compiler -- it is purely
     the passive receiving end of what this module pushes.
+  - `--channel [PORT]`, when given, additionally binds
+    `arklight.cli.cctv`'s state/fragment SSE server -- see that
+    module's docstring -- on a *second* port, started once from the
+    first successful build's IR and never reset by a rebuild (the
+    channel server predates and outlives any single rebuild, same as
+    it did as a standalone `arklight cctv` process). Bare `--channel`
+    asks the OS for any free port (`_bind_channel_server` below);
+    `--channel PORT` (e.g. `--channel 2172`) binds exactly that port
+    and fails loudly, rather than silently picking another one, if
+    it's already taken -- a port you named explicitly is a port you
+    expect to get.
 
 `--subscribe` runs in the *foreground*: it blocks the terminal it's
 launched from and streams rebuild logs there directly (the same stage
@@ -53,7 +75,8 @@ from pathlib import Path
 from typing import Any
 
 from arklight.backend.base import Backend
-from arklight.compiler.pipeline import CompileError, build, default_backends
+from arklight.cli import cctv
+from arklight.compiler.pipeline import BuildResult, CompileError, build, default_backends
 from arklight.config import ConfigError, load_config, section
 from arklight.ir.build import WebsiteIR
 
@@ -315,6 +338,35 @@ def _make_handler(session: _Session) -> type[http.server.SimpleHTTPRequestHandle
 
 
 # --------------------------------------------------------------------
+# --channel binding -- "explicit means explicit, otherwise ask the OS
+# for anything free." Unlike the old standalone `arklight cctv`
+# (which scanned forward from a fixed default port when none was
+# given), bare `--channel` binds `:0` and lets the OS hand back a
+# genuinely random, guaranteed-available port -- no scan, no
+# collision to retry.
+# --------------------------------------------------------------------
+
+
+def _bind_channel_server(
+    handler_cls: type, host: str, requested_port: int
+) -> "cctv._CCTVHTTPServer":
+    """`requested_port` is argparse's raw `--channel` value: `0` means
+    "flag given with no port" (the `const=0` sentinel `add_subparser`
+    wires up below) -- bind `:0` and let the OS choose. Any other
+    value is an explicit port that must bind exactly; raises OSError
+    with a clear message if it's already in use."""
+    if requested_port:
+        try:
+            return cctv._CCTVHTTPServer((host, requested_port), handler_cls)
+        except OSError as exc:
+            raise OSError(
+                f"--channel {requested_port} requested but couldn't bind "
+                f"{host}:{requested_port} -- {exc}"
+            ) from exc
+    return cctv._CCTVHTTPServer((host, 0), handler_cls)
+
+
+# --------------------------------------------------------------------
 # Watcher + rebuild
 # --------------------------------------------------------------------
 
@@ -368,27 +420,30 @@ def _print_alpha_warnings(caught: list[warnings.WarningMessage]) -> None:
         print(f"  - {w.message}", file=sys.stderr)
 
 
-def _rebuild(entry: Path, output: Path, backends: list[Backend]) -> bool:
-    """Run one build. Returns True on success, False on a caught
-    CompileError (already reported to stderr) -- either way the
+def _rebuild(entry: Path, output: Path, backends: list[Backend]) -> BuildResult | None:
+    """Run one build. Returns the `BuildResult` on success, `None` on a
+    caught CompileError (already reported to stderr) -- either way the
     watcher loop keeps running; a broken build during live-streaming
     shouldn't kill the whole session, since the whole point is that
-    the next save might fix it.
+    the next save might fix it. Returning the `BuildResult` (rather
+    than a bare bool, as before) is what lets `--channel` pick a
+    page's `State(...)` from the very first build without a second,
+    separate compile pass.
     """
     try:
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            build(entry, output, on_stage=_stage_logger, backends=backends)
+            result = build(entry, output, on_stage=_stage_logger, backends=backends)
     except CompileError as exc:
         print(f"{_LIVE_PREFIX} build failed -- {exc}", file=sys.stderr)
-        return False
+        return None
     except Exception as exc:  # noqa: BLE001 -- keep the watch loop alive regardless
         print(f"{_LIVE_PREFIX} unexpected error during rebuild -- {exc}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
-        return False
+        return None
 
     _print_alpha_warnings(caught)
-    return True
+    return result
 
 
 # --------------------------------------------------------------------
@@ -437,15 +492,52 @@ def _cmd_subscribe(args: argparse.Namespace) -> int:
 
     output = Path(args.output).resolve()
     backends = [*default_backends(), _LiveReloadBackend()]
+    if args.channel is not None:
+        backends.append(cctv._CCTVBackend(route=args.route))
 
     print(_DEV_ONLY_BANNER)
 
-    if not _rebuild(entry, output, backends):
+    initial_result = _rebuild(entry, output, backends)
+    if initial_result is None:
+        if args.channel is not None:
+            # Unlike plain live-streaming (which can start serving stale
+            # output and pick up a fix on the next save), --channel has
+            # nothing to seed its State(...) from without a successful
+            # build -- fail the whole session rather than start half-up.
+            print(
+                "ARKlight live-streaming failed: initial build failed -- fix the "
+                "error above and rerun; --channel needs a successful build to "
+                "know what State(...) to serve.",
+                file=sys.stderr,
+            )
+            return 1
         print(
             f"{_LIVE_PREFIX} initial build failed -- fix the error above and save "
             f"again; the session is still starting so it can pick up the fix.",
             file=sys.stderr,
         )
+
+    channel_server: cctv._CCTVHTTPServer | None = None
+    channel_port: int | None = None
+    if args.channel is not None:
+        try:
+            page = cctv.select_page(initial_result.ir, args.route)
+        except ValueError as exc:
+            print(f"ARKlight live-streaming failed: {exc}", file=sys.stderr)
+            return 1
+        if page is None:
+            print("ARKlight live-streaming failed: this site has no pages.", file=sys.stderr)
+            return 1
+
+        channel_state = cctv._State(page.state)
+        channel_hub = cctv._SSEHub()
+        channel_handler_cls = cctv._make_handler(channel_state, channel_hub)
+        try:
+            channel_server = _bind_channel_server(channel_handler_cls, host, args.channel)
+        except OSError as exc:
+            print(f"ARKlight live-streaming failed: {exc}", file=sys.stderr)
+            return 1
+        channel_port = channel_server.server_address[1]
 
     session = _Session(output_dir=output)
     handler_cls = _make_handler(session)
@@ -467,6 +559,7 @@ def _cmd_subscribe(args: argparse.Namespace) -> int:
         "output": str(output),
         "host": host,
         "port": port,
+        "channel_port": channel_port,
         "started_at": session.started_at,
     }
     _write_registry(registry)
@@ -476,6 +569,8 @@ def _cmd_subscribe(args: argparse.Namespace) -> int:
         if reg.pop(key, None) is not None:
             _write_registry(reg)
         running.server.shutdown()
+        if channel_server is not None:
+            channel_server.shutdown()
 
     def _handle_signal(signum: int, _frame: Any) -> None:  # noqa: ARG001
         print(f"\n{_LIVE_PREFIX} shutting down (signal {signum}).")
@@ -488,6 +583,16 @@ def _cmd_subscribe(args: argparse.Namespace) -> int:
     server_thread = threading.Thread(target=running.server.serve_forever, daemon=True)
     server_thread.start()
     print(f"{_LIVE_PREFIX} serving {output}/ at http://{host}:{port}/ (pid={os.getpid()})")
+
+    channel_thread: threading.Thread | None = None
+    if channel_server is not None:
+        channel_thread = threading.Thread(target=channel_server.serve_forever, daemon=True)
+        channel_thread.start()
+        print(
+            f"{_LIVE_PREFIX} channel ready on port {channel_port} "
+            f"(state http://{host}:{channel_port}/state/stream, "
+            f"fragment http://{host}:{channel_port}/fragment/stream)"
+        )
 
     watch_root = entry.parent
     last_snapshot = _snapshot_mtimes(watch_root)
@@ -502,10 +607,10 @@ def _cmd_subscribe(args: argparse.Namespace) -> int:
             last_snapshot = snapshot
 
             print(f"{_LIVE_PREFIX} change detected in {changed} -> rebuilding")
-            ok = _rebuild(entry, output, backends)
+            result = _rebuild(entry, output, backends)
             session.rebuild_count += 1
             session.last_rebuild_at = time.time()
-            if ok:
+            if result is not None:
                 notified = session.broadcast_reload()
                 print(f"{_LIVE_PREFIX} rebuilt, notified {notified} client(s).")
     except KeyboardInterrupt:
@@ -513,6 +618,8 @@ def _cmd_subscribe(args: argparse.Namespace) -> int:
     finally:
         _cleanup()
         server_thread.join(timeout=5)
+        if channel_thread is not None:
+            channel_thread.join(timeout=5)
 
     return 0
 
@@ -582,10 +689,12 @@ def _cmd_status(args: argparse.Namespace) -> int:
     uptime = time.time() - entry_info["started_at"]
 
     if not args.status_pin:
+        channel_port = entry_info.get("channel_port")
+        channel_note = f", channel http://{entry_info['host']}:{channel_port}/" if channel_port else ""
         print(
             f"{_LIVE_PREFIX} subscribed to {entry_info['entry']} "
             f"(pid={entry_info['pid']}, up {uptime:.0f}s, "
-            f"http://{entry_info['host']}:{entry_info['port']}/)",
+            f"http://{entry_info['host']}:{entry_info['port']}/{channel_note})",
         )
         return 0
 
@@ -598,6 +707,9 @@ def _cmd_status(args: argparse.Namespace) -> int:
     print(f"  output:       {entry_info['output']}")
     print(f"  pid:          {entry_info['pid']}")
     print(f"  serving:      http://{entry_info['host']}:{entry_info['port']}/")
+    channel_port = entry_info.get("channel_port")
+    if channel_port:
+        print(f"  channel:      http://{entry_info['host']}:{channel_port}/")
     print(f"  uptime:       {uptime:.0f}s")
     return 0
 
@@ -660,6 +772,26 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> None:
         help="With --status: show verbose session details instead of a one-line "
         "summary. Applies only to this invocation -- not remembered for next "
         "time, and has no effect on the running --subscribe session.",
+    )
+    parser.add_argument(
+        "--channel",
+        type=int,
+        nargs="?",
+        const=0,
+        default=None,
+        metavar="PORT",
+        help="With --subscribe: also serve the selected page's live "
+        "State(...) over SSE (formerly the separate `arklight cctv` "
+        "command) on a second port -- PORT if given (e.g. --channel 2172; "
+        "fails if PORT is already in use rather than picking another), or "
+        "an OS-assigned random free port if --channel is given with no "
+        "value. Omit entirely to disable. See arklight.cli.cctv.",
+    )
+    parser.add_argument(
+        "--route",
+        default=None,
+        help="With --channel: which page's State(...) to serve, by route "
+        "(default: the site's first page).",
     )
     parser.set_defaults(func=_cmd_live_streaming)
 
