@@ -16,6 +16,7 @@
   "nativeAllowList": [
     "app.*",
     "os.*",
+    "window.*",
     "debug.log"
   ],
   "globalVariables": {
