@@ -4,4 +4,4 @@ Codename: stable
 Architectures: amd64 arm64
 Components: main
 Description: ARKlight Installer apt repository
-SignWith: ARKLIGHT_GPG_KEY_ID
+SignWith: 270C873705374ECE
