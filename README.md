@@ -68,6 +68,8 @@ This installs the `arklight` package and the `arklight` CLI command
 >sudo apt install arklight-installer
 ```
 
+This takes and installs the install for debian linux devices. Which be updated by sudo apt update
+
 ## CLI
 
 ```bash
