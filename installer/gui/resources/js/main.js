@@ -16,7 +16,15 @@ const modeLabel = document.getElementById('mode-label');
 const INSTALL_STAGES = ['Check', 'Connect', 'Runtime', 'Install', 'Done'];
 
 function onWindowClose() {
-    Neutralino.app.exit();
+    // Neutralino.app.exit() is the documented, correct way to quit — but on
+    // Linux/GTK it's a known upstream issue that this sometimes closes the
+    // window while leaving the process running in the background (see
+    // neutralinojs/neutralinojs#434). Force-kill as a fallback if the
+    // graceful exit hasn't actually ended the process shortly after.
+    Neutralino.app.exit().catch(() => {});
+    setTimeout(() => {
+        Neutralino.app.killProcess().catch(() => {});
+    }, 500);
 }
 
 // Neutralino's own console forwarding stringifies rejection reasons as
