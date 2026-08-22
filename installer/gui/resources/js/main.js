@@ -128,6 +128,12 @@ async function checkInstallState() {
         <p class="screen-body">Looking for an existing ARKlight install…</p>
     `);
 
+    // Window starts hidden (neutralino.config.json "hidden": true) to avoid
+    // the blank/white flash during Neutralino's ~1-1.5s startup (see
+    // Neutralino issue #1217). Show it now that the first real screen has
+    // actually been painted above, instead of the empty scaffold.
+    Neutralino.window.show();
+
     try {
         const { result } = await runBackend('state');
         if (result.installed) {

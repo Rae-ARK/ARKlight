@@ -7,6 +7,7 @@ Windows, and macOS installer wizards.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import platform
 import shutil
@@ -141,6 +142,60 @@ def install_system(python_path: str, install_root: Path = DEFAULT_INSTALL_ROOT,
     return venv_dir / "bin" / "arklight"
 
 
+def _verify_asset_checksum(archive_path: Path, asset: dict, release: dict) -> None:
+    """Verify `archive_path` against a SHA-256 sourced from the GitHub
+    Releases API, before anything extracts or runs it.
+
+    Tries two sources, in order:
+    1. The asset's own `digest` field (GitHub API returns this as
+       `"sha256:<hex>"` for assets uploaded with a known digest).
+    2. A `SHA256SUMS`-style checksums file published as a sibling asset in
+       the same release, which python-build-standalone includes.
+
+    Raises RuntimeError if a checksum was found and did not match. If
+    neither source is available, this raises RuntimeError as well —
+    silently proceeding without verification defeats the point.
+    """
+    digest = asset.get("digest")  # e.g. "sha256:abc123..."
+    expected = None
+    if digest and digest.startswith("sha256:"):
+        expected = digest.split(":", 1)[1].lower()
+    else:
+        sums_asset = next(
+            (a for a in release.get("assets", [])
+             if a["name"].upper() in ("SHA256SUMS", "SHA256SUMS.TXT")
+             or a["name"].lower().endswith(".sha256")),
+            None,
+        )
+        if sums_asset is not None:
+            with urllib.request.urlopen(sums_asset["browser_download_url"], timeout=15) as resp:
+                sums_text = resp.read().decode("utf-8", errors="replace")
+            for line in sums_text.splitlines():
+                parts = line.split()
+                if len(parts) == 2 and parts[1].lstrip("*") == asset["name"]:
+                    expected = parts[0].lower()
+                    break
+
+    if expected is None:
+        raise RuntimeError(
+            f"No checksum available for {asset['name']} from the GitHub "
+            "release — refusing to extract an unverified Python runtime."
+        )
+
+    hasher = hashlib.sha256()
+    with open(archive_path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            hasher.update(chunk)
+    actual = hasher.hexdigest().lower()
+
+    if actual != expected:
+        archive_path.unlink(missing_ok=True)
+        raise RuntimeError(
+            f"Checksum mismatch for {asset['name']}: expected {expected}, "
+            f"got {actual}. The download was discarded."
+        )
+
+
 def _download_private_cpython(dest_dir: Path, progress: ProgressFn) -> Path:
     """Download and extract a prebuilt, relocatable CPython into `dest_dir`.
 
@@ -172,9 +227,16 @@ def _download_private_cpython(dest_dir: Path, progress: ProgressFn) -> Path:
     archive_path = dest_dir / asset["name"]
     urllib.request.urlretrieve(asset["browser_download_url"], archive_path)
 
+    progress("Verifying download integrity")
+    _verify_asset_checksum(archive_path, asset, release)
+
     progress("Extracting private Python runtime")
     with tarfile.open(archive_path) as tf:
-        tf.extractall(dest_dir)
+        # filter="data" rejects path-traversal (../) and other unsafe
+        # members instead of silently extracting them — see Python's own
+        # tarfile docs on unfiltered extractall() being unsafe against a
+        # maliciously crafted archive.
+        tf.extractall(dest_dir, filter="data")
     archive_path.unlink(missing_ok=True)
 
     # install_only archives extract to a top-level "python/" directory.

@@ -89,7 +89,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR UNIX AND NOT APPLE)
   set(CPACK_DEBIAN_PACKAGE_DEPENDS "python3, python3-venv")
   set(CPACK_DEBIAN_FILE_NAME "DEB-DEFAULT")
 
-  set(CPACK_RPM_PACKAGE_LICENSE "See README.md")
+  set(CPACK_RPM_PACKAGE_LICENSE "GPL-3.0-or-later WITH ARKlight-Additional-Terms")
   set(CPACK_RPM_PACKAGE_GROUP "Development/Tools")
   set(CPACK_RPM_PACKAGE_REQUIRES "python3")
   set(CPACK_RPM_FILE_NAME "RPM-DEFAULT")
@@ -148,9 +148,8 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows" OR WIN32)
   # breaks MSI upgrade/uninstall detection for existing installs.
   set(CPACK_WIX_UPGRADE_GUID "09a03fac-edc8-4ca3-bd48-94401e54f8af")
   set(CPACK_PACKAGE_EXECUTABLES "arklight-installer;ARKlight Installer")
-  # NOTE: no .ico bundled yet (only resources/icons/appIcon.png exists) —
-  # WIX/CPACK_PACKAGE_ICON left unset until one is added. Real gap, not
-  # silently worked around.
+  set(CPACK_PACKAGE_ICON "${CMAKE_CURRENT_SOURCE_DIR}/gui/resources/icons/appIcon.ico")
+  set(CPACK_WIX_PRODUCT_ICON "${CPACK_PACKAGE_ICON}")
 
 # ---------------------------------------------------------------------------
 # macOS
@@ -170,8 +169,7 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin" OR APPLE)
   set(CPACK_GENERATOR "DragNDrop;productbuild")
   set(CPACK_DMG_VOLUME_NAME "ARKlight Installer")
   set(CPACK_PRODUCTBUILD_IDENTIFIER "com.arklight.installer")
-  # NOTE: no .icns bundled yet — same gap as the Windows .ico, left
-  # unset rather than faked.
+  set(CPACK_BUNDLE_ICON "${CMAKE_CURRENT_SOURCE_DIR}/gui/resources/icons/appIcon.icns")
 
 else()
   message(FATAL_ERROR "Unsupported CMAKE_SYSTEM_NAME: ${CMAKE_SYSTEM_NAME}")
@@ -183,12 +181,13 @@ set(CPACK_PACKAGE_VERSION "${ARK_VERSION}")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Installer for ARKlight, the Python-first static site compiler")
 set(CPACK_PACKAGE_CONTACT "horizonarkstudio@gmail.com")
 # WIX only accepts .txt/.rtf and productbuild only accepts
-# .rtfd/.rtf/.html/.txt for this field — README.md's own extension fails
-# both generators even though .deb/.rpm/AppImage don't care. Copy its
-# content, byte for byte, into a .txt CPack can actually consume rather
-# than renaming/faking a license file that isn't the real README.
+# .rtfd/.rtf/.html/.txt for this field — LICENSE's own extension (none)
+# fails both generators even though .deb/.rpm/AppImage don't care. Copy
+# its content, byte for byte, into a .txt CPack can actually consume.
+# This is the project's real GPLv3 + Additional Terms LICENSE (same file
+# as main/alpha), not the README — see ARKLIGHT_INSTALLER_READINESS.md §3.
 set(_ark_license_txt "${CMAKE_CURRENT_BINARY_DIR}/LICENSE.txt")
-configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../README.md" "${_ark_license_txt}" COPYONLY)
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../LICENSE" "${_ark_license_txt}" COPYONLY)
 set(CPACK_RESOURCE_FILE_LICENSE "${_ark_license_txt}")
 
 include(CPack)
