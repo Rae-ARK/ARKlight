@@ -59,6 +59,15 @@ pip install -e .
 This installs the `arklight` package and the `arklight` CLI command
 (defined in `pyproject.toml`).
 
+## New another way to install ARKlight
+```
+>curl -fsSL https://rae-ark.github.io/ARKlight/pubkey.gpg | sudo gpg --dearmor -o /usr/share/keyrings/arklight.gpg
+>sudo rm -f /etc/apt/sources.list.d/arklight.list
+>echo "deb [signed-by=/usr/share/keyrings/arklight.gpg] https://rae-ark.github.io/ARKlight/ stable main" | sudo tee /etc/apt/sources.list.d/arklight.list
+>sudo apt update
+>sudo apt install arklight-installer
+```
+
 ## CLI
 
 ```bash
