@@ -1,7 +1,7 @@
 Origin: ARKlight
 Label: ARKlight
 Codename: stable
-Architectures: amd64 arm64
+Architectures: amd64
 Components: main
 Description: ARKlight Installer apt repository
 SignWith: 270C873705374ECE

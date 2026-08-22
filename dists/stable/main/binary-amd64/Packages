@@ -1,0 +1,15 @@
+Package: arklight-installer
+Version: 1.0.0
+Architecture: amd64
+Maintainer: Rae ARK <horizonarkstudio@gmail.com>
+Installed-Size: 3920
+Depends: python3, python3-venv
+Filename: pool/main/arklight-installer_1.0.0_amd64.deb
+Size: 1905012
+MD5sum: 8bda4a03376817f756903eb164bc9206
+SHA1: 4b829aef8cc79f3e1ee269f6f12183056fad52b9
+SHA256: 20f6fb2bafacfced43ed36b0d26f9f5603d5bb2c74bb172a33484f048bd6689b
+Section: devel
+Priority: optional
+Description: Installer for ARKlight, the Python-first static site compiler
+
