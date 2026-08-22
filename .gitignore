@@ -11,3 +11,5 @@ installer/gui/build/
 aarch64/
 x86_64/
 release-artifacts-new/
+
+arklight-apt/
