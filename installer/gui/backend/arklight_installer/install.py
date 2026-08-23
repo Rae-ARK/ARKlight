@@ -112,6 +112,23 @@ def _install_arklight(pip_argv: list[str], progress: ProgressFn, upgrade: bool =
         _run(github_args)
 
 
+def _scripts_dir(root: Path) -> Path:
+    """Return the directory holding executables/console-scripts for a venv
+    or install_only Python tree rooted at `root`.
+
+    Both venv and python-build-standalone install_only archives put
+    executables in "bin/" on Linux/macOS and "Scripts/" on Windows — this
+    is the one place that split is encoded so it isn't duplicated (and
+    silently assumed wrong on Windows) at every call site.
+    """
+    return root / "Scripts" if sys.platform == "win32" else root / "bin"
+
+
+def _exe(name: str) -> str:
+    """Append the platform's executable suffix to a bare command name."""
+    return f"{name}.exe" if sys.platform == "win32" else name
+
+
 def _arch_tag() -> str:
     machine = platform.machine().lower()
     if machine in ("x86_64", "amd64"):
@@ -135,11 +152,12 @@ def install_system(python_path: str, install_root: Path = DEFAULT_INSTALL_ROOT,
     # installer, since the installer may itself be a bundled private Python.
     _run([python_path, "-m", "venv", str(venv_dir)])
 
-    pip = venv_dir / "bin" / "pip"
+    scripts = _scripts_dir(venv_dir)
+    pip = scripts / _exe("pip")
     _run([str(pip), "install", "--upgrade", "pip"])
     _install_arklight([str(pip)], progress)
 
-    return venv_dir / "bin" / "arklight"
+    return scripts / _exe("arklight")
 
 
 def _verify_asset_checksum(archive_path: Path, asset: dict, release: dict) -> None:
@@ -211,7 +229,26 @@ def _download_private_cpython(dest_dir: Path, progress: ProgressFn) -> Path:
     arch = _arch_tag()
     # python-build-standalone asset names look like:
     #   cpython-3.12.4+20240709-x86_64-unknown-linux-gnu-install_only.tar.gz
-    wanted_suffix = f"{arch}-unknown-linux-gnu-install_only.tar.gz"
+    #   cpython-3.12.4+20240709-x86_64-pc-windows-msvc-install_only.tar.gz
+    #   cpython-3.12.4+20240709-aarch64-apple-darwin-install_only.tar.gz
+    # This MUST match the platform this code is currently running on — an
+    # earlier version of this function hardcoded the Linux triple on every
+    # OS, which on Windows silently downloaded and extracted a Linux
+    # tarball. That archive's share/terminfo directory (ncurses' terminal
+    # database, Unix-only) is full of real POSIX symlinks used as terminal
+    # aliases; Windows can create the reparse point but can't resolve the
+    # POSIX-relative target, which fails extraction with
+    # "[WinError 1921] The name of the file cannot be resolved by the
+    # system" deep into an unrelated-looking file.
+    if sys.platform == "win32":
+        target_triple = f"{arch}-pc-windows-msvc"
+    elif sys.platform == "darwin":
+        target_triple = f"{arch}-apple-darwin"
+    elif sys.platform.startswith("linux"):
+        target_triple = f"{arch}-unknown-linux-gnu"
+    else:
+        raise RuntimeError(f"Unsupported platform for private runtime: {sys.platform}")
+    wanted_suffix = f"{target_triple}-install_only.tar.gz"
     asset = next(
         (a for a in release.get("assets", [])
          if a["name"].startswith("cpython-") and a["name"].endswith(wanted_suffix)),
@@ -219,7 +256,7 @@ def _download_private_cpython(dest_dir: Path, progress: ProgressFn) -> Path:
     )
     if asset is None:
         raise RuntimeError(
-            f"No matching private Python build found for linux-{arch}"
+            f"No matching private Python build found for {target_triple}"
         )
 
     progress(f"Downloading {asset['name']}")
@@ -240,10 +277,12 @@ def _download_private_cpython(dest_dir: Path, progress: ProgressFn) -> Path:
     archive_path.unlink(missing_ok=True)
 
     # install_only archives extract to a top-level "python/" directory.
+    # Windows builds place python.exe directly in that root (no bin/
+    # subdirectory); Unix builds put it under bin/python3.
     extracted = dest_dir / "python"
-    python_bin = extracted / "bin" / "python3"
+    python_bin = extracted / "python.exe" if sys.platform == "win32" else extracted / "bin" / "python3"
     if not python_bin.exists():
-        raise RuntimeError("Private Python runtime extraction did not produce bin/python3")
+        raise RuntimeError(f"Private Python runtime extraction did not produce {python_bin.name}")
     return python_bin
 
 
@@ -263,7 +302,11 @@ def install_private(install_root: Path = DEFAULT_INSTALL_ROOT,
     _run([str(python_bin), "-m", "pip", "install", "--upgrade", "pip"])
     _install_arklight([str(python_bin), "-m", "pip"], progress)
 
-    return python_bin.parent / "arklight"
+    # pip installs console-scripts into Scripts/ on Windows, but python_bin
+    # itself sits directly in the runtime root there (not a bin/ sibling
+    # to Scripts/) — so this can't just reuse python_bin.parent the way
+    # the Unix layout (bin/python3, bin/arklight side by side) allows.
+    return _scripts_dir(python_bin.parent) / _exe("arklight")
 
 
 @dataclass(frozen=True)
