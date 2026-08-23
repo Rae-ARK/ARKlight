@@ -139,7 +139,14 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows" OR WIN32)
     RENAME "arklight-installer.exe")
   install(FILES "${ARK_GUI_DIST}/resources.neu"
     DESTINATION ".")
-
+  # See the matching Linux install(DIRECTORY ...) above: the Python backend
+  # is a sibling of resources/, not bundled into resources.neu by `neu
+  # build`, and main.js shells out to it directly via NL_PATH/backend/
+  # main.py. Without this it lands next to nothing on Windows and every
+  # install is "Couldn't check install state" / "can't open file ...
+  # backend\main.py".
+  install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/gui/backend/"
+    DESTINATION "backend")
   set(CPACK_GENERATOR "WIX")
   # Must be a *valid* GUID (hex digits only in each segment) or WiX's
   # candle.exe rejects the generated .wxs outright ("Problem running WiX" /
@@ -165,7 +172,13 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin" OR APPLE)
     RENAME "arklight-installer")
   install(FILES "${ARK_GUI_DIST}/resources.neu"
     DESTINATION ".")
-
+  # See the matching Linux/Windows install(DIRECTORY ...) blocks: the
+  # Python backend is a sibling of resources/, not bundled into
+  # resources.neu by `neu build`, and main.js shells out to it directly
+  # via NL_PATH/backend/main.py. Without this, first launch fails with
+  # "can't open file .../backend/main.py".
+  install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/gui/backend/"
+    DESTINATION "backend")
   set(CPACK_GENERATOR "DragNDrop;productbuild")
   set(CPACK_DMG_VOLUME_NAME "ARKlight Installer")
   set(CPACK_PRODUCTBUILD_IDENTIFIER "com.arklight.installer")
