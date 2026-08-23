@@ -30,6 +30,7 @@ table, see [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md).
 | v0.044   | JS backend capability expansion (reactive core parity with Vue 3) | PLANNED |
 | v0.060   | Desktop backend (`arklight desktop` packaging)               | PLANNED |
 | v0.080   | Android backend (`arklight android` -- `androidx.webkit.WebViewAssetLoader` packaging) | PLANNED |
+| --       | KaiOS backend (`arklight kaios` -- packaged-app/`manifest.webapp` zip); design complete in `docs/Backends/KAIOS-BACKEND-IMPLEMENTATION.md`, no native toolchain dependency, implementation not started | PLANNED |
 | v0.100   | User-defined, reusable components                            | PLANNED |
 | v1.0     | Stable compiler                                              | PLANNED |
 

@@ -162,3 +162,103 @@ list/keyed-child updates, not as a drop-in performance-equivalent
 replacement. If both non-functional parity *and* implementation
 simplicity are required simultaneously, that is a genuine tension between
 the two documents and should be resolved explicitly before choosing one.
+
+## 6. New proposals — mapping this onto ARKlight's own reactive core
+
+Everything above is written against the standalone `oop-blog/` demo
+project. This section is new: it proposes how the same "clone
+snabbdom's core, pay for diffing once" trade-off applies directly to
+ARKlight's own JS backend (`arklight/backend/js/`), which --
+independently of this document, and unlike `oop-blog/` -- has already
+taken the first step described here. Cross-referenced from
+`docs/DESIGN-NOTES.md`'s "Reactive-core vdom staging" section and
+`PROGRESS.md`'s snapshot table, not duplicated from them.
+
+### 6.1 Where ARKlight already stands, relative to §1-§4 above
+
+ARKlight's `arklight/backend/js/vdom.py` (Stage 1 of the vdom
+staging, DONE) vendors the *same* four snabbdom-core pieces §1 above
+describes cloning (`init`, `h`, `vnode`, `htmlDomApi`) — the real
+difference is ARKlight vendors upstream snabbdom source directly
+(MIT-attributed) rather than reimplementing it from scratch, and,
+crucially, deliberately **stops at the bare core** rather than
+pulling in the optional modules §"This document assumes a vdom
+dependency" above lists (`class`, `props`, `attributes`, `style`,
+`eventlisteners`). Stage 2 (reactive class binding, DONE) proved out
+*why* that stop was correct for ARKlight's case: folding a toggled
+class into a vnode's `sel` would make `patch()`'s `sameVnode` check
+see a different vnode on every toggle and remount the element,
+silently dropping any `on_click` listener already wired to it — so
+Stage 2 shipped a small hand-written `classList.toggle` pass instead
+of adopting snabbdom's `classModule`. That is a concrete, shipped
+data point this document's own §5 tension ("both non-functional
+parity *and* implementation simplicity") gets resolved by, in
+practice: ARKlight is deliberately taking the vdom's *diffing*
+benefit for text-node re-render while still hand-writing the
+*attribute/class* surface, rather than adopting the full module set
+this document assumes. Any future work drawing on this document for
+ARKlight should treat that as the established precedent, not
+re-litigate whether to pull in `classModule`/`attributesModule`.
+
+### 6.2 Proposal: keying strategy for Stage 4's list rendering
+
+`docs/DESIGN-NOTES.md`'s `v0.044` names per-item list rendering
+(`Repeat(state_name, template=fn)`) as "the single biggest lift" and
+the direct successor to the `v0.0035` addendum II write-up ("comma-
+joined display is a stopgap, not the end state"). This is exactly the
+case §2's `key` field and §3's `sameVnode`/keyed-reordering algorithm
+in a real snabbdom-shaped core exist for — a plain index-based re-render
+(rebuild every `<li>` on every `store.set`) would defeat the entire
+point of vendoring a diff/patch algorithm in Stage 1. Proposal:
+
+- Emit each `Repeat(...)`-produced child vnode with `key` set to a
+  stable per-item identity, not its array index — matching this
+  document's own §2 point that index-based keys cause the diff
+  algorithm to misattribute DOM nodes across a reorder/removal
+  (relevant here since `Action.remove(name, index)`, already shipped,
+  removes by index and shifts every later item's index).
+- Reuse `arklight/backend/js/vdom.py`'s vendored `patch()` for this —
+  unlike Stage 2's class binding, list-item add/remove/reorder is
+  exactly the shape snabbdom's core diff was built for, so there is
+  no equivalent "the bare core can't do this safely" argument against
+  routing it through `patch()`.
+- Keep the *item template* itself closed-vocabulary (built from
+  existing `NodeSpec`/schema nodes, same as every other page-facing
+  IR construct), not an arbitrary JS render function — preserving the
+  "the browser never executes anything ARKlight didn't ship"
+  guarantee `docs/DESIGN-NOTES.md`'s `v0.0035` design section states
+  as non-negotiable, and which this document's own hyperscript-based
+  `h(sel, data, children)` approach (§1) is naturally compatible with
+  since `h()` calls can be generated from IR nodes rather than
+  authored as free-form JS.
+
+### 6.3 Proposal: `Show`/conditional rendering as a vnode swap, not a style toggle
+
+`v0.044`'s `Show(Predicate.truthy("flag"), children)` could be
+implemented two ways: toggling `display: none` (a style concern,
+explicitly the kind of thing `v0.044`'s own scope boundary says
+"stays in the CSS/HTML backends"), or mounting/unmounting the
+underlying vnode subtree entirely (a structural concern, squarely
+`patch()`'s job). Proposal: the latter, via `patch()` diffing between
+the real subtree vnode and a comment-node/empty-text placeholder
+vnode (a common snabbdom idiom for "nothing here right now") — this
+keeps `Show` a pure reactivity primitive (whether something exists in
+the DOM at all) rather than smuggling a styling decision into the JS
+backend, honoring the `v0.044` scope boundary this document's §0
+relationship-framing doesn't itself address but which governs
+everything downstream of it in ARKlight's actual codebase.
+
+### 6.4 What this section deliberately does not propose
+
+Matching §6 of `docs/DESIGN-NOTES.md`'s `v0.044` "explicitly out of
+scope" list, carried over here rather than re-decided: no adoption of
+snabbdom's `eventlisteners` module (ARKlight's existing hand-written
+`wireActions`/`arkApplyModifiers` dispatch already covers this, and
+Stage 3 shipped without needing it — see `CHANGELOG.md`'s
+"Stage 3 of the vdom staging" entry); no `props`/`attributes` module
+adoption for the same reason Stage 2 declined `class` (remount risk on
+ARKlight's specific `on_click`-listener-per-element shape, not a
+general verdict on those modules' quality); and no expression
+evaluator of any kind feeding `h()`'s `children` — every vnode
+ARKlight's JS backend ever constructs is generated from validated IR,
+never from a runtime-evaluated template string.
