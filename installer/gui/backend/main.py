@@ -21,6 +21,9 @@ from arklight_installer.detect import find_system_pythons
 from arklight_installer.install import (
     DEFAULT_BIN_DIR,
     DEFAULT_INSTALL_ROOT,
+    _exe,
+    _private_runtime_root,
+    _scripts_dir,
     install_private,
     install_system,
 )
@@ -57,11 +60,11 @@ def cmd_state() -> dict:
     §3). Stage 1 only needs to answer this question — the maintenance
     flows themselves are Stage 2.
     """
-    system_entry = DEFAULT_INSTALL_ROOT / "venv" / "bin" / "arklight"
+    system_entry = _scripts_dir(DEFAULT_INSTALL_ROOT / "venv") / _exe("arklight")
     if system_entry.exists():
         return {"installed": True, "mode": "system", "entry": str(system_entry)}
 
-    private_entry = DEFAULT_INSTALL_ROOT / "runtime" / "bin" / "arklight"
+    private_entry = _scripts_dir(_private_runtime_root(DEFAULT_INSTALL_ROOT / "runtime")) / _exe("arklight")
     if private_entry.exists():
         return {"installed": True, "mode": "private", "entry": str(private_entry)}
 

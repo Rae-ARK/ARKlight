@@ -214,6 +214,28 @@ def _verify_asset_checksum(archive_path: Path, asset: dict, release: dict) -> No
         )
 
 
+def _private_runtime_root(runtime_dir: Path) -> Path:
+    """Root of the extracted install_only CPython tree for a private
+    runtime whose parent install directory is `runtime_dir`.
+
+    install_only archives extract to a top-level "python/" directory
+    inside wherever they're extracted — this is the one place that's
+    encoded, since it's easy to accidentally write `runtime_dir /` where
+    `_private_runtime_root(runtime_dir) /` is needed instead (checking
+    directly under runtime_dir silently looks in the wrong place, one
+    level too shallow, and just never finds anything).
+    """
+    return runtime_dir / "python"
+
+
+def _interpreter_path(root: Path) -> Path:
+    """Path to the python executable inside an install_only CPython tree
+    rooted at `root`. Windows builds place python.exe directly in that
+    root (no bin/ subdirectory); Unix builds put it under bin/python3.
+    """
+    return root / "python.exe" if sys.platform == "win32" else root / "bin" / "python3"
+
+
 def _download_private_cpython(dest_dir: Path, progress: ProgressFn) -> Path:
     """Download and extract a prebuilt, relocatable CPython into `dest_dir`.
 
@@ -276,11 +298,11 @@ def _download_private_cpython(dest_dir: Path, progress: ProgressFn) -> Path:
         tf.extractall(dest_dir, filter="data")
     archive_path.unlink(missing_ok=True)
 
-    # install_only archives extract to a top-level "python/" directory.
-    # Windows builds place python.exe directly in that root (no bin/
-    # subdirectory); Unix builds put it under bin/python3.
-    extracted = dest_dir / "python"
-    python_bin = extracted / "python.exe" if sys.platform == "win32" else extracted / "bin" / "python3"
+    # install_only archives extract to a top-level "python/" directory —
+    # see _private_runtime_root's docstring for why that's factored out
+    # rather than inlined as `dest_dir / "python"` here.
+    extracted = _private_runtime_root(dest_dir)
+    python_bin = _interpreter_path(extracted)
     if not python_bin.exists():
         raise RuntimeError(f"Private Python runtime extraction did not produce {python_bin.name}")
     return python_bin
@@ -302,11 +324,7 @@ def install_private(install_root: Path = DEFAULT_INSTALL_ROOT,
     _run([str(python_bin), "-m", "pip", "install", "--upgrade", "pip"])
     _install_arklight([str(python_bin), "-m", "pip"], progress)
 
-    # pip installs console-scripts into Scripts/ on Windows, but python_bin
-    # itself sits directly in the runtime root there (not a bin/ sibling
-    # to Scripts/) — so this can't just reuse python_bin.parent the way
-    # the Unix layout (bin/python3, bin/arklight side by side) allows.
-    return _scripts_dir(python_bin.parent) / _exe("arklight")
+    return _scripts_dir(_private_runtime_root(runtime_dir)) / _exe("arklight")
 
 
 @dataclass(frozen=True)

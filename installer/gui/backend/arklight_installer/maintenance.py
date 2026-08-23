@@ -18,7 +18,11 @@ from typing import Callable, Optional
 from .install import (
     DEFAULT_BIN_DIR,
     DEFAULT_INSTALL_ROOT,
+    _exe,
     _install_arklight,
+    _interpreter_path,
+    _private_runtime_root,
+    _scripts_dir,
     install_private,
     install_system,
 )
@@ -80,7 +84,7 @@ def check_repair(install_root: Path = DEFAULT_INSTALL_ROOT) -> dict:
         }
 
     runtime_dir = install_root / "runtime"
-    if (runtime_dir / "bin" / "python3").exists():
+    if _interpreter_path(_private_runtime_root(runtime_dir)).exists():
         return {"mode": "private", "runtime": str(runtime_dir)}
 
     return {"mode": "none"}
@@ -141,19 +145,21 @@ def update_system(install_root: Path = DEFAULT_INSTALL_ROOT,
             "update_system() called with no valid interpreter — "
             "this is a Repair situation, not Update."
         )
-    pip = venv_dir / "bin" / "pip"
+    scripts = _scripts_dir(venv_dir)
+    pip = scripts / _exe("pip")
     _install_arklight([str(pip)], progress, upgrade=True)
-    return venv_dir / "bin" / "arklight"
+    return scripts / _exe("arklight")
 
 
 def update_private(install_root: Path = DEFAULT_INSTALL_ROOT,
                     progress: ProgressFn = _noop) -> Path:
     runtime_dir = install_root / "runtime"
-    python_bin = runtime_dir / "bin" / "python3"
+    root = _private_runtime_root(runtime_dir)
+    python_bin = _interpreter_path(root)
     if not python_bin.exists():
         raise RuntimeError("update_private() called with no private runtime present.")
     _install_arklight([str(python_bin), "-m", "pip"], progress, upgrade=True)
-    return runtime_dir / "bin" / "arklight"
+    return _scripts_dir(root) / _exe("arklight")
 
 
 # --------------------------------------------------------------------------
