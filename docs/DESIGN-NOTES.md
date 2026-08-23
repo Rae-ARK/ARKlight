@@ -545,7 +545,7 @@ behavior/action registries) lands first and independently; **v0.048**
 as v0.004a) does not depend on it and could technically land first if
 that's preferred once implementation starts.
 
-## Reactive-core vdom staging: Stage 1 of 8 (Stages 1-2 IMPLEMENTED, Stages 3-8 PLANNING)
+## Reactive-core vdom staging: Stage 1 of 8 (Stages 1-3 IMPLEMENTED, Stages 4-8 PLANNING)
 
 A separate, narrower initiative from `v0.044` below, tracked with its
 own "Stage N" numbering rather than a `v0.0XX` id because it isn't new
@@ -601,12 +601,52 @@ on that same element). Instead, `renderClassBindings` is a small,
 separate, hand-written pass doing a direct `el.classList.toggle(...)`
 -- correct, and honest about the vendored core's actual scope rather
 than pretending a bare core can do everything a full framework can.
-computed/derived state, two-way input binding, watch effects,
-conditional show/hide, per-item list rendering -- same designs
-already written up in `v0.044` below; landing them as Stage 3 through
-7 here (in the same "easiest/most-requested first" order `v0.044`
-already suggests) means they get built directly against Stage 1's
-vdom rather than the old textContent pass.
+
+**Stage 3 -- event modifiers (IMPLEMENTED).** New builder methods on
+`ActionRef`:
+
+```python
+Action.set("saved", True).debounce(300)
+Action.remove("items", 0).with_modifiers("prevent", "stop", "once")
+```
+
+`.with_modifiers(*names)` attaches bare boolean tokens
+(`prevent`/`stop`/`once`); `.debounce(ms)`/`.throttle(ms)` attach a
+param-carrying token (`"debounce:300"`/`"throttle:300"`). All tokens
+are drawn from a new closed `MODIFIER_REGISTRY`
+(`arklight/ir/schema.py`) -- same registry discipline
+`ACTION_REGISTRY`/`BEHAVIOR_REGISTRY` already established, so this
+stays "grow as data," not a compiler rewrite. Validation
+(`arklight/ir/validate.py`) rejects unknown modifier names and
+enforces that `debounce`/`throttle` carry a positive integer value
+while `prevent`/`stop`/`once` don't take one.
+
+The HTML backend renders the full set as a single
+`data-ark-modifiers="prevent,debounce:300"` attribute, omitted
+entirely for an `ActionRef` with no modifiers attached (same
+only-ship-what's-used discipline as everywhere else in this file).
+The JS runtime adds one small wrapper, `arkApplyModifiers`, that
+reads that attribute once per element and wraps the action dispatcher
+with `stop`/`once` short-circuiting and debounce/throttle timing,
+instead of duplicating that logic into every action fragment. `prevent`
+is honored by construction -- the existing click listener already
+calls `event.preventDefault()` unconditionally -- so
+`.with_modifiers("prevent")` mostly documents intent rather than
+changing runtime behavior. Named behaviors (`on_click="toggle"`, etc.)
+have no modifier-attaching API yet; deliberately out of scope here,
+since this stage only touches `ActionRef`-based `on_click`.
+
+Deliberately does *not* route through Stage 1's vendored vdom
+`patch()`: modifiers are a dispatch-timing concern on the listener
+itself, not a DOM-diffing concern, so there's nothing here for the
+vdom core to do. 17 tests (`tests/test_event_modifiers.py`); no
+change to `State`/`Bind`/existing `Action.*` behavior.
+
+Computed/derived state, two-way input binding, watch effects,
+conditional show/hide, and per-item list rendering remain -- same
+designs already written up in `v0.044` below; landing them as Stage 4
+through 7 here means they get built directly against Stage 1's vdom
+rather than the old textContent pass.
 
 **Stage 8 -- `State` persistence to browser storage (PLANNING).**
 Opt-in `localStorage` persistence for individual state keys --

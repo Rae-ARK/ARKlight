@@ -175,6 +175,23 @@ override path to work at all).
 
 ## [Unreleased]
 
+**Stage 3 of the vdom staging: event modifiers.**
+`Action.set("saved", True).debounce(300)` /
+`Action.remove("items", 0).with_modifiers("prevent", "stop", "once")`
+attach `prevent`/`stop`/`once`/`debounce:<ms>`/`throttle:<ms>` tokens
+to an `ActionRef`, validated against a new closed `MODIFIER_REGISTRY`
+(`arklight/ir/schema.py`) the same way `ACTION_REGISTRY` already is.
+Compiles to a single `data-ark-modifiers="prevent,debounce:300"`
+attribute (omitted when unused), read once per element by a new
+`arkApplyModifiers` JS runtime wrapper that handles `stop`/`once`
+short-circuiting and debounce/throttle timing around the existing
+action dispatcher -- `prevent` was already honored unconditionally by
+the click listener, so this stage mostly makes that intent explicit
+and named. 17 new tests (`tests/test_event_modifiers.py`); no change
+to `State`/`Bind`/existing `Action.*` behavior. Deliberately does not
+route through Stage 1's vendored vdom -- this is a dispatch-timing
+concern on the listener, not a DOM-diffing one.
+
 **Documentation fix: the container-width bug fix itself was never
 documented.** `arklight/api.py`'s own `Site.__init__` comment has
 pointed at `docs/CONTAINER-WIDTH-BUG.md` since the fix landed in

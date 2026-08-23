@@ -24,6 +24,7 @@ table, see [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md).
 | v0.041   | CLI/pipeline/JS runtime hardening + stateful JS addenda I/II | DONE    |
 | vdom-1   | Reactive-core vdom staging, Stage 1 of 8: vendored snabbdom bare core swapped into `State`'s re-render pass | DONE |
 | vdom-2   | Reactive-core vdom staging, Stage 2 of 8: reactive class binding (`Bind.when(...)`/`bind_class=`) | DONE |
+| vdom-3   | Reactive-core vdom staging, Stage 3 of 8: event modifiers (`.with_modifiers(...)`/`.debounce(...)`/`.throttle(...)`) | DONE |
 | v0.0431  | Emergency patch: build-time warning for unrouted `srcset`/`poster`/`action`/`formaction` | DONE |
 | v0.048   | CSS `@media` queries + `<head>`/`<header>` extension (Stage A of 2: `meta`/`links`) | IN PROGRESS |
 | v0.044   | JS backend capability expansion (reactive core parity with Vue 3) | PLANNED |
@@ -233,6 +234,41 @@ small, separate, hand-written `renderClassBindings` pass
 (`el.classList.toggle(...)`) instead -- correct, and more honest about
 what a *bare* vdom core actually covers than stretching it to do
 something it wasn't built for. Next queued: Stage 3 (event modifiers).
+
+## Reactive-core vdom staging -- Stage 3: event modifiers (DONE)
+
+`Action.set("saved", True).debounce(300)` / `Action.remove("items",
+0).with_modifiers("prevent", "stop", "once")` -- new builder methods
+on `ActionRef` (`arklight/ast/nodes.py`) attach `prevent`/`stop`/
+`once`/`debounce:<ms>`/`throttle:<ms>` tokens, drawn from a new
+closed `MODIFIER_REGISTRY` (`arklight/ir/schema.py`), the same
+registry discipline `ACTION_REGISTRY`/`BEHAVIOR_REGISTRY` already
+established. Validation (`arklight/ir/validate.py`) rejects unknown
+modifier names and enforces that `debounce`/`throttle` carry a
+positive integer value while `prevent`/`stop`/`once` don't take one.
+
+The HTML backend renders the modifiers as a single
+`data-ark-modifiers="prevent,debounce:300"` attribute on the element
+(omitted entirely when an `ActionRef` has no modifiers attached, same
+only-ship-what's-used discipline as everywhere else). The JS runtime
+adds one small wrapper, `arkApplyModifiers`, that reads that attribute
+once per element and wraps the action dispatcher with `stop`/`once`
+short-circuiting plus debounce/throttle timing -- `prevent` itself is
+already honored unconditionally by the existing click listener's
+`event.preventDefault()`, so `.with_modifiers("prevent")` is really
+documenting intent rather than changing runtime behavior. Named
+behaviors (`on_click="toggle"`, etc.) have no modifier-attaching API
+yet -- deliberately out of scope for this stage, which only touches
+`ActionRef`-based `on_click`.
+
+17 new tests (`tests/test_event_modifiers.py`). No change to
+`State`/`Bind`/existing `Action.*` behavior, and this stage does not
+route through Stage 1's vendored vdom `patch()` -- modifiers are a
+dispatch-timing concern on the listener itself, not a DOM-diffing
+concern. Next queued: Stages 4-7 (computed/derived state, watch
+effects, two-way input binding, per-item list rendering, conditional
+show/hide -- the remaining `v0.044` sub-systems), then Stage 8
+(`localStorage` persistence for `State`).
 
 ## v0.044 -- JS backend capability expansion: reactive core parity with Vue 3 (PLANNED)
 
