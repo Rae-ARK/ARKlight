@@ -232,7 +232,14 @@ backend section) to stop scope creep before it's assumed-in later:
   not something this packaging backend should silently work around
   with a transpile step -- ARKlight has no build-time JS transpiler
   today and adding one is a far larger commitment than packaging
-  calls for.
+  calls for. This applies equally to any future vendored dependency,
+  not just hand-written stages -- see
+  `docs/Backends/JS-BACKEND-REFACTOR-PLAN.md`'s "Cross-cutting risk"
+  section, which flags that HTMX (proposed for the app-shell
+  navigation work that section describes, and directly relevant here
+  since it's what would let a packaged KaiOS build avoid full-page
+  reloads between routes) has not yet been verified against Gecko 48
+  the way ARKlight's own hand-written output has.
 - **Certified-app signing / carrier submission tooling.** Getting an
   app onto the KaiOS Store or carrier-preloaded is a relationship and
   process this backend has no way to automate or should try to; it

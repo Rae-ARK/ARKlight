@@ -51,6 +51,15 @@ go-ahead before implementation starts on any of these:
   `arklight.ir.schema.SCHEMA`, the same source of truth every compiler
   stage already reads from. Read-only reflection, no new data format.
 - **`arklight --help`** -- standard CLI usage/help text.
+- **JS backend refactor (module split + HTMX-bus adoption + app-shell
+  navigation), staged** -- see
+  `docs/Backends/JS-BACKEND-REFACTOR-PLAN.md`. Reconciles the
+  remaining vdom-staging work (Stages 4-8 below) with
+  `docs/Backends/HTMX-INTEGRATION.md`'s 4-stage plan, adds a new
+  `app_shell=True` navigation stage the packaging backends
+  (Android/KaiOS/Desktop) all implicitly need, and names -- without
+  scoping -- a later, explicitly opt-in server-backed state-streaming
+  milestone informed by an external reference prototype.
 
 ## v0.048 -- Stage A: structured `<head>` extension (IN PROGRESS)
 
