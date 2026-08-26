@@ -32,7 +32,19 @@ produces `ARK/index.html` -- plain, dependency-free HTML.
 
 ## Status
 
-**Current release: v0.0431 -- emergency patch, build-time warning for
+**Current release: v0.048 -- CSS `@media` queries + `<head>` extension
+(both stages DONE).** Stage A adds optional, structured `meta`/`links`
+props to `Page(...)` (no raw HTML string escape hatch, see "Head
+metadata" below); Stage B adds a `responsive_style` prop compiled by
+`CSSBackend` into real `@media` rules. Landed ahead of v0.054 (JS
+backend capability expansion, renumbered from v0.044) in the
+previously announced order. See
+[`docs/DESIGN-NOTES.md`](./docs/DESIGN-NOTES.md) ("v0.048: CSS media
+queries + `<head>` extension") for the design and
+[`PROGRESS.md`](./PROGRESS.md) ("v0.048 -- Stage A" / "Stage B") for
+each stage's implementation record.
+
+**Previous release: v0.0431 -- emergency patch, build-time warning for
 unrouted `srcset`/`poster`/`action`/`formaction`.** Alpha maintenance
 release: those four attributes aren't route-rewritten yet (only
 `href`/`src` are), so a route-shaped value now gets a clear, non-fatal
@@ -42,7 +54,7 @@ gets written either way. Full write-up, including what was checked and
 found *not* to be a problem, in [`CHANGELOG.md`](./CHANGELOG.md) and
 [`PROGRESS.md`](./PROGRESS.md) ("v0.0431 -- Emergency patch").
 
-**Previous release: v0.043 -- optional `<head>` metadata props +
+**Before that: v0.043 -- optional `<head>` metadata props +
 backend `postprocess` hook.** `Page(...)` gains five optional props
 beyond the existing `title`: `description`, `favicon`, `og_title`,
 `og_description`, `og_image` (see "Head metadata" below) -- all
@@ -56,17 +68,6 @@ source (see "Compiler pipeline" below). v0.042 (extra CSS features +
 CLI discoverability) shipped just before this -- full detail in
 [`CHANGELOG.md`](./CHANGELOG.md); narrative/decision log in
 [`PROGRESS.md`](./PROGRESS.md).
-
-**Latest release: v0.048 -- CSS `@media` queries + `<head>` extension
-(both stages DONE).** Stage A adds optional, structured `meta`/`links`
-props to `Page(...)` (no raw HTML string escape hatch, see "Head
-metadata" below); Stage B adds a `responsive_style` prop compiled by
-`CSSBackend` into real `@media` rules. Landed ahead of v0.054 (below)
-in the previously announced order. See
-[`docs/DESIGN-NOTES.md`](./docs/DESIGN-NOTES.md) ("v0.048: CSS media
-queries + `<head>` extension") for the design and
-[`PROGRESS.md`](./PROGRESS.md) ("v0.048 -- Stage A" / "Stage B") for
-each stage's implementation record.
 
 **Next up: v0.054 -- JS backend capability expansion.** (Renumbered
 from v0.044 now that v0.048 has shipped -- see
