@@ -5,6 +5,39 @@ follows [Keep a Changelog](https://keepachangelog.com/); versions
 follow the milestone scheme from ARCHITECTURE.md rather than strict
 SemVer.
 
+## [0.048] - Unreleased
+
+**Stage A of v0.048: structured `<head>` extension.** `Page(...)`
+gains two more optional, structured props: `meta: dict[str, str] |
+None` (name/content pairs, each rendered as `<meta name="..."
+content="...">`) and `links: list[dict[str, str]] | None` (each dict
+an attribute -> value map rendered as one `<link ...>` tag, for
+preconnect/webfonts/extra icon sizes beyond `favicon`). No raw
+HTML-injection escape hatch -- same discipline as every other
+extension point in the project. Validated in `arklight/ir/validate.py`
+(`_validate_page_head_extensions`, `Page`-only); rendered in
+`arklight/backend/html/render.py`'s `_render_head_meta`, appended
+after the existing `description`/`favicon`/`og_*` tags. `links`
+entries are emitted verbatim (not resolved as a relative build asset
+the way `favicon`/`og_image` are), since a `links` entry is at least
+as likely to point at an external origin as a local one. 10 new tests
+in `tests/test_html_backend.py`; 541 tests total, all passing. Fully
+additive -- a page that sets neither prop renders byte-for-byte
+unchanged.
+
+With this stage landing, **v0.048 (CSS `@media` queries + `<head>`
+extension) is now DONE in full** -- Stage B (`responsive_style` +
+`@media` compilation) shipped previously; see `PROGRESS.md` for both
+stages' implementation records.
+
+**Renumbered the milestones behind v0.048** now that it has shipped
+(see `docs/ARCHITECTURE.md` for the full note): JS backend capability
+expansion moves `v0.044` -> `v0.054`; user-defined components moves
+`v0.100` -> `v0.060`; the Desktop backend moves `v0.060` -> `v0.080`;
+the Android backend moves `v0.080` -> `v0.100`; and the KaiOS backend
+-- previously designed but unnumbered -- is now `v0.120`. No scope or
+design changes, sequencing only.
+
 ## [0.0436] - Unreleased
 
 **Added `arklight live-streaming`, an alpha-only dev server: watch,
@@ -228,15 +261,16 @@ rendering, conditional show/hide, attribute/class binding, and a
 planned "Stage 8": `localStorage` persistence for `State`) a real
 diff/patch algorithm to build on rather than each hand-rolling one.
 
-Next up is **v0.044** (JS backend capability
+**v0.048** (CSS `@media` queries + structured `<head>`/`<header>`
+extension) has since shipped in full -- see the `[0.048]` entry above.
+Next up is **v0.054** (renumbered from v0.044: JS backend capability
 expansion -- computed/derived state, watch effects, two-way input
 binding, per-item list rendering, conditional show/hide, event
-modifiers, reactive class binding), with **v0.048** (CSS `@media`
-queries + structured `<head>`/`<header>` extension) queued right
-behind it -- see the "Planned" section of [`PROGRESS.md`](./PROGRESS.md)
-and [`docs/DESIGN-NOTES.md`](./docs/DESIGN-NOTES.md) ("v0.044: JS
-backend capability expansion -- reactive core parity with Vue 3" and
-"v0.048: CSS media queries + `<head>` extension") for both designs.
+modifiers, reactive class binding) -- see the "Planned" section of
+[`PROGRESS.md`](./PROGRESS.md) and
+[`docs/DESIGN-NOTES.md`](./docs/DESIGN-NOTES.md) ("v0.044: JS backend
+capability expansion -- reactive core parity with Vue 3") for the
+design.
 
 ## [0.0431] -- Emergency patch: unrouted-reference build warning
 

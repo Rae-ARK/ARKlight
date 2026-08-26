@@ -1,3 +1,5 @@
+import pytest
+
 from arklight.api import (
     Audio,
     Blockquote,
@@ -426,3 +428,86 @@ def test_page_description_is_html_escaped():
     ]
     assert "<script>alert" not in html
     assert "&lt;script&gt;" in html
+
+
+# v0.048 Stage A: structured <head> extension (`meta`/`links`).
+
+
+def test_page_meta_renders_name_content_pairs():
+    html = render({"/": Page(Heading("Hi"), meta={"theme-color": "#0f0f0f"})})["index.html"]
+    assert '<meta name="theme-color" content="#0f0f0f">' in html
+
+
+def test_page_meta_renders_multiple_entries_in_order():
+    html = render(
+        {"/": Page(Heading("Hi"), meta={"author": "ARK", "robots": "noindex"})}
+    )["index.html"]
+    assert '<meta name="author" content="ARK">' in html
+    assert '<meta name="robots" content="noindex">' in html
+    assert html.index('name="author"') < html.index('name="robots"')
+
+
+def test_page_meta_is_html_escaped():
+    html = render({"/": Page(Heading("Hi"), meta={"x": '"><script>alert(1)</script>'})})[
+        "index.html"
+    ]
+    assert "<script>alert" not in html
+
+
+def test_page_links_renders_arbitrary_attributes():
+    html = render(
+        {
+            "/": Page(
+                Heading("Hi"),
+                links=[{"rel": "preconnect", "href": "https://fonts.gstatic.com"}],
+            )
+        }
+    )["index.html"]
+    assert '<link rel="preconnect" href="https://fonts.gstatic.com">' in html
+
+
+def test_page_links_renders_multiple_link_tags():
+    html = render(
+        {
+            "/": Page(
+                Heading("Hi"),
+                links=[
+                    {"rel": "preconnect", "href": "https://fonts.gstatic.com"},
+                    {"rel": "icon", "href": "assets/icon-32.png", "sizes": "32x32"},
+                ],
+            )
+        }
+    )["index.html"]
+    assert '<link rel="preconnect" href="https://fonts.gstatic.com">' in html
+    assert '<link rel="icon" href="assets/icon-32.png" sizes="32x32">' in html
+
+
+def test_page_links_is_html_escaped():
+    html = render(
+        {"/": Page(Heading("Hi"), links=[{"rel": "icon", "href": '"><script>x</script>'}])}
+    )["index.html"]
+    assert "<script>x" not in html
+
+
+def test_page_without_meta_or_links_renders_unchanged():
+    # No meta/links supplied -> no extra <meta>/<link> tags beyond the
+    # fixed charset/viewport/stylesheet ones every page already emits.
+    html = render({"/": Page(Heading("Hi"), title="My Page")})["index.html"]
+    assert '<meta name="viewport"' in html
+    assert '<link rel="stylesheet"' in html
+    assert html.count("<meta") == 2
+    assert html.count("<link") == 1
+
+
+def test_page_meta_invalid_shape_raises_validation_error():
+    from arklight.ir.validate import ValidationError
+
+    with pytest.raises(ValidationError):
+        render({"/": Page(Heading("Hi"), meta={})})
+
+
+def test_page_links_missing_rel_raises_validation_error():
+    from arklight.ir.validate import ValidationError
+
+    with pytest.raises(ValidationError):
+        render({"/": Page(Heading("Hi"), links=[{"href": "assets/icon.png"}])})

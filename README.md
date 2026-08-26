@@ -57,37 +57,40 @@ CLI discoverability) shipped just before this -- full detail in
 [`CHANGELOG.md`](./CHANGELOG.md); narrative/decision log in
 [`PROGRESS.md`](./PROGRESS.md).
 
-**Next up: v0.048 -- CSS `@media` queries + `<head>` extension
-(Stage A in progress).** Started ahead of v0.044 in the previously
-announced order. Stage A adds optional, structured `meta`/`links`
-props to `Page(...)` (no raw HTML string escape hatch); Stage B (next)
-adds a `responsive_style` prop compiled by `CSSBackend` into real
-`@media` rules. See [`docs/DESIGN-NOTES.md`](./docs/DESIGN-NOTES.md)
-("v0.048: CSS media queries + `<head>` extension").
+**Latest release: v0.048 -- CSS `@media` queries + `<head>` extension
+(both stages DONE).** Stage A adds optional, structured `meta`/`links`
+props to `Page(...)` (no raw HTML string escape hatch, see "Head
+metadata" below); Stage B adds a `responsive_style` prop compiled by
+`CSSBackend` into real `@media` rules. Landed ahead of v0.054 (below)
+in the previously announced order. See
+[`docs/DESIGN-NOTES.md`](./docs/DESIGN-NOTES.md) ("v0.048: CSS media
+queries + `<head>` extension") for the design and
+[`PROGRESS.md`](./PROGRESS.md) ("v0.048 -- Stage A" / "Stage B") for
+each stage's implementation record.
 
-**Also queued: v0.044 -- JS backend capability expansion.** Computed/
-derived state, watch effects, two-way input binding, per-item list
-rendering, conditional show/hide, event modifiers, and reactive class
-binding -- all via closed, described registries (no arbitrary JS, no
-`eval`), same discipline as the existing `State`/`Bind`/`Action.*`
-system. Design complete, implementation not started. See
+**Next up: v0.054 -- JS backend capability expansion.** (Renumbered
+from v0.044 now that v0.048 has shipped -- see
+[`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for the full
+renumbering.) Computed/derived state, watch effects, two-way input
+binding, per-item list rendering, conditional show/hide, event
+modifiers, and reactive class binding -- all via closed, described
+registries (no arbitrary JS, no `eval`), same discipline as the
+existing `State`/`Bind`/`Action.*` system. Design complete,
+implementation not started. See
 [`docs/DESIGN-NOTES.md`](./docs/DESIGN-NOTES.md) ("v0.044: JS backend
 capability expansion -- reactive core parity with Vue 3").
 
-**In progress alongside it: reactive-core vdom staging (Stage 2 of
+**In progress alongside it: reactive-core vdom staging (Stage 3 of
 8).** A narrower, separately-tracked initiative on the *mechanism*
 under `State`/`Bind` rather than new page-facing capability -- Stage 1
 (vendoring a real diff/patch engine, [snabbdom](https://github.com/snabbdom/snabbdom)'s
-bare core, in place of the old `textContent`-overwrite re-render pass)
-and Stage 2 (`Bind.when(...)`/`bind_class=` reactive class binding)
-are both done; Stage 3 (event modifiers) is next, feeding into
-`v0.044` above. See [`docs/DESIGN-NOTES.md`](./docs/DESIGN-NOTES.md)
-("Reactive-core vdom staging").
-
-**Queued right behind it: v0.048 -- CSS `@media` queries +
-`<head>`/`<header>` extension.** Design complete, implementation not
-started. See [`docs/DESIGN-NOTES.md`](./docs/DESIGN-NOTES.md) ("v0.048:
-CSS media queries + `<head>` extension").
+bare core, in place of the old `textContent`-overwrite re-render pass),
+Stage 2 (`Bind.when(...)`/`bind_class=` reactive class binding), and
+Stage 3 (event modifiers) are done; Stages 4-7 (computed state, watch
+effects, two-way binding, list rendering, conditional show/hide) are
+next, feeding into `v0.054` above. See
+[`docs/DESIGN-NOTES.md`](./docs/DESIGN-NOTES.md) ("Reactive-core vdom
+staging").
 
 See [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for the full
 milestone roadmap.
@@ -283,10 +286,10 @@ navigation works whether you open the file directly from disk or
 deploy the `ARK/` folder as-is. External URLs, `#fragments`, and
 `mailto:`/`tel:` links are left untouched.
 
-### Head metadata (title, description, favicon, Open Graph)
+### Head metadata (title, description, favicon, Open Graph, meta/links)
 
 `Page(...)` already accepted `title` (falls back to the site name if
-omitted). Five more optional props extend the same pattern -- read
+omitted). Seven more optional props extend the same pattern -- read
 straight off `Page`'s props, nothing new to import:
 
 ```python
@@ -296,6 +299,8 @@ Page(
     description="A Python-first compiler for building static websites.",
     favicon="assets/favicon.ico",
     og_image="assets/social.png",
+    meta={"theme-color": "#0f0f0f"},
+    links=[{"rel": "preconnect", "href": "https://fonts.gstatic.com"}],
 )
 ```
 
@@ -307,12 +312,19 @@ Page(
 | `og_title`        | `<meta property="og:title">` -- defaults to `title` |
 | `og_description`  | `<meta property="og:description">` -- defaults to `description` |
 | `og_image`        | `<meta property="og:image">` -- resolved relative, like `favicon` |
+| `meta`            | `dict[str, str]` of name -> content pairs, each a `<meta name="..." content="...">` (v0.048 Stage A) |
+| `links`           | `list[dict[str, str]]`, each dict an attribute -> value map rendered as one `<link ...>` tag -- for preconnect, webfonts, or extra icon sizes beyond `favicon` (v0.048 Stage A) |
 
-All six are optional and additive: a page that sets none of them
+All eight are optional and additive: a page that sets none of them
 renders identically to before this feature existed. Open Graph tags
 specifically only appear once `description` or any `og_*` prop is
 supplied, so `title`-only pages (the common case) don't get an
-unsolicited `og:title`.
+unsolicited `og:title`. `meta`/`links` are structured input only --
+no raw HTML string escape hatch, matching every other extension point
+in the project -- and, unlike `favicon`/`og_image`, `links` entries
+are emitted verbatim rather than resolved as a relative build asset,
+since a `links` entry is at least as likely to point at an external
+origin (e.g. a webfont host) as a local one.
 
 ### Site-wide layout width & background
 
@@ -625,8 +637,11 @@ pytest
 Full milestone table (with status) lives in
 [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) -- kept as the single
 canonical copy rather than duplicated here, in `PROGRESS.md`, and in
-`CHANGELOG.md`. Short version: v0.001 through v0.043 are done; v0.048
-(CSS `@media` + `<head>`/`<header>` extension) is in progress (Stage A
-of 2), with v0.044 (JS backend capability expansion) queued behind it;
-v0.060 (Desktop backend), v0.080 (Android backend), and v0.100
-(user-defined components) are planned further out.
+`CHANGELOG.md`. Short version: v0.001 through v0.048 (CSS `@media` +
+`<head>`/`<header>` extension, both stages) are done; v0.054 (JS
+backend capability expansion, renumbered from v0.044) is queued next;
+v0.060 (user-defined components), v0.080 (Desktop backend), v0.100
+(Android backend), and v0.120 (KaiOS backend) are planned further out.
+The v0.060/v0.080/v0.100 numbers were reassigned when v0.048 shipped
+and a dedicated slot was carved out for KaiOS -- see
+`docs/ARCHITECTURE.md` for the full renumbering note.

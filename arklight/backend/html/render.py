@@ -561,6 +561,18 @@ def _render_head_meta(
         only once `description` or any `og_*` prop is supplied (so a
         page that touches none of this renders exactly as before);
         og_title/og_description then fall back to title/description
+      meta  -- v0.048 Stage A: dict[str, str] of name -> content pairs,
+        each rendered as <meta name="..." content="...">. Structured,
+        not a raw HTML string -- matches every other extension point
+        in the project. Validated in arklight.ir.validate.
+      links -- v0.048 Stage A: list[dict[str, str]] of attribute ->
+        value pairs, each rendered as a single <link ...> tag (e.g.
+        `{"rel": "preconnect", "href": "https://fonts.gstatic.com"}`)
+        for webfonts/preconnect/extra icons beyond `favicon`. Emitted
+        verbatim -- unlike `favicon`/`og_image`, these are not run
+        through `_relative_asset_path`, since a `links` entry is at
+        least as likely to point at an external origin (preconnect,
+        webfonts) as a local asset.
     """
     description = page.root.props.get("description")
     favicon = page.root.props.get("favicon")
@@ -594,6 +606,25 @@ def _render_head_meta(
             str(og_image), current_route=current_route, route_to_path=route_to_path
         )
         tags.append(f'  <meta property="og:image" content="{escape(og_image_href, quote=True)}">\n')
+
+    # v0.048 Stage A: structured <head> extension points -- see the
+    # docstring above. Both are fully opt-in and additive, same as
+    # favicon/og_* above: a page that sets neither renders unchanged.
+    extra_meta = page.root.props.get("meta")
+    if extra_meta:
+        for name, content in extra_meta.items():
+            tags.append(
+                f'  <meta name="{escape(str(name), quote=True)}" '
+                f'content="{escape(str(content), quote=True)}">\n'
+            )
+    extra_links = page.root.props.get("links")
+    if extra_links:
+        for link in extra_links:
+            attrs_html = "".join(
+                f' {escape(str(attr), quote=True)}="{escape(str(value), quote=True)}"'
+                for attr, value in link.items()
+            )
+            tags.append(f"  <link{attrs_html}>\n")
     return "".join(tags)
 
 

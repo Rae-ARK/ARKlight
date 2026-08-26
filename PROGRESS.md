@@ -26,12 +26,12 @@ table, see [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md).
 | vdom-2   | Reactive-core vdom staging, Stage 2 of 8: reactive class binding (`Bind.when(...)`/`bind_class=`) | DONE |
 | vdom-3   | Reactive-core vdom staging, Stage 3 of 8: event modifiers (`.with_modifiers(...)`/`.debounce(...)`/`.throttle(...)`) | DONE |
 | v0.0431  | Emergency patch: build-time warning for unrouted `srcset`/`poster`/`action`/`formaction` | DONE |
-| v0.048   | CSS `@media` queries + `<head>`/`<header>` extension (Stage A of 2: `meta`/`links` IN PROGRESS; Stage B of 2: `responsive_style` + `@media` compilation DONE) | IN PROGRESS |
-| v0.044   | JS backend capability expansion (reactive core parity with Vue 3) | PLANNED |
-| v0.060   | Desktop backend (`arklight desktop` packaging)               | PLANNED |
-| v0.080   | Android backend (`arklight android` -- `androidx.webkit.WebViewAssetLoader` packaging) | PLANNED |
-| --       | KaiOS backend (`arklight kaios` -- packaged-app/`manifest.webapp` zip); design complete in `docs/Backends/KAIOS-BACKEND-IMPLEMENTATION.md`, no native toolchain dependency, implementation not started | PLANNED |
-| v0.100   | User-defined, reusable components                            | PLANNED |
+| v0.048   | CSS `@media` queries + `<head>`/`<header>` extension (Stage A of 2: `meta`/`links` DONE; Stage B of 2: `responsive_style` + `@media` compilation DONE) | DONE |
+| v0.054   | JS backend capability expansion (reactive core parity with Vue 3) -- renumbered from v0.044 now that v0.048 has shipped | PLANNED |
+| v0.060   | User-defined, reusable components -- renumbered from v0.100     | PLANNED |
+| v0.080   | Desktop backend (`arklight desktop` packaging) -- renumbered from v0.060 | PLANNED |
+| v0.100   | Android backend (`arklight android` -- `androidx.webkit.WebViewAssetLoader` packaging) -- renumbered from v0.080 | PLANNED |
+| v0.120   | KaiOS backend (`arklight kaios` -- packaged-app/`manifest.webapp` zip); design complete in `docs/Backends/KAIOS-BACKEND-IMPLEMENTATION.md`, no native toolchain dependency, implementation not started -- previously unnumbered | PLANNED |
 | v1.0     | Stable compiler                                              | PLANNED |
 
 ### Planned, not yet scheduled to a version
@@ -144,26 +144,64 @@ dash conversion, cascade position), and a full `compile_site_file`/
 the rendered HTML as a raw attribute. 532 tests total, all passing.
 
 **Explicitly not touched by this patch:** Stage A (`meta`/`links` on
-`Page(...)`) remains not-yet-implemented in this alpha snapshot --
-tracked separately, unaffected by Stage B landing first.
+`Page(...)`) remained not-yet-implemented as of this patch -- tracked
+separately, unaffected by Stage B landing first. (Since landed -- see
+"v0.048 -- Stage A" below.)
 
-## v0.048 -- Stage A: structured `<head>` extension (IN PROGRESS)
+## v0.048 -- Stage A: structured `<head>` extension (DONE)
 
-Started ahead of v0.044 in the previously announced roadmap order
+Started ahead of v0.044 (now renumbered v0.054, see the top of this
+file's Snapshot table) in the previously announced roadmap order
 (README/ARCHITECTURE said v0.044 next); v0.048 was picked up first
 instead. Design unchanged from `docs/DESIGN-NOTES.md` ("v0.048: CSS
-media queries + `<head>` extension") -- landing as two independent
-stages so each is reviewable/testable on its own:
+media queries + `<head>` extension") -- landed as two independent
+stages so each was reviewable/testable on its own. With this stage
+done, both halves of v0.048 have now shipped and the milestone as a
+whole moves to DONE.
 
-- **Stage A (this entry) -- `meta`/`links` on `Page(...)`.** Optional,
-  structured extension points -- `meta: dict[str, str] | None`
-  (name/content pairs -> `<meta name="..." content="...">`) and
-  `links: list[dict] | None` (each dict is attribute name -> value ->
-  a `<link ...>` tag, for preconnect/webfonts/icons beyond the
-  existing `favicon`). No raw HTML-injection escape hatch, matching
-  every other extension point in the project.
-- **Stage B (next) -- `responsive_style` + `@media` compilation.** Not
-  started. Depends on nothing from Stage A.
+**Shipped:** `Page(...)` gains two more optional, *structured*
+extension points -- `meta: dict[str, str] | None` (name/content pairs,
+each rendered as `<meta name="..." content="...">`) and `links:
+list[dict[str, str]] | None` (each dict is attribute name -> value,
+rendered as a single `<link ...>` tag -- for preconnect, webfonts, or
+extra icon sizes beyond the existing `favicon`). No raw HTML-injection
+escape hatch -- same "no arbitrary strings" boundary every other
+extension point in the project holds (`responsive_style` above,
+`Site.style()`, `on_click`'s closed behavior/action registries).
+
+Two pipeline stages touched:
+
+- `arklight/ir/validate.py` -- a new `_validate_page_head_extensions`,
+  called only for `Page` nodes (these two props are read exclusively
+  off `page.root`, matching `favicon`/`description`/`og_*`'s existing
+  page-only convention). `meta` must be a non-empty `dict[str, str]`;
+  `links` must be a non-empty `list[dict[str, str]]` where every entry
+  carries a `rel` attribute -- a malformed entry fails loudly at build
+  time rather than silently producing broken `<head>` output.
+- `arklight/backend/html/render.py` -- `_render_head_meta` gained two
+  more opt-in blocks after the existing `description`/`favicon`/`og_*`
+  tags: `meta` entries render as `<meta name=... content=...>` in
+  dict-iteration order; `links` entries render verbatim (attribute
+  dict -> `<link ...>` tag). Deliberately **not** run through
+  `_relative_asset_path` the way `favicon`/`og_image` are -- unlike
+  those two (always a local build asset), a `links` entry is at least
+  as likely to point at an external origin (`rel="preconnect"` to a
+  webfont host) as a local one, and there's no reliable way to tell
+  which from the shape of the dict alone. A site author who wants a
+  route-relative `<link>` (e.g. an extra icon size) supplies the
+  already-correct relative path themselves, same as any other
+  external-facing prop this backend doesn't rewrite.
+
+**10 new tests** (`tests/test_html_backend.py`): rendering (single
+entry, multiple entries in insertion order, arbitrary link attributes,
+multiple `<link>` tags), HTML escaping for both props, the
+"page that sets neither renders unchanged" byte-for-byte guarantee
+(extending the existing `test_page_without_head_meta_props_renders_
+unchanged` coverage), and validation errors for an empty `meta` dict
+and a `links` entry missing `rel`. 541 tests total, all passing.
+
+**Stage B (`responsive_style` + `@media` compilation)** shipped
+earlier, independently, per the entry above.
 
 ## v0.0431 -- Emergency patch: unrouted-reference build warning (DONE)
 
@@ -366,7 +404,12 @@ effects, two-way input binding, per-item list rendering, conditional
 show/hide -- the remaining `v0.044` sub-systems), then Stage 8
 (`localStorage` persistence for `State`).
 
-## v0.044 -- JS backend capability expansion: reactive core parity with Vue 3 (PLANNED)
+## v0.054 -- JS backend capability expansion: reactive core parity with Vue 3 (PLANNED)
+
+Renumbered from v0.044 now that v0.048 (CSS `@media` + `<head>`
+extension, picked up first out of announced order) has shipped in
+full -- see the Snapshot table at the top of this file. Design and
+scope are unchanged.
 
 Requested by the maintainer: bring "most of Vue 3's JS capabilities"
 into the JS backend -- computed/derived state, watchers, two-way

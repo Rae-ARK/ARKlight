@@ -43,6 +43,14 @@ Checks performed:
     docs/DESIGN-NOTES.md). Structured input only, same discipline as
     `site.style(...)`/`site.media_query(...)` -- never a raw CSS
     string.
+11. `meta`/`links` on `Page(...)`, if present, are structurally
+    well-formed (v0.048 Stage A, "CSS media queries + `<head>`
+    extension" -- see docs/DESIGN-NOTES.md): `meta` a non-empty
+    `dict[str, str]` of name -> content pairs; `links` a non-empty
+    `list[dict[str, str]]` of attribute -> value pairs, each carrying
+    a `rel`. Structured input only, same "no raw HTML-injection escape
+    hatch" discipline every other extension point in the project
+    holds.
 """
 
 from __future__ import annotations
@@ -188,6 +196,70 @@ def _validate_responsive_style(node: ARKNode, *, path: str) -> None:
                 )
 
 
+def _validate_page_head_extensions(node: ARKNode, *, path: str) -> None:
+    """
+    v0.048 Stage A: `meta`/`links` on `Page(...)` -- structured `<head>`
+    extension points, matching the discipline `responsive_style` (Stage
+    B, above) and `Site.style(...)` already use: no raw HTML-injection
+    escape hatch, validated eagerly and structurally so a malformed
+    entry fails loudly at build time instead of silently producing
+    broken `<head>` output. Only meaningful on `Page(...)` -- the HTML
+    backend only ever reads these two props off `page.root`, matching
+    `favicon`/`description`/`og_*`'s existing page-only convention (see
+    `arklight/backend/html/render.py`'s `_render_head_meta`).
+    """
+    meta = node.props.get("meta")
+    if meta is not None:
+        if not isinstance(meta, dict) or not meta:
+            raise ValidationError(
+                f"Page(...) at {path} has meta={meta!r}, which must be a "
+                f"non-empty dict of {{name: content}}, e.g. "
+                f'{{"theme-color": "#0f0f0f"}}.'
+            )
+        for name, content in meta.items():
+            if not isinstance(name, str) or not name.strip():
+                raise ValidationError(
+                    f"Page(...) at {path} has a meta entry with an invalid "
+                    f"name key -- expected a non-empty string, got {name!r}."
+                )
+            if not isinstance(content, str):
+                raise ValidationError(
+                    f"Page(...) at {path} meta[{name!r}] needs a string "
+                    f"content value, got {content!r}."
+                )
+
+    links = node.props.get("links")
+    if links is not None:
+        if not isinstance(links, list) or not links:
+            raise ValidationError(
+                f"Page(...) at {path} has links={links!r}, which must be a "
+                f"non-empty list of {{attribute: value}} dicts, e.g. "
+                f'[{{"rel": "preconnect", "href": "https://fonts.gstatic.com"}}].'
+            )
+        for i, link in enumerate(links):
+            if not isinstance(link, dict) or not link:
+                raise ValidationError(
+                    f"Page(...) at {path} links[{i}] must be a non-empty "
+                    f"dict of {{attribute: value}}, got {link!r}."
+                )
+            for attr, value in link.items():
+                if not isinstance(attr, str) or not attr.strip():
+                    raise ValidationError(
+                        f"Page(...) at {path} links[{i}] has a non-string "
+                        f"or empty attribute name key, got {attr!r}."
+                    )
+                if not isinstance(value, str):
+                    raise ValidationError(
+                        f"Page(...) at {path} links[{i}][{attr!r}] needs a "
+                        f"string value, got {value!r}."
+                    )
+            if "rel" not in link:
+                raise ValidationError(
+                    f'Page(...) at {path} links[{i}] is missing a "rel" '
+                    f"attribute -- every <link> needs one, got {link!r}."
+                )
+
+
 def _validate_behavior_props(node: ARKNode, *, path: str, page_state: frozenset[str]) -> None:
     on_click = node.props.get("on_click")
     if on_click is None:
@@ -256,6 +328,8 @@ def validate_node(
     _validate_behavior_props(node, path=path, page_state=page_state)
     _validate_class_bind(node, path=path, page_state=page_state)
     _validate_responsive_style(node, path=path)
+    if node.type == "Page":
+        _validate_page_head_extensions(node, path=path)
 
     if not spec.allow_children and node.children:
         raise ValidationError(f"{node.type!r} at {path} must not have children.")
