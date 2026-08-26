@@ -26,7 +26,7 @@ table, see [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md).
 | vdom-2   | Reactive-core vdom staging, Stage 2 of 8: reactive class binding (`Bind.when(...)`/`bind_class=`) | DONE |
 | vdom-3   | Reactive-core vdom staging, Stage 3 of 8: event modifiers (`.with_modifiers(...)`/`.debounce(...)`/`.throttle(...)`) | DONE |
 | v0.0431  | Emergency patch: build-time warning for unrouted `srcset`/`poster`/`action`/`formaction` | DONE |
-| v0.048   | CSS `@media` queries + `<head>`/`<header>` extension (Stage A of 2: `meta`/`links`) | IN PROGRESS |
+| v0.048   | CSS `@media` queries + `<head>`/`<header>` extension (Stage A of 2: `meta`/`links` IN PROGRESS; Stage B of 2: `responsive_style` + `@media` compilation DONE) | IN PROGRESS |
 | v0.044   | JS backend capability expansion (reactive core parity with Vue 3) | PLANNED |
 | v0.060   | Desktop backend (`arklight desktop` packaging)               | PLANNED |
 | v0.080   | Android backend (`arklight android` -- `androidx.webkit.WebViewAssetLoader` packaging) | PLANNED |
@@ -60,6 +60,92 @@ go-ahead before implementation starts on any of these:
   (Android/KaiOS/Desktop) all implicitly need, and names -- without
   scoping -- a later, explicitly opt-in server-backed state-streaming
   milestone informed by an external reference prototype.
+
+## v0.048 -- Stage B: `responsive_style` + `@media` compilation (DONE)
+
+Landed independently of Stage A, per the split `docs/DESIGN-NOTES.md`
+("v0.048: CSS media queries + `<head>` extension") called for -- Stage
+B depends on nothing from Stage A (a different node prop, a different
+backend path).
+
+**Shipped:** an optional `responsive_style: dict[str, dict[str, str]]`
+prop any component may carry, e.g. `Container(responsive_style=
+{"(max-width: 600px)": {"display": "none"}})`. Each key is the full
+media-condition text a site author wants inside `@media <here> { ... }`
+(so it may already carry its own parens, or be a compound condition
+like `"screen and (max-width: 600px)"`); each value is a normal
+CSS-property dict, using the same `_`->`-` property-name convention the
+existing inline `style={...}` prop already does (this prop is
+documented as extending that convention, not `Site.style()`'s literal-
+property-name one).
+
+Four pipeline stages touched, same discipline as every other prop this
+project has added:
+
+- `arklight/ir/validate.py` -- `_validate_responsive_style` checks the
+  prop is a non-empty `dict[str, dict[str, str-or-number]]` with
+  non-empty condition/property keys, so a malformed entry fails loudly
+  at build time instead of silently producing broken generated CSS.
+- `arklight/ir/build.py` -- a new `_ResponsiveStyleCollector` walks the
+  tree alongside `_ark_node_to_ir_node`, assigning each
+  `responsive_style`-carrying node a deterministic, site-wide-unique
+  generated class (`arkgen-1`, `arkgen-2`, ... in build order: pages in
+  dict order, depth-first per page), stripping `responsive_style` out
+  of the node's own IR props (it isn't a real HTML attribute -- leaving
+  it in would've round-tripped into a meaningless `data-responsive-style`
+  attribute the same way any unknown prop does), and folding the
+  generated class into `class_name`. `WebsiteIR` gained a
+  `responsive_rules` field: `(condition, generated_class, {prop:
+  value})` triples, in registration order. `build_website_ir` gained an
+  optional `on_warning` callback so the inline "[EXPERIMENTAL FEATURE
+  ACTIVE]" banner can print at its actual detection point -- unlike
+  `site.media_query(...)` (an author-time `Site` method call, already
+  known before IR build starts), a `responsive_style` prop is only
+  discovered by walking the tree, so it needed its own detection point
+  rather than reusing `site.experimental_usages`' pre-build loop.
+- `arklight/backend/css/custom_styles.py` -- a new
+  `render_responsive_styles` sibling to `render_media_queries`, but
+  deliberately *not* the same function: `render_media_queries` always
+  wraps `site.media_query(condition, ...)`'s bare condition in parens
+  (`@media ({condition}) {{`); `render_responsive_styles` inserts the
+  key verbatim (`@media {condition} {{`), since the design doc's own
+  example key already includes the parens (`"(max-width: 600px)"`) --
+  wrapping it again would emit `@media ((max-width: 600px))`, which is
+  invalid, and would make a compound condition like `"screen and
+  (max-width: 600px)"` impossible to express at all.
+- `arklight/backend/css/render.py` -- `CSSBackend.render` appends
+  `render_responsive_styles(ir.responsive_rules)` absolute last in the
+  cascade (after the existing `site.media_query(...)` blocks), so a
+  per-node override always wins against a sitewide one -- though in
+  practice the two can never target the same class, since `arkgen-N`
+  names are never author-chosen.
+
+**Experimental gating (docs/EXPERIMENTAL-APIS.md updated):**
+`responsive_style` is a second entry point into the *same*
+`css-media-queries` feature gate `site.media_query(...)` already uses,
+not a new feature id -- both compile to a viewport-keyed `@media` block
+and both step outside the intrinsic layout model the same way, so both
+print the same inline banner and end-of-build summary block. The
+feature's `legacy_note` text was generalized (it used to read
+"predates ARKlight's intrinsic layout model," which was accurate for
+`site.media_query(...)` alone but not for a brand-new prop shipping in
+the same release) to describe both authoring surfaces without implying
+`responsive_style` itself is legacy.
+
+**26 new tests** (`tests/test_responsive_style.py`, plus one added each
+to `tests/test_experimental_apis.py` and
+`tests/test_pipeline_end_to_end.py`): validation (well-formed input,
+every malformed shape), IR build (class generation, ordering, class-
+name merging with an existing `class_name`, multiple conditions on one
+node sharing one class, the experimental-usage record), CSS rendering
+(verbatim condition insertion, compound conditions, underscore-to-
+dash conversion, cascade position), and a full `compile_site_file`/
+`build()` round trip confirming `responsive_style` never leaks into
+the rendered HTML as a raw attribute. 532 tests total, all passing.
+
+**Explicitly not touched by this patch:** Stage A (`meta`/`links` on
+`Page(...)`) remains not-yet-implemented in this alpha snapshot --
+tracked separately, unaffected by Stage B landing first.
 
 ## v0.048 -- Stage A: structured `<head>` extension (IN PROGRESS)
 

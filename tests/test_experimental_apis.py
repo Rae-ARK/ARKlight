@@ -83,6 +83,28 @@ def test_compile_site_file_no_media_queries_is_empty(tmp_path):
     assert ir.experimental_usages == []
 
 
+def test_responsive_style_shares_the_css_media_queries_gate(tmp_path):
+    """v0.048 Stage B: a node's `responsive_style={...}` prop is a
+    second entry point into the same `css-media-queries` feature gate
+    `site.media_query(...)` already uses -- see
+    docs/EXPERIMENTAL-APIS.md."""
+    site_file = tmp_path / "site.py"
+    site_file.write_text(
+        "from arklight import Site, Page, Container, Text\n"
+        "site = Site(name='Test')\n"
+        "site.media_query('max-width: 600px', 'hero', {'flex-direction': 'column'})\n"
+        "@site.page('/')\n"
+        "def home():\n"
+        "    return Page(Container(Text('hi'), responsive_style="
+        "{'(max-width: 600px)': {'display': 'none'}}))\n"
+    )
+    ir = compile_site_file(site_file)
+
+    feature_ids = {u.feature_id for u in ir.experimental_usages}
+    assert feature_ids == {"css-media-queries"}
+    assert len(ir.experimental_usages) == 2
+
+
 def test_build_emits_inline_banner_via_on_stage(tmp_path):
     site_file = tmp_path / "site.py"
     site_file.write_text(

@@ -507,9 +507,11 @@ their own rather than as one large patch:
 - **Stage A -- structured `<head>` extension (`meta`/`links` on
   `Page(...)`).** IN PROGRESS.
 - **Stage B -- `@media` responsive styling (`responsive_style` prop +
-  `CSSBackend` compilation).** PLANNING, depends on nothing from Stage
-  A (different node prop, different backend) but sequenced second to
-  keep each patch reviewable in isolation.
+  `CSSBackend` compilation).** DONE -- see `PROGRESS.md` ("v0.048 --
+  Stage B") for the implementation record. Landed independently of
+  Stage A as planned; sequenced second in this document only to keep
+  each patch reviewable in isolation, not because it depended on
+  Stage A landing first.
 
 - `Page(...)` gains optional, *structured* extension points --
   deliberately not a raw HTML-injection escape hatch, to avoid

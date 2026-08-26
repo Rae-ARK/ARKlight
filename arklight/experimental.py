@@ -45,10 +45,12 @@ FEATURES: dict[str, ExperimentalFeature] = {
             "minmax(), auto-fit, clamp()) whenever possible.",
         ],
         legacy_note=(
-            "This feature predates ARKlight's intrinsic layout model and is "
-            "retained for compatibility. New projects should prefer "
+            "Viewport-keyed rules (whether from site.media_query(...) or a "
+            "node's responsive_style={...} prop) step outside ARKlight's "
+            "intrinsic layout model and are retained as an explicit escape "
+            "hatch, not the default path. New projects should prefer "
             ".switcher, .grid, .cluster, .sidebar, or other intrinsic "
-            "layout primitives."
+            "layout primitives wherever the design can be expressed that way."
         ),
     ),
     "experimental-install-pwa": ExperimentalFeature(

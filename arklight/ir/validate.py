@@ -35,6 +35,14 @@ Checks performed:
    bare, `debounce`/`throttle` as `"<name>:<ms>"` with a positive
    integer `ms` (Stage 3 of "Reactive-core vdom staging" -- see
    docs/DESIGN-NOTES.md).
+10. `responsive_style`, if present, is a non-empty `dict[str,
+    dict[str, str]]` -- each key a non-empty media-condition string
+    (e.g. `"(max-width: 600px)"`), each value a non-empty dict of
+    non-empty CSS property name -> string/number value (v0.048 Stage
+    B, "CSS media queries + `<head>` extension" -- see
+    docs/DESIGN-NOTES.md). Structured input only, same discipline as
+    `site.style(...)`/`site.media_query(...)` -- never a raw CSS
+    string.
 """
 
 from __future__ import annotations
@@ -131,6 +139,55 @@ def _validate_class_bind(node: ARKNode, *, path: str, page_state: frozenset[str]
         )
 
 
+def _validate_responsive_style(node: ARKNode, *, path: str) -> None:
+    """
+    v0.048 Stage B: `responsive_style={"(max-width: 600px)": {"display":
+    "none"}}` -- a per-node prop any component may carry, extending the
+    existing `style={...}` convention with a viewport-keyed variant
+    (see docs/DESIGN-NOTES.md, "v0.048: CSS media queries + `<head>`
+    extension"). Validated eagerly and structurally, matching
+    `Site.style()`/`Site.media_query()`'s discipline, since this
+    compiles straight into the generated stylesheet rather than a
+    per-page inline attribute -- a malformed entry here would otherwise
+    surface as silently broken CSS instead of a clear build-time error.
+    """
+    responsive_style = node.props.get("responsive_style")
+    if responsive_style is None:
+        return
+    if not isinstance(responsive_style, dict) or not responsive_style:
+        raise ValidationError(
+            f"{node.type!r} at {path} has responsive_style={responsive_style!r}, "
+            f"which must be a non-empty dict of "
+            f'{{media_condition: {{css_property: value}}}}, e.g. '
+            f'{{"(max-width: 600px)": {{"display": "none"}}}}.'
+        )
+    for condition, rules in responsive_style.items():
+        if not isinstance(condition, str) or not condition.strip():
+            raise ValidationError(
+                f"{node.type!r} at {path} has a responsive_style entry with an "
+                f"invalid media condition key -- expected a non-empty string "
+                f"like \"(max-width: 600px)\", got {condition!r}."
+            )
+        if not isinstance(rules, dict) or not rules:
+            raise ValidationError(
+                f"{node.type!r} at {path} responsive_style[{condition!r}] must "
+                f"be a non-empty dict of {{css_property: value}}, got {rules!r}."
+            )
+        for prop, value in rules.items():
+            if not isinstance(prop, str) or not prop.strip():
+                raise ValidationError(
+                    f"{node.type!r} at {path} responsive_style[{condition!r}] "
+                    f"has a non-empty string CSS property name required, got "
+                    f"{prop!r}."
+                )
+            if value is None or isinstance(value, bool) or not isinstance(value, (str, int, float)):
+                raise ValidationError(
+                    f"{node.type!r} at {path} "
+                    f"responsive_style[{condition!r}][{prop!r}] needs a string "
+                    f"(or plain number) CSS value, got {value!r}."
+                )
+
+
 def _validate_behavior_props(node: ARKNode, *, path: str, page_state: frozenset[str]) -> None:
     on_click = node.props.get("on_click")
     if on_click is None:
@@ -198,6 +255,7 @@ def validate_node(
 
     _validate_behavior_props(node, path=path, page_state=page_state)
     _validate_class_bind(node, path=path, page_state=page_state)
+    _validate_responsive_style(node, path=path)
 
     if not spec.allow_children and node.children:
         raise ValidationError(f"{node.type!r} at {path} must not have children.")

@@ -180,6 +180,13 @@ def compile_site_file(
         experimental_usages=site.experimental_usages,
         css_var_overrides=merged_css_var_overrides,
         lang=lang if lang is not None else site.lang,
+        # v0.048 Stage B: `responsive_style={...}` usages are only
+        # discovered while building the IR (see `build_website_ir`'s
+        # `on_warning` docstring), unlike `site.media_query(...)`
+        # calls, which are already known by this point and printed by
+        # the loop just above. This is that feature's own inline
+        # "[EXPERIMENTAL FEATURE ACTIVE]" detection point.
+        on_warning=log,
     )
 
 

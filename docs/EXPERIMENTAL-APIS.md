@@ -14,10 +14,12 @@ available space alone.
 experimental API.** That currently means:
 
 - `css-media-queries` -- `@media` conditions keyed to viewport width/
-  height/orientation (`Site.media_query(...)`, see below). ARKlight's
-  `Page` deliberately gets no `<head>` hook for hand-written `@media`/
-  `@container` blocks (`docs/DESIGN-NOTES.md`); this is the one
-  sanctioned, opt-in way to reach a viewport-keyed rule anyway.
+  height/orientation, reachable two ways: `Site.media_query(...)` (see
+  below), and, as of v0.048 Stage B, a per-node `responsive_style=
+  {"(max-width: 600px)": {...}}` prop any component may carry. Both
+  compile to the same kind of viewport-keyed `@media` block and share
+  this one gate -- see `docs/DESIGN-NOTES.md` ("v0.048: CSS media
+  queries + `<head>` extension") for `responsive_style`'s design.
 - `experimental-install-pwa` -- a native browser install-prompt button
   (`arklight pwa ... --install-button`), which depends entirely on
   `beforeinstallprompt` support in the visiting browser engine.

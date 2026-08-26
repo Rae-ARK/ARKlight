@@ -22,7 +22,7 @@ written independently and never reconciled into one execution order:
    dispatch plumbing in `arklight/backend/js/render.py`.
 3. **The packaging backends** (`docs/DESIGN-NOTES.md`'s Android
    section, `docs/Backends/KAIOS-BACKEND-IMPLEMENTATION.md`, and the
-   still-undesigned Desktop backend) -- all three wrap ARKlight's
+   `docs/Backends/NEUTRALINO-INTEGRATION.md` Desktop backend) -- all three wrap ARKlight's
    *existing* multi-page static output into a native shell, and all
    three implicitly assume that output behaves like an app once
    wrapped. It doesn't yet -- see below.

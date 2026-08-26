@@ -97,6 +97,61 @@ def render_custom_styles(custom_styles: dict[str, dict[str, str]]) -> str:
     return "\n\n".join(blocks) + "\n"
 
 
+def render_responsive_styles(responsive_rules: list[tuple[str, str, dict[str, str]]]) -> str:
+    """
+    v0.048 Stage B ("CSS media queries + `<head>` extension" -- see
+    docs/DESIGN-NOTES.md) -- turn `(condition, generated_class,
+    {prop: value})` triples (one per media condition on every node
+    that carried a `responsive_style={...}` prop, collected by
+    `arklight.ir.build._ResponsiveStyleCollector`) into real
+    `@media <condition> { .arkgen-N { ... } }` blocks.
+
+    Unlike `render_media_queries` above, `condition` is inserted
+    verbatim right after `@media ` rather than auto-wrapped in
+    parentheses: `responsive_style`'s keys are documented (see
+    `arklight.ir.validate._validate_responsive_style`) as the full
+    condition text a site author wants inside `@media <here> { ... }`
+    -- e.g. `"(max-width: 600px)"` or a compound condition like
+    `"screen and (max-width: 600px)"` -- so this function must not
+    assume a single bare feature that always needs its own wrapping
+    parens the way `site.media_query(condition, ...)`'s bare-condition
+    convention does.
+
+    Property names get the same `_`->`-` conversion the inline
+    `style={...}` prop's `_style_dict_to_css` already does (v0.048
+    Stage B "extends the existing `style={...}` convention" -- see
+    docs/DESIGN-NOTES.md), unlike `render_media_queries`/
+    `render_custom_styles` above, which expect literal CSS property
+    names already, since those are registered through `Site.style()`/
+    `Site.media_query()` rather than authored as a Python-kwarg-shaped
+    dict on a node. Kept in registration (site-build) order, same
+    reasoning as `render_media_queries` -- a later block winning the
+    cascade for the same generated class is meaningful here too, since
+    a single node's `responsive_style` may register more than one
+    condition against its own class. Empty input -> empty string.
+    """
+    if not responsive_rules:
+        return ""
+
+    blocks = [
+        "\n/* v0.048 Stage B: @media blocks -- generated from nodes' "
+        "`responsive_style={...}` props. See docs/DESIGN-NOTES.md "
+        '("v0.048: CSS media queries + `<head>` extension") and '
+        "docs/EXPERIMENTAL-APIS.md (gated under `css-media-queries`, "
+        "same as `site.media_query(...)`). */",
+    ]
+    for condition, class_name, rules in responsive_rules:
+        lines = [f"@media {condition} {{", f"  .{class_name} {{"]
+        for prop in sorted(rules):
+            css_prop = prop.replace("_", "-")
+            lines.append(f"    {css_prop}: {rules[prop]};")
+        lines.append("  }")
+        lines.append("}")
+        blocks.append("\n".join(lines))
+
+    return "\n\n".join(blocks) + "\n"
+
+
 def render_media_queries(media_queries: list[tuple[str, str, dict[str, str]]]) -> str:
     """
     EXPERIMENTAL (see `docs/EXPERIMENTAL-APIS.md`) -- turn

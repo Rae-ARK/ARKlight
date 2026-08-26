@@ -132,6 +132,34 @@ def home():
     assert 'class="pull-quote"' in html
 
 
+def test_build_writes_responsive_style_to_stylesheet_and_class_to_html(tmp_path):
+    site_path = write_site(
+        tmp_path,
+        """
+from arklight import *
+
+site = Site()
+
+@site.page("/")
+def home():
+    return Page(Container(Text("Hide me"), responsive_style={"(max-width: 600px)": {"display": "none"}}))
+""",
+    )
+    out_dir = tmp_path / "ARK"
+
+    build(site_path, out_dir)
+
+    css = (out_dir / "styles.css").read_text(encoding="utf-8")
+    html = (out_dir / "index.html").read_text(encoding="utf-8")
+
+    assert "@media (max-width: 600px) {" in css
+    assert ".arkgen-1 {" in css
+    assert "display: none;" in css
+    assert 'class="arkgen-1"' in html
+    # responsive_style itself never leaks through as a raw attribute.
+    assert "responsive_style" not in html
+
+
 def test_added_backend_can_postprocess_combined_output_without_editing_existing_backends(tmp_path):
     """
     Demonstrates the "add a backend" extension point: a new Backend can

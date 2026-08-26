@@ -20,8 +20,9 @@ disturbing the public API or the validator.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 
+from arklight import experimental
 from arklight.ast.nodes import ARKNode
 
 
@@ -82,16 +83,88 @@ class WebsiteIR:
     # prop, read the same way `title`/`favicon`/`description` already
     # are, overrides this per route.
     lang: str = "en"
+    # v0.048 Stage B ("CSS media queries + `<head>` extension" -- see
+    # docs/DESIGN-NOTES.md): (condition, generated_class_name,
+    # {prop: value}) triples, one per media condition on every node
+    # that carried a `responsive_style={...}` prop anywhere on the
+    # site. Populated by `build_website_ir`/`_ark_node_to_ir_node`
+    # below, which also strips `responsive_style` out of the node's
+    # own IR props (it isn't a real HTML attribute) and folds the
+    # matching generated class into that node's `class_name` instead.
+    # `CSSBackend` compiles this into real `@media (...) { .arkgen-N {
+    # ... } }` rules, same shape as `media_queries` above but keyed to
+    # a synthesized per-node class instead of an author-chosen one.
+    # Empty for sites that never use `responsive_style=`.
+    responsive_rules: list = field(default_factory=list)
 
 
-def _ark_node_to_ir_node(node: ARKNode) -> IRNode:
+@dataclass
+class _ResponsiveStyleCollector:
+    """
+    v0.048 Stage B: walks alongside `_ark_node_to_ir_node`, assigning
+    each `responsive_style={...}`-carrying node a deterministic,
+    site-wide-unique generated class name (`arkgen-1`, `arkgen-2`,
+    ...) in build order -- pages in `pages` dict order, depth-first
+    within each page -- so two builds of the same source produce
+    identical output. Also records one `ExperimentalUsage` per node
+    (not per media condition) under the same `css-media-queries`
+    feature `Site.media_query(...)` already gates (see
+    docs/EXPERIMENTAL-APIS.md): a viewport-keyed `@media` rule is a
+    viewport-keyed `@media` rule regardless of which authoring surface
+    produced it.
+    """
+
+    counter: int = 0
+    rules: list[tuple[str, str, dict[str, str]]] = field(default_factory=list)
+    experimental_usages: list = field(default_factory=list)
+
+    def collect(
+        self,
+        node_type: str,
+        responsive_style: dict[str, dict[str, Any]],
+        *,
+        on_warning: Callable[[str], None] | None,
+    ) -> str:
+        self.counter += 1
+        class_name = f"arkgen-{self.counter}"
+        for condition, rules in responsive_style.items():
+            self.rules.append((condition, class_name, dict(rules)))
+        self.experimental_usages.append(
+            experimental.emit("css-media-queries", on_warning=on_warning, component=node_type)
+        )
+        return class_name
+
+
+def _ark_node_to_ir_node(
+    node: ARKNode,
+    *,
+    collector: _ResponsiveStyleCollector,
+    on_warning: Callable[[str], None] | None = None,
+) -> IRNode:
+    props = dict(node.props)
+
+    # v0.048 Stage B: `responsive_style` is a compile-time-only prop --
+    # it never reaches the HTML backend as an attribute (there's no
+    # such thing as a `responsive_style="..."` HTML attribute). It's
+    # popped here, converted into a generated scoped class folded into
+    # `class_name`, and the actual `{condition: {prop: value}}` rules
+    # are handed to the collector for `CSSBackend` to compile.
+    responsive_style = props.pop("responsive_style", None)
+    if responsive_style:
+        generated_class = collector.collect(node.type, responsive_style, on_warning=on_warning)
+        existing_class = props.get("class_name")
+        classes = existing_class.split() if isinstance(existing_class, str) and existing_class else []
+        if generated_class not in classes:
+            classes.append(generated_class)
+        props["class_name"] = " ".join(classes)
+
     children: list[IRNode | str] = []
     for child in node.children:
         if isinstance(child, ARKNode):
-            children.append(_ark_node_to_ir_node(child))
+            children.append(_ark_node_to_ir_node(child, collector=collector, on_warning=on_warning))
         else:
             children.append(str(child))
-    return IRNode(type=node.type, props=dict(node.props), children=children)
+    return IRNode(type=node.type, props=props, children=children)
 
 
 def _extract_page_state(page: ARKNode) -> tuple[dict[str, Any], list]:
@@ -119,6 +192,7 @@ def build_website_ir(
     experimental_usages: list | None = None,
     css_var_overrides: dict[str, str] | None = None,
     lang: str = "en",
+    on_warning: Callable[[str], None] | None = None,
 ) -> WebsiteIR:
     """
     Build the Website IR from a normalized + validated ARK AST.
@@ -128,18 +202,39 @@ def build_website_ir(
     (v0.042), `css_var_overrides` (CSS backend refactor), and `lang`
     are all optional and default to their prior stock values --
     existing callers that only pass `site_name`/`pages` are unaffected.
+
+    `on_warning`, if given, is called once per `responsive_style={...}`
+    node encountered (v0.048 Stage B) with the same inline
+    "[EXPERIMENTAL FEATURE ACTIVE]" banner text `Site.media_query(...)`
+    usages already print -- see `arklight.experimental.emit`. Unlike
+    `Site.media_query(...)` (an author-time `Site` method call, so its
+    usage is already known before this function runs), a
+    `responsive_style` prop is only discovered by walking the tree
+    here, so this is this feature's own detection point. Defaults to
+    `None` (record the usage, but print nothing) so existing callers
+    that don't pass it are unaffected; `arklight.compiler.pipeline`
+    passes its stage logger.
     """
+    collector = _ResponsiveStyleCollector()
     ir_pages = []
     for route, page in pages.items():
         state, remaining_children = _extract_page_state(page)
         root_page = ARKNode(type=page.type, props=page.props, children=remaining_children)
-        ir_pages.append(IRPage(route=route, root=_ark_node_to_ir_node(root_page), state=state))
+        ir_pages.append(
+            IRPage(
+                route=route,
+                root=_ark_node_to_ir_node(root_page, collector=collector, on_warning=on_warning),
+                state=state,
+            )
+        )
     return WebsiteIR(
         site_name=site_name,
         pages=ir_pages,
         custom_styles=dict(custom_styles) if custom_styles else {},
         media_queries=list(media_queries) if media_queries else [],
-        experimental_usages=list(experimental_usages) if experimental_usages else [],
+        experimental_usages=(list(experimental_usages) if experimental_usages else [])
+        + collector.experimental_usages,
         css_var_overrides=dict(css_var_overrides) if css_var_overrides else {},
         lang=lang,
+        responsive_rules=collector.rules,
     )

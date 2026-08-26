@@ -26,7 +26,11 @@ from __future__ import annotations
 
 from arklight.backend.base import Backend
 from arklight.backend.css.base_stylesheet import BASE_CSS_BODY, BASE_CSS_HEADER
-from arklight.backend.css.custom_styles import render_custom_styles, render_media_queries
+from arklight.backend.css.custom_styles import (
+    render_custom_styles,
+    render_media_queries,
+    render_responsive_styles,
+)
 from arklight.backend.css.design_tokens import render_root_and_property_rules
 from arklight.ir.build import WebsiteIR
 
@@ -47,9 +51,17 @@ class CSSBackend(Backend):
         # then the fixed tag/utility rules, then v0.042 custom classes
         # (`ir.custom_styles`, from `site.style(...)`), then EXPERIMENTAL
         # `@media` blocks (`ir.media_queries`, from `site.media_query(...)`,
-        # see docs/EXPERIMENTAL-APIS.md) absolute last so a viewport-keyed
-        # override can still win the cascade against every intrinsic rule
-        # above it -- the whole point of reaching for one.
+        # see docs/EXPERIMENTAL-APIS.md), then v0.048 Stage B's per-node
+        # `@media` blocks (`ir.responsive_rules`, from a node's
+        # `responsive_style={...}` prop) absolute last of all, so a
+        # viewport-keyed override -- whichever of the two APIs produced
+        # it -- can still win the cascade against every intrinsic rule
+        # above it, the whole point of reaching for one. Stage B is
+        # ordered after the legacy `site.media_query(...)` blocks (not
+        # before) so a per-node override always has the final say over
+        # a sitewide one targeting the same generated class -- though in
+        # practice they can never collide, since `arkgen-N` classes are
+        # never author-chosen.
         css = (
             BASE_CSS_HEADER
             + "\n"
@@ -58,5 +70,6 @@ class CSSBackend(Backend):
             + BASE_CSS_BODY
             + render_custom_styles(ir.custom_styles)
             + render_media_queries(ir.media_queries)
+            + render_responsive_styles(ir.responsive_rules)
         )
         return {STYLESHEET_PATH: css}
