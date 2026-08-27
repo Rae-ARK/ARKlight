@@ -539,6 +539,156 @@ their own rather than as one large patch:
   no concrete ask yet -- noted here so they don't get assumed-in-scope
   later.
 
+### v0.049: CSS selector algebra + at-rule vocabulary (IMPLEMENTED)
+
+Closes the remaining structural gaps a user audit of the CSS backend
+turned up against the ceiling described at the top of this file and in
+v0.048's "explicitly deferred" note just above: pseudo-elements,
+parameterized pseudo-classes (`:not()`, `:has()`, `:is()`, `:where()`,
+`:nth-child()`), attribute selectors, combinators, grouped selectors,
+bare tag-selector overrides, `@keyframes`, `@font-face`, `@container`,
+`@supports`, and `@page`. `@import` (raised in the same audit as
+"reachable indirectly via `Page(links=[...])`, but no direct
+mechanism") is included too, for the case that indirection doesn't fit.
+
+Every one of these lands the same way v0.048 Stage A/B and the two
+stateful-JS vocabulary addenda above already do: **a closed grammar or
+a closed registry, never a raw-CSS-string escape hatch.** That's worth
+being explicit about, since "close the remaining CSS gaps" could
+easily have meant "add an `Site.raw_css(text: str)` passthrough" --
+the fastest way to get 100% parity, and exactly the kind of shortcut
+this project has consistently declined elsewhere (`on_click`'s closed
+behavior registry instead of `eval`; `meta`/`links` instead of
+`head_html`; `ALLOWED_PSEUDO_CLASSES` instead of accepting any pseudo-
+class string). Two new closed-vocabulary mechanisms do the actual work:
+
+- **A real (if intentionally small) selector parser**
+  (`arklight/backend/css/selectors.py`). `Site.style(name, rules)`
+  stays exactly as it was -- one flat `.name { }` block, unchanged --
+  because it's still the right tool for "give this class some rules."
+  The new **`Site.style_selector(selector: str, rules: dict) -> None`**
+  is for everything `style()` structurally can't express: combinators
+  (`.a > .b`, `.a + .b`, `.a ~ .b`, `.a .b`), grouped selectors (`h1,
+  h2, h3`), a bare tag override (`blockquote { ... }`, no
+  `class_name=` needed on every node), attribute selectors
+  (`[type="email"]`), pseudo-elements (`::before`, `::after`,
+  `::placeholder`, `::selection`, `::marker`, `::first-line`,
+  `::first-letter`), and parameterized pseudo-classes (`:not(.a)`,
+  `:is(...)`, `:where(...)`, `:has(...)` -- including `:has()`'s
+  CSS-spec-sanctioned relative form, `:has(> .icon)` -- and the
+  `:nth-child()` family with real An+B micro-syntax validation, not
+  just a regex ban-list). `selector` is parsed into a validated AST by
+  `parse_selector_list`, which raises `CSSSelectorSyntaxError` (a
+  `ValueError` subclass, same posture as `api.CSSSyntaxError`) for
+  anything outside the grammar -- a bare tag must be a real tag
+  ARKlight's HTML backend can emit (`KNOWN_HTML_TAGS`, kept in sync
+  with `arklight.backend.html.render.TAG_MAP`'s values by hand, copied
+  rather than imported to avoid a load-order cycle between the two
+  backends), an attribute value must be quoted and free of injection
+  characters, and a pseudo-class/pseudo-element name must be in one of
+  the fixed sets. `render_selector_list` then turns that AST back into
+  canonical CSS text, so the stylesheet only ever contains what was
+  actually validated -- never the caller's original string verbatim.
+  One deliberate, documented simplification: CSS's real `&` nesting
+  syntax isn't emitted; instead, a `&`-prefixed key in `rules`
+  (`"&:hover"`, `"& .child"`, `"& > .child"`, `"&.active"`,
+  `"&[data-open]"`) is desugared at author time into its own
+  fully-resolved selector, which keeps the generated CSS working in
+  browsers that predate real nesting support, at the cost of only
+  supporting one level of "parent" (a grouped base selector like `"h1,
+  h2"` can't be nested against -- register each branch separately, the
+  same "ambiguity forces a scope line" call `:has()`'s relative-form
+  restriction to functional pseudo-classes makes on the parser side).
+- **Five new closed-vocabulary `Site` methods for the at-rules
+  `style()`/`style_selector()` can't reach**, all in `arklight/api.py`,
+  all rendered by new pure functions in the new
+  `arklight/backend/css/at_rules.py` (same "structured data in, CSS
+  text out, no re-validation of its own" contract
+  `custom_styles.py`'s `render_*` functions already keep):
+  - **`Site.keyframes(name: str, frames: dict[str, dict[str, str]])`**
+    -- a real `@keyframes name { ... }` block. `name` is a CSS
+    custom-ident; each `frames` key is `"from"`/`"to"`/a percentage,
+    validated against a fixed pattern, and stops are always re-sorted
+    (from -> ascending % -> to) regardless of dict insertion order, so
+    output is deterministic. `transition`/`animation` themselves
+    already worked as plain `style=` values -- this only adds the
+    missing "define what to animate *through*" half.
+  - **`Site.font_face(family: str, src: str | list[dict], **descriptors)`**
+    -- a real `@font-face { ... }` block, for a self-hosted webfont
+    (an external one was already reachable indirectly via
+    `Page(links=[{"rel": "stylesheet", "href": ...}])`, which still
+    stays the better option for that case). `src` is a url string or a
+    list of `{"url": ..., "format": ...}` dicts for a fallback chain;
+    `format`, when given, must be one of `ALLOWED_FONT_FACE_FORMATS`
+    (the real `format(...)` keywords browsers recognize). Extra
+    keyword args become other descriptors (`font_weight=`,
+    `font_display=`, ...), underscore-to-hyphen same as
+    `style={...}`'s existing convention.
+  - **`Site.container_query(condition: str, selector: str, rules: dict, *, name: str | None = None)`**
+    -- a real `@container name? (condition) { selector { ... } }`
+    block. Deliberately **not** flagged EXPERIMENTAL the way
+    `site.media_query(...)` is: a container query is keyed to an
+    ancestor's size, not the viewport, so it doesn't carry the same
+    "assumes a phone-vs-desktop breakpoint intuition instead of
+    intrinsic layout" caution that `media_query` does -- it's often
+    used *alongside* intrinsic layout, not instead of it. The container
+    context itself (`container-type`/`container-name`) needs no new
+    mechanism -- it's just a `style={...}` prop on the ancestor, which
+    was already unrestricted for property values.
+  - **`Site.supports(condition: str, selector: str, rules: dict)`** --
+    a real `@supports (condition) { selector { ... } }` feature-query
+    block, previously not reachable at all. Like `media_query`'s
+    condition, the feature-query text itself isn't parsed beyond
+    "non-empty, no injection characters" -- the valid-syntax space is
+    large, and a malformed condition just produces broken (not unsafe)
+    generated CSS, the same failure mode a hand-written `@supports`
+    would have.
+  - **`Site.page_rule(rules: dict, *, pseudo: str | None = None)`** --
+    a real `@page { ... }` / `@page :pseudo { ... }` print-layout
+    rule. `pseudo` is one of `ALLOWED_PAGE_PSEUDOS` (`first`, `left`,
+    `right`, `blank`) -- same fixed-set discipline as
+    `ALLOWED_PSEUDO_CLASSES`.
+  - **`Site.import_style(url: str)`** -- a real `@import url("...");`
+    statement. Emitted first in the generated stylesheet, ahead of
+    even `BASE_CSS_HEADER`, because the CSS spec requires `@import` to
+    precede every other rule (aside from `@charset`, which ARKlight
+    doesn't emit) -- see `CSSBackend.render`'s ordering comment.
+
+All seven additions are pure passthrough data on `WebsiteIR`
+(`selector_rules`, `keyframes`, `font_faces`, `container_queries`,
+`supports_rules`, `page_rules`, `style_imports`), forwarded unchanged
+from `Site` through `arklight.compiler.pipeline` into
+`build_website_ir` -- no change to `normalize.py`/`validate.py`'s
+tree-walking logic, confirming (same as the stateful-JS addenda) that
+this really was closed-vocabulary growth, not a structural rework of
+the compiler pipeline. Cascade placement in `CSSBackend.render`: the
+new selector/at-rule blocks are ordered *after* `custom_styles`/
+`media_queries`/`responsive_rules`, on the reasoning that a structural
+selector or at-rule is usually the more specific/newer thing targeting
+an element another mechanism already touches, and should get the final
+say.
+
+**What's still explicitly out of scope, and why:**
+
+- **`@container` queries against an *unnamed* nearest container with
+  no `container-type` declared anywhere** aren't validated at the
+  `Site.container_query(...)` call site -- like `@supports`'s feature
+  condition, a missing `container-type` produces a query that silently
+  never matches, not unsafe output; catching it would mean tracking
+  which ancestor nodes declared a container context, which is
+  tree-shape analysis this addendum's "grow the registry, don't touch
+  the compiler" scope deliberately avoids.
+- **`:nth-child(An+B of <selector>)`** (the CSS4 form that scopes the
+  count to a sub-selector, not just every child) -- the plain An+B form
+  covers the overwhelmingly common case; the `of <selector>` extension
+  is a real but rare need, deferred rather than guessed at.
+- **Multi-level `&` nesting beyond what a single `_resolve_nested_selector`
+  pass already covers** (e.g. a `&`-nested key whose own value is
+  *another* `&`-nested dict) *is* supported -- `_expand_style_selector_rules`
+  recurses -- but each level still only resolves against a single base
+  selector, so a nested branch under a grouped selector still isn't
+  reachable in one call.
+
 ### Staging
 
 Land as two tagged milestones, not one commit: **v0.0035** (state +

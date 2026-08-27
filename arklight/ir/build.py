@@ -96,6 +96,21 @@ class WebsiteIR:
     # a synthesized per-node class instead of an author-chosen one.
     # Empty for sites that never use `responsive_style=`.
     responsive_rules: list = field(default_factory=list)
+    # Structural addendum (see docs/DESIGN-NOTES.md "CSS selector
+    # algebra + at-rule vocabulary"): straight passthroughs of
+    # `Site.style_selector`/`keyframes`/`font_face`/`container_query`/
+    # `supports`/`page_rule`/`import_style` registrations. Each keeps
+    # the exact shape its `Site` method already validated and
+    # normalized -- see `arklight/backend/css/at_rules.py` for what
+    # consumes each one. Empty for sites that never call the
+    # corresponding method.
+    selector_rules: list = field(default_factory=list)
+    keyframes: dict = field(default_factory=dict)
+    font_faces: list = field(default_factory=list)
+    container_queries: list = field(default_factory=list)
+    supports_rules: list = field(default_factory=list)
+    page_rules: list = field(default_factory=list)
+    style_imports: list = field(default_factory=list)
 
 
 @dataclass
@@ -193,6 +208,13 @@ def build_website_ir(
     css_var_overrides: dict[str, str] | None = None,
     lang: str = "en",
     on_warning: Callable[[str], None] | None = None,
+    selector_rules: list | None = None,
+    keyframes: dict | None = None,
+    font_faces: list | None = None,
+    container_queries: list | None = None,
+    supports_rules: list | None = None,
+    page_rules: list | None = None,
+    style_imports: list | None = None,
 ) -> WebsiteIR:
     """
     Build the Website IR from a normalized + validated ARK AST.
@@ -214,6 +236,14 @@ def build_website_ir(
     `None` (record the usage, but print nothing) so existing callers
     that don't pass it are unaffected; `arklight.compiler.pipeline`
     passes its stage logger.
+
+    `selector_rules`/`keyframes`/`font_faces`/`container_queries`/
+    `supports_rules`/`page_rules`/`style_imports` are the structural
+    CSS addendum's registrations (`Site.style_selector`/`keyframes`/
+    `font_face`/`container_query`/`supports`/`page_rule`/
+    `import_style` -- see docs/DESIGN-NOTES.md), forwarded to the
+    matching `WebsiteIR` field unchanged. All default to empty/None so
+    existing callers are unaffected.
     """
     collector = _ResponsiveStyleCollector()
     ir_pages = []
@@ -237,4 +267,11 @@ def build_website_ir(
         css_var_overrides=dict(css_var_overrides) if css_var_overrides else {},
         lang=lang,
         responsive_rules=collector.rules,
+        selector_rules=list(selector_rules) if selector_rules else [],
+        keyframes=dict(keyframes) if keyframes else {},
+        font_faces=list(font_faces) if font_faces else [],
+        container_queries=list(container_queries) if container_queries else [],
+        supports_rules=list(supports_rules) if supports_rules else [],
+        page_rules=list(page_rules) if page_rules else [],
+        style_imports=list(style_imports) if style_imports else [],
     )

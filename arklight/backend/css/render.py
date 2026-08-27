@@ -25,6 +25,15 @@ of its own left in this file.
 from __future__ import annotations
 
 from arklight.backend.base import Backend
+from arklight.backend.css.at_rules import (
+    render_container_queries,
+    render_font_faces,
+    render_imports,
+    render_keyframes,
+    render_page_rules,
+    render_selector_rules,
+    render_supports_rules,
+)
 from arklight.backend.css.base_stylesheet import BASE_CSS_BODY, BASE_CSS_HEADER
 from arklight.backend.css.custom_styles import (
     render_custom_styles,
@@ -62,8 +71,23 @@ class CSSBackend(Backend):
         # a sitewide one targeting the same generated class -- though in
         # practice they can never collide, since `arkgen-N` classes are
         # never author-chosen.
+        #
+        # Structural addendum (docs/DESIGN-NOTES.md "CSS selector
+        # algebra + at-rule vocabulary"): `render_imports` goes first,
+        # ahead of everything -- including `BASE_CSS_HEADER` -- because
+        # the CSS spec requires `@import` to precede every other rule
+        # in the sheet (aside from `@charset`, which ARKlight doesn't
+        # emit). Everything else from this addendum
+        # (`selector_rules`/`keyframes`/`font_faces`/
+        # `container_queries`/`supports_rules`/`page_rules`) is ordered
+        # last, after the v0.048 Stage B `@media` blocks: a structural
+        # selector or at-rule commonly targets the same element a
+        # simpler `custom_styles`/`media_queries`/`responsive_rules`
+        # rule already does, and the newer/more specific mechanism
+        # should get the final say in the cascade.
         css = (
-            BASE_CSS_HEADER
+            render_imports(ir.style_imports)
+            + BASE_CSS_HEADER
             + "\n"
             + render_root_and_property_rules(ir.css_var_overrides)
             + "\n\n"
@@ -71,5 +95,11 @@ class CSSBackend(Backend):
             + render_custom_styles(ir.custom_styles)
             + render_media_queries(ir.media_queries)
             + render_responsive_styles(ir.responsive_rules)
+            + render_selector_rules(ir.selector_rules)
+            + render_keyframes(ir.keyframes)
+            + render_font_faces(ir.font_faces)
+            + render_container_queries(ir.container_queries)
+            + render_supports_rules(ir.supports_rules)
+            + render_page_rules(ir.page_rules)
         )
         return {STYLESHEET_PATH: css}

@@ -187,6 +187,16 @@ def compile_site_file(
         # the loop just above. This is that feature's own inline
         # "[EXPERIMENTAL FEATURE ACTIVE]" detection point.
         on_warning=log,
+        # Structural addendum (docs/DESIGN-NOTES.md "CSS selector
+        # algebra + at-rule vocabulary"): straight passthroughs, same
+        # as `custom_styles`/`media_queries` above.
+        selector_rules=site.selector_rules,
+        keyframes=site.custom_keyframes,
+        font_faces=site.font_faces,
+        container_queries=site.container_queries,
+        supports_rules=site.supports_rules,
+        page_rules=site.page_rules,
+        style_imports=site.style_imports,
     )
 
 

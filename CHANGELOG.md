@@ -5,6 +5,52 @@ follows [Keep a Changelog](https://keepachangelog.com/); versions
 follow the milestone scheme from ARCHITECTURE.md rather than strict
 SemVer.
 
+## [0.049] - Unreleased
+
+**CSS selector algebra + at-rule vocabulary.** Closes the remaining
+structural CSS gaps flagged in `docs/DESIGN-NOTES.md` ("CSS selector
+algebra + at-rule vocabulary"): pseudo-elements, parameterized
+pseudo-classes, attribute selectors, combinators, grouped selectors,
+bare tag-selector overrides, `@keyframes`, `@font-face`, `@container`,
+`@supports`, `@page`, and `@import`. Same discipline as every other
+extension point in the project -- a closed grammar/registry, never a
+raw-CSS-string escape hatch.
+
+- New `arklight/backend/css/selectors.py`: a small recursive-descent
+  selector parser. `parse_selector_list(text)` either returns a
+  validated AST or raises `CSSSelectorSyntaxError`; `render_selector_list`
+  turns that AST back into canonical CSS text.
+- New `Site.style_selector(selector: str, rules: dict) -> None` --
+  combinators (`.a > .b`, `.a + .b`, `.a ~ .b`, `.a .b`), grouped
+  selectors (`h1, h2, h3`), bare tag overrides (`blockquote`),
+  attribute selectors (`[type="email"]`), pseudo-elements
+  (`::before`, `::after`, `::placeholder`, `::selection`, `::marker`,
+  `::first-line`, `::first-letter`), and parameterized pseudo-classes
+  (`:not()`, `:is()`, `:where()`, `:has()` -- including its relative
+  form, `:has(> .icon)` -- and the `:nth-child()` family with real
+  An+B validation). Supports one level of `&`-prefixed nesting
+  (`"&:hover"`, `"& .child"`, `"& > .child"`), desugared at author
+  time into fully-resolved selectors rather than emitted as real CSS
+  nesting syntax. `Site.style(name, rules)` is unchanged.
+- New `Site.keyframes(name, frames)`, `Site.font_face(family, src,
+  **descriptors)`, `Site.container_query(condition, selector, rules,
+  *, name=None)`, `Site.supports(condition, selector, rules)`,
+  `Site.page_rule(rules, *, pseudo=None)`, and `Site.import_style(url)`
+  -- new closed-vocabulary `Site` methods, each rendered by a new pure
+  function in the new `arklight/backend/css/at_rules.py`.
+  `container_query` is deliberately not flagged EXPERIMENTAL the way
+  `media_query` is (a container query isn't viewport-keyed, so it
+  doesn't carry the same caution). `import_style` output is placed
+  first in the generated stylesheet, ahead of `BASE_CSS_HEADER`, per
+  the CSS spec's `@import`-must-come-first requirement.
+- All additions are pure passthrough data on `WebsiteIR`
+  (`selector_rules`, `keyframes`, `font_faces`, `container_queries`,
+  `supports_rules`, `page_rules`, `style_imports`) -- no change to
+  `normalize.py`/`validate.py`'s tree-walking logic. 63 new tests
+  (`tests/test_css_selectors.py`, `tests/test_css_structural_addendum.py`);
+  604 tests total, all passing. Fully additive -- a site that never
+  calls any of these methods renders byte-for-byte unchanged.
+
 ## [0.048] - Unreleased
 
 **Stage A of v0.048: structured `<head>` extension.** `Page(...)`

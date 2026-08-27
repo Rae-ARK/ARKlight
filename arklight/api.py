@@ -19,6 +19,7 @@ from typing import Any, Callable
 
 from arklight import experimental
 from arklight.ast.nodes import ActionRef, ARKNode, ClassBindSpec, node
+from arklight.backend.css import selectors as css_selectors
 
 # v0.042: custom CSS class names must look like a real, single CSS class
 # identifier -- letters/digits/hyphens/underscores, not starting with a
@@ -68,6 +69,26 @@ ALLOWED_PSEUDO_CLASSES = frozenset(
 # string, so any of these in a value is a syntax error, not something
 # to pass through.
 _CSS_VALUE_INJECTION_CHARS = frozenset("{};\n")
+
+
+# Recognized `@page` pseudo-classes for `Site.page_rule(..., pseudo=...)`
+# -- same fixed-set discipline as `ALLOWED_PSEUDO_CLASSES` above.
+ALLOWED_PAGE_PSEUDOS = frozenset({"first", "left", "right", "blank"})
+
+# Recognized `src` formats for `Site.font_face(...)` -- matches the
+# `format(...)` keywords browsers actually recognize in an `@font-face`
+# `src` descriptor.
+ALLOWED_FONT_FACE_FORMATS = frozenset(
+    {"woff2", "woff", "truetype", "opentype", "embedded-opentype", "svg"}
+)
+
+# `@keyframes` stop keys: `from`/`to` or a percentage like "50%".
+_KEYFRAME_STOP_RE = re.compile(r"^(from|to|\d{1,3}(\.\d+)?%)$")
+
+# `Site.container_query(..., name=...)`'s optional container-name --
+# a CSS custom-ident, same charset as `_CSS_CLASS_NAME_RE` (no leading
+# digit).
+_CSS_IDENT_RE = re.compile(r"^-?[A-Za-z_][A-Za-z0-9_-]*$")
 
 
 class CSSSyntaxError(ValueError):
@@ -548,6 +569,25 @@ class Site:
             if value is not None:
                 self._set_css_var_override(kwarg_name, var_name, value)
 
+        # Structural addendum (see docs/DESIGN-NOTES.md "CSS selector
+        # algebra + at-rule vocabulary"): storage for the new
+        # `Site.style_selector`/`keyframes`/`font_face`/
+        # `container_query`/`supports`/`page_rule`/`import_style`
+        # registrations. Each is its own list/dict, same "don't
+        # overload one structure with several unrelated shapes"
+        # reasoning `custom_media_queries` already documents against
+        # `custom_styles` above -- a selector rule, a keyframes
+        # definition, and an `@import` url are different enough shapes
+        # that folding them together would just move the type-checking
+        # into the reader instead of the type system.
+        self.selector_rules: list[tuple[str, dict[str, str]]] = []
+        self.custom_keyframes: dict[str, dict[str, dict[str, str]]] = {}
+        self.font_faces: list[dict[str, str]] = []
+        self.container_queries: list[tuple[str | None, str, str, dict[str, str]]] = []
+        self.supports_rules: list[tuple[str, str, dict[str, str]]] = []
+        self.page_rules: list[tuple[str | None, dict[str, str]]] = []
+        self.style_imports: list[str] = []
+
     def _set_css_var_override(self, kwarg_name: str, var_name: str, value: str) -> None:
         if not isinstance(value, str) or not value.strip():
             raise ValueError(
@@ -706,6 +746,507 @@ class Site:
                 f"break out of its declaration. Use one property/value pair "
                 f"per key instead of a raw CSS block."
             )
+
+    def _validate_plain_rules(self, context: str, rules: dict[str, str]) -> dict[str, str]:
+        """
+        Shared validation for the "flat `{property: value}` dict, no
+        pseudo-class shorthand" shape used by `container_query`,
+        `supports`, and `page_rule` below (`style_selector` needs its
+        own variant, since it also has to recognize `&`-nested dict
+        values -- see `_expand_style_selector_rules`). `context` is a
+        short description used in error messages (e.g. the selector or
+        `"@page"`), not re-validated itself.
+        """
+        if not isinstance(rules, dict) or not rules:
+            raise ValueError(
+                f"{context} needs a non-empty dict of {{css-property: value}}, "
+                f"e.g. {{'color': 'red'}}."
+            )
+        clean: dict[str, str] = {}
+        for prop, value in rules.items():
+            if not isinstance(prop, str) or not prop.strip() or prop.startswith(":"):
+                raise ValueError(
+                    f"{context} has an invalid CSS property name {prop!r} "
+                    f"(pseudo-class shorthand keys aren't supported here -- "
+                    f"put the pseudo-class in the selector itself)."
+                )
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(
+                    f"{context} property {prop!r} needs a non-empty string "
+                    f"value, got {value!r}."
+                )
+            self._validate_css_syntax(context, prop, value)
+            clean[prop] = value
+        return clean
+
+    def _expand_style_selector_rules(
+        self, selector_text: str, selector_ast, rules: dict
+    ) -> list[tuple[str, dict[str, str]]]:
+        """
+        Validate `rules` for `style_selector(selector_text, rules)` and
+        expand any `&`-nested dict values into their own fully-resolved
+        (selector, rules) pairs -- see `style_selector`'s docstring for
+        the nesting shapes accepted. Recurses for multi-level nesting.
+        """
+        if not isinstance(rules, dict) or not rules:
+            raise ValueError(
+                f"site.style_selector({selector_text!r}, rules) needs a "
+                f"non-empty dict of {{css-property: value}} (values may "
+                f"also be a nested '&'-prefixed rules dict), got {rules!r}."
+            )
+
+        plain: dict[str, str] = {}
+        nested: list[tuple[str, dict]] = []
+        for key, value in rules.items():
+            if not isinstance(key, str) or not key.strip():
+                raise ValueError(
+                    f"site.style_selector({selector_text!r}, ...) has a "
+                    f"non-string or empty rule key: {key!r}."
+                )
+            if key.startswith("&"):
+                if not isinstance(value, dict) or not value:
+                    raise ValueError(
+                        f"site.style_selector({selector_text!r}, ...) "
+                        f"nested key {key!r} needs a non-empty rules dict, "
+                        f"got {value!r}."
+                    )
+                nested.append((key, value))
+                continue
+            if key.startswith(":"):
+                raise CSSSyntaxError(
+                    f"site.style_selector({selector_text!r}, ...) doesn't "
+                    f"support the ':pseudo:property' shorthand -- put the "
+                    f"pseudo-class in the selector itself, e.g. "
+                    f"style_selector({selector_text!r} + ':hover', ...)."
+                )
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(
+                    f"site.style_selector({selector_text!r}, ...) property "
+                    f"{key!r} needs a non-empty string value, got {value!r}."
+                )
+            self._validate_css_syntax(selector_text, key, value)
+            plain[key] = value
+
+        results: list[tuple[str, dict[str, str]]] = []
+        if plain:
+            results.append((selector_text, plain))
+        for key, nested_rules in nested:
+            nested_selector_text = self._resolve_nested_selector(selector_text, selector_ast, key)
+            try:
+                nested_ast = css_selectors.parse_selector_list(nested_selector_text)
+            except css_selectors.CSSSelectorSyntaxError as exc:
+                raise CSSSyntaxError(str(exc)) from exc
+            results.extend(
+                self._expand_style_selector_rules(nested_selector_text, nested_ast, nested_rules)
+            )
+        return results
+
+    @staticmethod
+    def _resolve_nested_selector(selector_text: str, selector_ast, key: str) -> str:
+        """
+        Resolve one `&`-prefixed nested key (e.g. `"&:hover"`,
+        `"& .child"`, `"& > .child"`) against `selector_text` into a
+        fully-written selector string -- desugared at author time into
+        a flat selector, not emitted as real CSS nesting syntax (`&`),
+        so the generated stylesheet stays readable in browsers that
+        predate CSS nesting support. Only defined for a single base
+        selector (not a grouped `a, b` list): a group would make "the
+        parent" ambiguous, so a grouped base selector must be nested
+        against one branch at a time via separate `style_selector` calls.
+        """
+        if len(selector_ast) != 1:
+            raise CSSSyntaxError(
+                f"site.style_selector({selector_text!r}, ...) nested key "
+                f"{key!r} needs a single base selector, not a grouped "
+                f"selector list -- register each branch of the group with "
+                f"its own style_selector(...) call."
+            )
+        remainder = key[1:]
+        if not remainder:
+            raise CSSSyntaxError(
+                "site.style_selector(...) nested key '&' needs something "
+                "after '&', e.g. '&:hover' or '& .child'."
+            )
+        first = remainder[0]
+        if first in (">", "+", "~"):
+            return f"{selector_text} {first} {remainder[1:].strip()}"
+        if first.isspace():
+            return f"{selector_text} {remainder.strip()}"
+        if first in (":", ".", "["):
+            return f"{selector_text}{remainder}"
+        raise CSSSyntaxError(
+            f"site.style_selector(...) nested key {key!r} isn't a "
+            f"recognized '&'-nesting shape -- expected '&:pseudo', "
+            f"'&.class', '&[attr]', '& .child' (descendant), or "
+            f"'& > .child' / '& + .child' / '& ~ .child' (combinator)."
+        )
+
+    def style_selector(self, selector: str, rules: dict) -> None:
+        """
+        Register CSS rules against an arbitrary *structural* selector --
+        combinators (`.a > .b`), grouped selectors (`h1, h2`), a bare
+        tag override (`blockquote`, no `class_name=` needed on every
+        node), attribute selectors (`[type="email"]`), pseudo-elements
+        (`::before`), and parameterized pseudo-classes (`:not(.a)`,
+        `:has(> .icon)`, `:is(...)`, `:where(...)`, `:nth-child(2n+1)`)
+        -- everything `Site.style(...)`'s single flat `.name { }` block
+        can't reach. See docs/DESIGN-NOTES.md ("CSS selector algebra +
+        at-rule vocabulary") for why this is a separate method rather
+        than widening `style()` itself.
+
+        `selector` is parsed by `arklight.backend.css.selectors
+        .parse_selector_list` -- a closed grammar, not a raw CSS
+        string: anything outside pseudo-classes/pseudo-elements/
+        attribute operators this module recognizes raises
+        `CSSSyntaxError` rather than being passed through. A bare tag
+        selector must be a real HTML tag ARKlight's HTML backend can
+        emit (`arklight.backend.css.selectors.KNOWN_HTML_TAGS`).
+
+        `rules` is normally a flat `{css-property: value}` dict, same
+        shape as `style()`/`style={...}`. A key may also be a
+        `&`-prefixed nested rules dict to reach a related selector
+        without re-typing the base selector -- `&:hover` (pseudo-class
+        on the same element), `&.active` / `&[data-open]` (compound
+        extension), `& .child` (descendant), `& > .child` / `&
+        + .child` / `& ~ .child` (combinator). Nesting is resolved at
+        author time into a fully-written selector (see
+        `_resolve_nested_selector`), not emitted as real CSS `&`
+        nesting syntax, and only supported against a single base
+        selector (not a grouped `a, b` list -- register each branch
+        separately). The `:pseudo:property` shorthand `style()` uses
+        isn't accepted here; put the pseudo-class in the selector
+        string (or a `&`-nested key) instead.
+
+        Example:
+
+            site.style_selector(".card", {
+                "padding": "1rem",
+                "&:hover": {"box-shadow": "0 2px 8px rgba(0,0,0,.15)"},
+                "& > img": {"border-radius": "8px 8px 0 0"},
+            })
+            site.style_selector("blockquote", {"font-style": "italic"})
+            site.style_selector("h1, h2, h3", {"font-family": "var(--ark-font-family)"})
+            site.style_selector('[data-state="open"] .panel', {"display": "block"})
+        """
+        if not isinstance(selector, str) or not selector.strip():
+            raise ValueError(
+                f"site.style_selector(selector, ...) needs a non-empty "
+                f"selector string, got {selector!r}."
+            )
+        try:
+            selector_ast = css_selectors.parse_selector_list(selector)
+        except css_selectors.CSSSelectorSyntaxError as exc:
+            raise CSSSyntaxError(str(exc)) from exc
+        canonical_selector = css_selectors.render_selector_list(selector_ast)
+
+        expanded = self._expand_style_selector_rules(canonical_selector, selector_ast, rules)
+        self.selector_rules.extend((sel, dict(r)) for sel, r in expanded)
+
+    def keyframes(self, name: str, frames: dict[str, dict[str, str]]) -> None:
+        """
+        Register a real `@keyframes name { ... }` block -- one of the
+        gaps explicitly deferred in earlier design notes ("not silently
+        dropped", see docs/DESIGN-NOTES.md). `transition` itself
+        already worked (it's just a property value inside `style=`),
+        but there was no way to *define* a keyframe sequence to
+        transition/animate through.
+
+        `name` is a CSS custom-ident (letters/digits/hyphens/
+        underscores, no leading digit) -- referenced from any node's
+        `style={"animation": "name 2s ease infinite"}` the same way any
+        other `animation-name` value would be, since inline `style=` is
+        already unrestricted for property *values*.
+
+        `frames` is `{stop: {property: value}}`, where each `stop` is
+        `"from"`, `"to"`, or a percentage like `"50%"` -- structured
+        data, not a raw `@keyframes` block string. Stops are re-sorted
+        (from -> ascending percentages -> to) regardless of the dict's
+        insertion order, so `{"100%": ..., "0%": ...}` and `{"0%":
+        ..., "100%": ...}` produce identical output.
+
+        Example:
+
+            site.keyframes("fade-in", {
+                "from": {"opacity": "0"},
+                "to": {"opacity": "1"},
+            })
+        """
+        if not isinstance(name, str) or not _CSS_IDENT_RE.match(name):
+            raise ValueError(
+                f"site.keyframes({name!r}, ...) needs a valid animation "
+                f"name -- letters, digits, hyphens, and underscores only, "
+                f"and it can't start with a digit."
+            )
+        if not isinstance(frames, dict) or not frames:
+            raise ValueError(
+                f"site.keyframes({name!r}, frames) needs a non-empty dict "
+                f"of {{stop: {{property: value}}}}, e.g. {{'from': "
+                f"{{'opacity': '0'}}, 'to': {{'opacity': '1'}}}}."
+            )
+
+        normalized: dict[str, dict[str, str]] = {}
+        for stop, rules in frames.items():
+            if not isinstance(stop, str) or not _KEYFRAME_STOP_RE.match(stop.strip()):
+                raise CSSSyntaxError(
+                    f"site.keyframes({name!r}, ...) has an invalid stop "
+                    f"{stop!r} -- expected 'from', 'to', or a percentage "
+                    f"like '50%'."
+                )
+            normalized[stop.strip()] = self._validate_plain_rules(
+                f"site.keyframes({name!r}, ...) stop {stop!r}", rules
+            )
+
+        def _sort_key(stop: str) -> float:
+            if stop == "from":
+                return -1.0
+            if stop == "to":
+                return 101.0
+            return float(stop[:-1])
+
+        self.custom_keyframes[name] = {
+            stop: normalized[stop] for stop in sorted(normalized, key=_sort_key)
+        }
+
+    def font_face(
+        self, family: str, src: str | list[dict[str, str]], **descriptors: str
+    ) -> None:
+        """
+        Register a real `@font-face { ... }` block -- the other gap
+        explicitly deferred in earlier design notes. Previously a
+        self-hosted webfont was entirely unreachable; an external one
+        was only reachable indirectly via `Page(links=[{"rel":
+        "stylesheet", "href": "https://fonts.googleapis.com/..."}])`.
+
+        `family` becomes the `font-family` descriptor (quoted
+        automatically). `src` is either a single url string, or a list
+        of `{"url": ..., "format": "woff2"}` dicts for a multi-format
+        fallback chain (`format` is optional; when given, it must be
+        one of `ALLOWED_FONT_FACE_FORMATS`). Extra keyword arguments
+        become other `@font-face` descriptors (`font_weight="700"` ->
+        `font-weight: 700;`, `font_display="swap"`, `font_style=...`,
+        `unicode_range=...`, etc.) -- underscores convert to hyphens,
+        same convention `style={...}`/`responsive_style={...}` already
+        use for prop names.
+
+        Example:
+
+            site.font_face(
+                "Inter",
+                [
+                    {"url": "/assets/inter.woff2", "format": "woff2"},
+                    {"url": "/assets/inter.woff", "format": "woff"},
+                ],
+                font_weight="400 700",
+                font_display="swap",
+            )
+        """
+        if not isinstance(family, str) or not family.strip():
+            raise ValueError(
+                f"site.font_face(family, ...) needs a non-empty font "
+                f"family name string, got {family!r}."
+            )
+        if any(ch in family for ch in _CSS_VALUE_INJECTION_CHARS) or '"' in family:
+            raise CSSSyntaxError(
+                f"site.font_face({family!r}, ...) has a family name that "
+                f"isn't safe to emit -- quotes, braces, semicolons, and "
+                f"newlines aren't allowed."
+            )
+
+        if isinstance(src, str):
+            src_entries: list[dict[str, str]] = [{"url": src}]
+        elif isinstance(src, list) and src:
+            src_entries = src
+        else:
+            raise ValueError(
+                f"site.font_face({family!r}, src, ...) needs `src` to be a "
+                f"non-empty url string or a non-empty list of "
+                f"{{'url': ..., 'format': ...}} dicts, got {src!r}."
+            )
+
+        src_parts: list[str] = []
+        for entry in src_entries:
+            if not isinstance(entry, dict) or "url" not in entry:
+                raise ValueError(
+                    f"site.font_face({family!r}, ...) has a src entry that "
+                    f"isn't a dict with at least a 'url' key: {entry!r}."
+                )
+            url = entry["url"]
+            if (
+                not isinstance(url, str)
+                or not url.strip()
+                or any(ch in url for ch in _CSS_VALUE_INJECTION_CHARS)
+                or '"' in url
+            ):
+                raise CSSSyntaxError(
+                    f"site.font_face({family!r}, ...) has a src url that "
+                    f"isn't safe to emit: {url!r}."
+                )
+            fmt = entry.get("format")
+            if fmt is None:
+                src_parts.append(f'url("{url}")')
+            else:
+                if fmt not in ALLOWED_FONT_FACE_FORMATS:
+                    raise CSSSyntaxError(
+                        f"site.font_face({family!r}, ...) has unsupported "
+                        f"src format {fmt!r}. Supported: "
+                        f"{', '.join(sorted(ALLOWED_FONT_FACE_FORMATS))}."
+                    )
+                src_parts.append(f'url("{url}") format("{fmt}")')
+
+        descriptor_rules: dict[str, str] = {
+            "font-family": f'"{family}"',
+            "src": ", ".join(src_parts),
+        }
+        for desc_name, desc_value in descriptors.items():
+            css_desc_name = desc_name.replace("_", "-")
+            if not isinstance(desc_value, str) or not desc_value.strip():
+                raise ValueError(
+                    f"site.font_face({family!r}, ...) descriptor "
+                    f"{desc_name!r} needs a non-empty string value, got "
+                    f"{desc_value!r}."
+                )
+            self._validate_css_syntax(family, css_desc_name, desc_value)
+            descriptor_rules[css_desc_name] = desc_value
+
+        self.font_faces.append(descriptor_rules)
+
+    def container_query(
+        self, condition: str, selector: str, rules: dict, *, name: str | None = None
+    ) -> None:
+        """
+        Register a real `@container (condition) { selector { ... } }`
+        block (optionally `@container name (condition) { ... }` when a
+        specific named container is targeted) -- one of the structural
+        gaps `site.media_query(...)` can't reach, since a container
+        query is keyed to an ancestor element's size, not the viewport.
+
+        Unlike `site.media_query(...)`, this isn't flagged as an
+        ARKlight "viewport-keyed, prefer intrinsic layout" EXPERIMENTAL
+        escape hatch: a container query is compatible with (and often
+        used alongside) intrinsic layout, since it reacts to an actual
+        ancestor's size rather than assuming a "phone vs desktop"
+        breakpoint intuition about the whole viewport.
+
+        A site declares the container context itself via the existing,
+        unrestricted `style={...}` prop -- `style={"container-type":
+        "inline-size", "container-name": "sidebar"}` on the ancestor
+        node -- no new mechanism needed there.
+
+        `condition` is the raw text inside the required parentheses
+        (e.g. `"min-width: 400px"`), validated the same
+        non-empty/no-injection-characters way `site.media_query(...)`'s
+        `condition` already is. `selector`/`rules` go through the same
+        grammar/validation as `style_selector(...)`.
+        """
+        if not isinstance(condition, str) or not condition.strip():
+            raise ValueError(
+                f"site.container_query(condition, ...) needs a non-empty "
+                f"container condition string, e.g. 'min-width: 400px', "
+                f"got {condition!r}."
+            )
+        if any(ch in condition for ch in _CSS_VALUE_INJECTION_CHARS):
+            raise CSSSyntaxError(
+                f"site.container_query({condition!r}, ...) has a "
+                f"condition that isn't safe to emit -- braces, "
+                f"semicolons, and newlines aren't allowed."
+            )
+        if name is not None and (not isinstance(name, str) or not _CSS_IDENT_RE.match(name)):
+            raise ValueError(
+                f"site.container_query(..., name={name!r}) needs a valid "
+                f"container name -- letters, digits, hyphens, and "
+                f"underscores only, and it can't start with a digit."
+            )
+        try:
+            selector_ast = css_selectors.parse_selector_list(selector)
+        except css_selectors.CSSSelectorSyntaxError as exc:
+            raise CSSSyntaxError(str(exc)) from exc
+        canonical_selector = css_selectors.render_selector_list(selector_ast)
+        clean_rules = self._validate_plain_rules(
+            f"site.container_query(..., {canonical_selector!r}, ...)", rules
+        )
+        self.container_queries.append((name, condition.strip(), canonical_selector, clean_rules))
+
+    def supports(self, condition: str, selector: str, rules: dict) -> None:
+        """
+        Register a real `@supports (condition) { selector { ... } }`
+        feature-query block -- a progressive-enhancement gate ARKlight
+        previously had no authoring surface for at all.
+
+        `condition` is the raw text inside the required parentheses
+        (e.g. `"display: grid"`, or a compound condition like
+        `"(display: grid) and (gap: 1rem)"`), validated the same
+        non-empty/no-injection-characters way `site.media_query(...)`'s
+        `condition` is -- the space of valid feature-query syntax is
+        large, so (like `media_query`) this doesn't parse it beyond
+        that; a malformed condition surfaces as broken generated CSS,
+        the same failure mode hand-written `@supports` would have.
+        `selector`/`rules` go through the same grammar/validation as
+        `style_selector(...)`.
+        """
+        if not isinstance(condition, str) or not condition.strip():
+            raise ValueError(
+                f"site.supports(condition, ...) needs a non-empty feature "
+                f"condition string, e.g. 'display: grid', got {condition!r}."
+            )
+        if any(ch in condition for ch in _CSS_VALUE_INJECTION_CHARS):
+            raise CSSSyntaxError(
+                f"site.supports({condition!r}, ...) has a condition that "
+                f"isn't safe to emit -- braces, semicolons, and newlines "
+                f"aren't allowed."
+            )
+        try:
+            selector_ast = css_selectors.parse_selector_list(selector)
+        except css_selectors.CSSSelectorSyntaxError as exc:
+            raise CSSSyntaxError(str(exc)) from exc
+        canonical_selector = css_selectors.render_selector_list(selector_ast)
+        clean_rules = self._validate_plain_rules(
+            f"site.supports(..., {canonical_selector!r}, ...)", rules
+        )
+        self.supports_rules.append((condition.strip(), canonical_selector, clean_rules))
+
+    def page_rule(self, rules: dict, *, pseudo: str | None = None) -> None:
+        """
+        Register a real `@page { ... }` (or `@page :pseudo { ... }`)
+        print-layout rule. `pseudo`, if given, must be one of
+        `ALLOWED_PAGE_PSEUDOS` (`"first"`, `"left"`, `"right"`,
+        `"blank"`) -- same fixed-set discipline as
+        `ALLOWED_PSEUDO_CLASSES`. `rules` goes through the same plain
+        `{property: value}` validation `container_query`/`supports` use.
+
+        Example:
+
+            site.page_rule({"margin": "2cm"})
+            site.page_rule({"margin-top": "4cm"}, pseudo="first")
+        """
+        if pseudo is not None and pseudo not in ALLOWED_PAGE_PSEUDOS:
+            raise CSSSyntaxError(
+                f"site.page_rule(..., pseudo={pseudo!r}) isn't supported. "
+                f"Supported: {', '.join(sorted(ALLOWED_PAGE_PSEUDOS))}."
+            )
+        clean_rules = self._validate_plain_rules("site.page_rule(...)", rules)
+        self.page_rules.append((pseudo, clean_rules))
+
+    def import_style(self, url: str) -> None:
+        """
+        Register a sitewide `@import url("...");` statement, emitted
+        first in the generated stylesheet (required -- `@import` must
+        precede every other rule per the CSS spec, aside from
+        `@charset`). Mainly useful for an external stylesheet/webfont
+        host that isn't reachable via `Page(links=[...])` for some
+        reason; prefer `links=` for the common case (it doesn't block
+        the CSS Object Model the way `@import` does).
+        """
+        if not isinstance(url, str) or not url.strip():
+            raise ValueError(
+                f"site.import_style(url) needs a non-empty url string, "
+                f"got {url!r}."
+            )
+        if any(ch in url for ch in _CSS_VALUE_INJECTION_CHARS) or '"' in url:
+            raise CSSSyntaxError(
+                f"site.import_style({url!r}) isn't safe to emit -- quotes, "
+                f"braces, semicolons, and newlines aren't allowed."
+            )
+        self.style_imports.append(url.strip())
 
     def page(self, route: str) -> Callable[[Callable[[], ARKNode]], Callable[[], ARKNode]]:
         if not route.startswith("/"):
