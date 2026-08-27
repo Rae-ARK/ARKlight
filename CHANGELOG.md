@@ -5,6 +5,45 @@ follows [Keep a Changelog](https://keepachangelog.com/); versions
 follow the milestone scheme from ARCHITECTURE.md rather than strict
 SemVer.
 
+## [0.049] -- Pseudo-class vocabulary addendum III
+
+Full writeup in `docs/DESIGN-NOTES.md` ("v0.049: pseudo-class
+vocabulary addendum III"). Same mechanism as the CSS selector algebra
+work directly below, just growing the set -- every parameterless
+pseudo-class (single word, no `(...)` argument) is the same shape as
+`hover`/`focus`/`disabled` already in `ALLOWED_PSEUDO_CLASSES`, so
+adding more is a one-line set extension, not a regex or pipeline
+change. No new mechanism, no new tests infrastructure -- just more
+entries validated by the two call sites that already read this set
+(`site.style(...)`'s `:pseudo:property` shorthand in `arklight/api.py`,
+and the general selector parser in `arklight/backend/css/selectors.py`
+used by `Site.style_selector(...)`).
+
+### Added
+
+- 20 more entries in `ALLOWED_PSEUDO_CLASSES`: `focus-within`, `link`,
+  `target`, `enabled`, `indeterminate`, `default`, `required`,
+  `optional`, `valid`, `invalid`, `in-range`, `out-of-range`,
+  `read-only`, `read-write`, `placeholder-shown`, `root`, `empty`,
+  `only-child`, `first-of-type`, `last-of-type`, `only-of-type`.
+- `tests/test_api_style.py::test_style_accepts_every_supported_pseudo_class`
+  extended to cover all 29 pseudo-classes (was 7).
+- `tests/test_css_selectors.py::test_round_trips_a_valid_selector`
+  extended with parameterless-pseudo-class and multi-pseudo-class
+  cases (`:focus-within`, `:target`, `:empty`, `:required`,
+  `:invalid`, `:in-range`, `:only-child`, `input:required:invalid`).
+- 635 tests total (31 new test cases from the two parametrize
+  extensions above), all passing.
+
+### Notes
+
+- Deliberately still a curated set, not "any `:whatever` the user
+  types" -- functional/parameterized pseudo-classes (`:not()`,
+  `:nth-child()`, etc.) and pseudo-elements (`::before`, etc.) are out
+  of scope here; they're handled by the separate mechanisms added in
+  the CSS selector algebra work directly below (`SELECTOR_LIST_PSEUDO_CLASSES`,
+  `NTH_PSEUDO_CLASSES`, `PSEUDO_ELEMENTS`).
+
 ## [0.049] - Unreleased
 
 **CSS selector algebra + at-rule vocabulary.** Closes the remaining

@@ -30,6 +30,14 @@ from arklight.backend.css.selectors import (
         "a.button:hover",
         'div[data-state="open"] .panel',
         ".a:not(.b):hover",
+        ":focus-within",
+        ":target",
+        ":empty",
+        ":required",
+        ":invalid",
+        ":in-range",
+        ":only-child",
+        "input:required:invalid",
     ],
 )
 def test_round_trips_a_valid_selector(selector):

@@ -697,6 +697,35 @@ behavior/action registries) lands first and independently; **v0.048**
 as v0.004a) does not depend on it and could technically land first if
 that's preferred once implementation starts.
 
+### v0.049: pseudo-class vocabulary addendum III (IMPLEMENTED)
+
+Addendum-shaped, same sense as the two stateful-JS vocabulary addenda
+above: no new mechanism, just growing an existing closed set. Every
+*parameterless* pseudo-class -- `:focus-within`, `:target`, `:empty`,
+`:required`, `:invalid`, `:in-range`, `:only-child`, and so on -- is a
+single word with no `(...)` argument, the same shape `hover`/`focus`/
+`disabled` already had in `ALLOWED_PSEUDO_CLASSES`. Adding one is a
+one-line set extension, not a regex or pipeline change, so this pass
+adds the rest of the commonly-used CSS UI/structural/logical
+pseudo-classes that fit that shape and weren't already in the set:
+`focus-within`, `link`, `target`, `enabled`, `indeterminate`,
+`default`, `required`, `optional`, `valid`, `invalid`, `in-range`,
+`out-of-range`, `read-only`, `read-write`, `placeholder-shown`,
+`root`, `empty`, `only-child`, `first-of-type`, `last-of-type`,
+`only-of-type` -- 20 more, alongside the 9 already there.
+
+Both existing call sites read the same set unchanged, so no other code
+moved: `site.style(...)`'s `:pseudo:property` shorthand (`arklight/api.py`)
+and the general selector parser backing `Site.style_selector(...)`
+(`arklight/backend/css/selectors.py`). Functional/parameterized
+pseudo-classes (`:not()`, `:nth-child()`, ...) and pseudo-elements
+(`::before`, ...) are unaffected -- they're validated by the separate
+`SELECTOR_LIST_PSEUDO_CLASSES`/`NTH_PSEUDO_CLASSES`/`PSEUDO_ELEMENTS`
+sets the v0.049 selector algebra work above already added, and stay
+out of scope for this addendum on purpose: growing *those* means
+deciding on a new argument grammar per pseudo-class, not just adding a
+name to a flat set, so it's a different-shaped change than this one.
+
 ## Reactive-core vdom staging: Stage 1 of 8 (Stages 1-3 IMPLEMENTED, Stages 4-8 PLANNING)
 
 A separate, narrower initiative from `v0.044` below, tracked with its
