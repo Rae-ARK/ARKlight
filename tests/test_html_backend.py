@@ -144,6 +144,115 @@ def test_image_src_relative_asset_path_rewritten_for_nested_pages():
     assert '<img src="../sprites/25.png" alt="pikachu" />' in output["pokemon/pikachu.html"]
 
 
+# ---------------------------------------------------------------------------
+# HTML backend refactor Stage 2 (docs/Backends/HTML-BACKEND-REFACTOR.md /
+# docs/Backends/REFACTOR-INDEX.md row 1, `html-2`): the
+# `UNROUTED_REFERENCE_ATTRS` fix. `srcset`/`poster`/`action`/`formaction`
+# are now route/asset-rewritten the same way `href`/`src` already were,
+# instead of only triggering a build-time warning -- see
+# `arklight/backend/html/routing.py`'s module docstring for the
+# per-attribute reasoning. `test_form_elements_render_with_form_attrs`
+# above already covers the "unknown route left untouched, no warning"
+# half of this for `action`; the tests below cover the "known route/
+# asset actually rewritten" half for all four attributes.
+# ---------------------------------------------------------------------------
+
+
+def test_known_route_form_action_rewritten_to_relative_path():
+    output = render(
+        {
+            "/": Page(Form(action="/thanks", method="post")),
+            "/thanks": Page(Heading("Thanks")),
+        }
+    )
+    assert '<form action="thanks.html" method="post">' in output["index.html"]
+
+
+def test_known_route_formaction_rewritten_and_reaches_the_real_attribute():
+    # Also exercises the separate pre-existing bug fixed alongside this:
+    # `formaction` was missing from PASSTHROUGH_ATTRS entirely, so it
+    # used to render as `data-formaction` regardless of routing.
+    output = render(
+        {
+            "/": Page(Button("Save & continue", type="submit", formaction="/next")),
+            "/next": Page(Heading("Next")),
+        }
+    )
+    html = output["index.html"]
+    assert 'formaction="next.html"' in html
+    assert "data-formaction" not in html
+
+
+def test_nested_page_known_route_formaction_rewritten_across_depth():
+    output = render(
+        {
+            "/": Page(Heading("Home")),
+            "/blog/post": Page(Button("Reply", type="submit", formaction="/")),
+        }
+    )
+    assert 'formaction="../index.html"' in output["blog/post.html"]
+
+
+def test_video_poster_relative_asset_path_rewritten_for_nested_pages():
+    # Same asset-path bug class test_image_src_relative_asset_path_...
+    # covers for `src`, now also covered for `poster` -- a video poster
+    # names a static image asset, not a route (see routing.py).
+    output = render(
+        {
+            "/": Page(Video(Source(src="a.mp4"), poster="cover.jpg")),
+            "/films/one": Page(Video(Source(src="a.mp4"), poster="cover.jpg")),
+        }
+    )
+    assert 'poster="cover.jpg"' in output["index.html"]
+    assert 'poster="../cover.jpg"' in output["films/one.html"]
+
+
+def test_video_poster_known_route_resolved_like_an_embed():
+    # ASSET_OR_ROUTE_AWARE_ATTRS checks known routes first (an IFrame-
+    # style embed) before falling back to asset resolution -- `poster`
+    # gets that same route-checked-first treatment `src` already has.
+    output = render(
+        {
+            "/": Page(Video(Source(src="a.mp4"), poster="/about")),
+            "/about": Page(Heading("About")),
+        }
+    )
+    assert 'poster="about.html"' in output["index.html"]
+
+
+def test_picture_source_srcset_multiple_entries_asset_paths_rewritten_for_nested_pages():
+    from arklight.api import Picture, PictureSource
+
+    output = render(
+        {
+            "/": Page(Picture(PictureSource(srcset="wide.jpg 800w, narrow.jpg 400w"))),
+            "/blog/post": Page(Picture(PictureSource(srcset="wide.jpg 800w, narrow.jpg 400w"))),
+        }
+    )
+    assert 'srcset="wide.jpg 800w, narrow.jpg 400w"' in output["index.html"]
+    assert 'srcset="../wide.jpg 800w, ../narrow.jpg 400w"' in output["blog/post.html"]
+
+
+def test_picture_source_srcset_single_entry_with_density_descriptor():
+    from arklight.api import Picture, PictureSource
+
+    output = render(
+        {
+            "/": Page(Picture(PictureSource(srcset="hi-res.jpg 2x"))),
+            "/blog/post": Page(Picture(PictureSource(srcset="hi-res.jpg 2x"))),
+        }
+    )
+    assert 'srcset="hi-res.jpg 2x"' in output["index.html"]
+    assert 'srcset="../hi-res.jpg 2x"' in output["blog/post.html"]
+
+
+def test_picture_source_srcset_external_url_left_untouched():
+    from arklight.api import Picture, PictureSource
+
+    output = render({"/": Page(Picture(PictureSource(srcset="https://cdn.example.com/wide.jpg 800w")))})
+    assert 'srcset="https://cdn.example.com/wide.jpg 800w"' in output["index.html"]
+
+
 def test_image_src_leading_slash_asset_path_rewritten_for_nested_pages():
     # Bugfix: a leading-slash "absolute" asset path is likewise a
     # root-relative asset, not an (unregistered) route -- it must

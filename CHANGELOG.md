@@ -5,6 +5,104 @@ follows [Keep a Changelog](https://keepachangelog.com/); versions
 follow the milestone scheme from ARCHITECTURE.md rather than strict
 SemVer.
 
+## [0.0491] -- HTML backend refactor, Stage 2 of 6 (routing.py + UNROUTED_REFERENCE_ATTRS fix)
+
+Full design in `docs/Backends/HTML-BACKEND-REFACTOR.md`; sequencing
+against the JS backend/HTMX work in `docs/Backends/REFACTOR-INDEX.md`
+row 1 (`html-2`). Second of six staged extractions splitting
+`arklight/backend/html/render.py`'s five unrelated jobs into their own
+modules. Unlike Stage 1, this stage is deliberately not
+behavior-preserving in one respect: it also lands the
+`UNROUTED_REFERENCE_ATTRS` reachability fix the design doc's audit
+flagged as open, per that doc's own stated exception to "behavior
+unchanged after every stage."
+
+### Added
+
+- New `arklight/backend/html/routing.py`: route/asset-path resolution
+  -- `_output_path_for_route`, `_is_internal_route_ref`,
+  `_resolve_route_ref`, `_resolve_src_ref`, `_relative_asset_path`, and
+  the attribute-classification sets `ROUTE_AWARE_ATTRS`,
+  `ASSET_OR_ROUTE_AWARE_ATTRS`, `SRC_ATTRS` -- moved out of `render.py`.
+- New `_resolve_srcset_ref` in `routing.py`: `srcset` packs one or more
+  comma-separated `url descriptor` pairs into a single value (e.g.
+  `"wide.jpg 800w, narrow.jpg 400w"`), so it needed its own resolver
+  rather than reusing `_resolve_route_ref`/`_resolve_src_ref` directly
+  -- each URL is split out, resolved independently (same
+  route-or-asset treatment `poster`/`src` get), and rejoined with its
+  descriptor intact. New `SRCSET_ATTRS` set drives this in `_attr_string`.
+- **The `UNROUTED_REFERENCE_ATTRS` fix**, per the design doc's audit:
+  - `action`/`formaction` (Form, and any submit-capable Button/Input)
+    join `ROUTE_AWARE_ATTRS` -- resolved exactly like `href`. The
+    audit's flagged sub-question (whether these should warn-and-skip
+    instead, since a form action is at least as likely to target an
+    external API as an internal route) is resolved by
+    `_resolve_route_ref`'s existing "unknown route left as-is" safety
+    net: an external API URL never matches a registered route, so it's
+    never rewritten either way -- no separate warn-and-skip path
+    needed.
+  - `poster` (Video) joins `ASSET_OR_ROUTE_AWARE_ATTRS` -- resolved
+    exactly like `src` (route-checked first, asset-fallback
+    otherwise), since a poster names an image asset, not a route.
+  - `srcset` (PictureSource) resolved via the new `_resolve_srcset_ref`
+    above.
+- New `tests/test_html_routing.py` -- 31 tests exercising `routing.py`
+  directly, independent of `HTMLBackend.render`/a full IR build (same
+  "independent testability" goal `tests/test_html_tag_map.py`
+  established for Stage 1). 700 tests total.
+- 8 new end-to-end tests in `tests/test_html_backend.py` covering the
+  `UNROUTED_REFERENCE_ATTRS` fix through real `Page(...)`/`render()`
+  calls: known-route `action`/`formaction` rewriting (including across
+  nested page depth), `poster` as both a known-route embed and a
+  root-relative asset, and `srcset` with multiple entries, a density
+  descriptor, and an external URL left untouched.
+
+### Fixed
+
+- A separate, pre-existing bug surfaced while wiring `formaction`
+  through the fix above: `formaction` was missing from
+  `PASSTHROUGH_ATTRS` entirely, so it always rendered as
+  `data-formaction="..."` instead of a real HTML attribute, independent
+  of routing. Added to `PASSTHROUGH_ATTRS` in the same commit --
+  a route-rewritten `formaction` value isn't observable through a
+  `data-formaction` fallback attribute, so shipping the routing half of
+  the fix without this would have been silently incomplete.
+
+### Removed
+
+- `UNROUTED_REFERENCE_ATTRS` and `_warn_unrouted_reference` (the
+  v0.0431 emergency-patch build-time warning) -- removed entirely, not
+  deprecated. Once every attribute the warning covered is correctly
+  resolved, there is nothing left for it to flag. The CLI's
+  `[ARKlight ALPHA]`-marker warning-surfacing machinery
+  (`arklight/cli/main.py`) is unaffected -- it's generic across every
+  alpha-limitation warning, not specific to this one, and other
+  `[ARKlight ALPHA]` warnings may still exist elsewhere.
+
+### Changed
+
+- `render.py` now imports the routing names from `routing.py` instead
+  of defining them, and re-exports them so
+  `from arklight.backend.html.render import ROUTE_AWARE_ATTRS` (etc.)
+  keeps working unchanged -- same backward-compatibility discipline
+  Stage 1 established for `TAG_MAP`/`VOID_TAGS`/`_tag_for`.
+  `tests/test_html_backend.py`'s existing suite passes unchanged
+  *except* for the one test the design doc's own staging notes as the
+  expected exception (the build-time warning previously asserted via
+  `pytest`'s captured-warnings summary for `test_form_elements_render_with_form_attrs`'s
+  `action="/submit"` no longer fires, since `/submit` isn't a
+  registered route and is correctly left untouched with no warning --
+  the test's own assertions were already correct and needed no
+  changes).
+
+### Not in this pass
+
+Stages 3-6 (`attrs.py`, `head_meta.py`, `page_render.py`, the
+`README.md` compiler-pipeline description check) are unstarted -- see
+`docs/Backends/HTML-BACKEND-REFACTOR.md`'s staging table and
+`docs/Backends/REFACTOR-INDEX.md` for how they sequence against the JS
+backend/HTMX work.
+
 ## [0.049] -- HTML backend refactor, Stage 1 of 6
 
 Full design in `docs/Backends/HTML-BACKEND-REFACTOR.md`. First of six

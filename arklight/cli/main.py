@@ -155,8 +155,13 @@ def _stage_logger(message: str, *, verbose: bool) -> None:
 
 
 # v0.0431 emergency patch: marker prefix `arklight.backend.html.render`
-# puts on every known-alpha-limitation warning (see UNROUTED_REFERENCE_ATTRS
-# there). Matched here so the CLI can surface these clearly and always --
+# used to put on every known-alpha-limitation warning it raised. That
+# particular warning (UNROUTED_REFERENCE_ATTRS/_warn_unrouted_reference)
+# was removed once the HTML backend refactor's Stage 2 fixed the gap it
+# flagged (see docs/Backends/HTML-BACKEND-REFACTOR.md, CHANGELOG.md's
+# [0.0491]) -- the marker mechanism itself stays, generic across any
+# `[ARKlight ALPHA]`-prefixed warning a future alpha limitation might
+# raise. Matched here so the CLI can surface these clearly and always --
 # not gated behind --verbose, and not dependent on Python's default
 # warning filters (which only show a `UserWarning` once per call site,
 # and not at all if the caller has warnings configured/silenced) --

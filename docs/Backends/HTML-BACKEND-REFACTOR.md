@@ -155,12 +155,25 @@ that cover them rather than leave them "unchanged."
   independent unit coverage alongside the existing
   `tests/test_html_backend.py` end-to-end suite, which passes
   unchanged (byte-for-byte identical generated HTML).
-- [ ] **Stage 2** -- Extract routing/asset-path resolution into
+- [x] **Stage 2** -- Extract routing/asset-path resolution into
   `routing.py`. Land the `UNROUTED_REFERENCE_ATTRS` reachability fix
   from the audit above here, or as its own immediately-following
   commit if the fix needs more design time than the pure move --
   either is fine, but don't block the move on the fix finishing, and
-  don't ship the fix silently disguised as "just a move" either.
+  don't ship the fix silently disguised as "just a move" either. DONE
+  -- `render.py` re-exports the moved names for backward
+  compatibility, same as Stage 1. The fix landed in the same commit as
+  the move: `srcset`/`poster` now resolve like `src`
+  (route-checked-first, asset-fallback) and `action`/`formaction` now
+  resolve like `href`, via a new `_resolve_srcset_ref` for `srcset`'s
+  multi-URL shape; `UNROUTED_REFERENCE_ATTRS`/`_warn_unrouted_reference`
+  removed entirely (see `routing.py`'s module docstring for the
+  per-attribute reasoning, including the pre-existing `formaction` ->
+  `data-formaction` bug fixed alongside it).
+  `tests/test_html_routing.py` adds independent unit coverage
+  (`tag_map.py`'s Stage 1 pattern); `tests/test_html_backend.py`'s
+  existing suite passes unchanged except for the four newly-rewritten
+  attributes' tests, extended per this doc's own exception above.
 - [ ] **Stage 3** -- Extract `PASSTHROUGH_ATTRS`/`PROP_ALIASES`/
   `BEHAVIOR_PROP_ATTRS`/`_style_dict_to_css`/`_attr_string` into
   `attrs.py`.
@@ -176,8 +189,9 @@ that cover them rather than leave them "unchanged."
 
 ## Status
 
-**Stage 1 IMPLEMENTED** (`tag_map.py`; see CHANGELOG.md). Stages 2-6
-not started. `docs/CONFIGURABILITY.md` and this design doc exist so
-that when the rest of this work starts, the module boundaries and the
-`UNROUTED_REFERENCE_ATTRS` fix are decided in advance rather than
-worked out mid-refactor.
+**Stage 1 IMPLEMENTED** (`tag_map.py`; see CHANGELOG.md). **Stage 2
+IMPLEMENTED** (`routing.py`, including the `UNROUTED_REFERENCE_ATTRS`
+fix; see CHANGELOG.md). Stages 3-6 not started. `docs/CONFIGURABILITY.md`
+and this design doc exist so that when the rest of this work starts,
+the module boundaries are decided in advance rather than worked out
+mid-refactor.

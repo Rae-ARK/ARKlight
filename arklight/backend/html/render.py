@@ -59,13 +59,23 @@ Three things beyond basic tag rendering are handled here:
 from __future__ import annotations
 
 import json
-import posixpath
-import warnings
 from html import escape
 
 from arklight.ast.nodes import ActionRef, ClassBindSpec
 from arklight.backend.base import Backend
 from arklight.backend.css.render import STYLESHEET_PATH
+from arklight.backend.html.routing import (
+    ASSET_OR_ROUTE_AWARE_ATTRS,
+    ROUTE_AWARE_ATTRS,
+    SRC_ATTRS,
+    SRCSET_ATTRS,
+    _is_internal_route_ref,
+    _output_path_for_route,
+    _relative_asset_path,
+    _resolve_route_ref,
+    _resolve_src_ref,
+    _resolve_srcset_ref,
+)
 from arklight.backend.html.tag_map import TAG_MAP, VOID_TAGS, _tag_for
 from arklight.backend.js.render import SCRIPT_PATH
 from arklight.ir.build import IRNode, IRPage, WebsiteIR
@@ -77,6 +87,20 @@ from arklight.ir.build import IRNode, IRPage, WebsiteIR
 # arklight.backend.html.render import ...` names) so nothing importing
 # them from their old location breaks. Zero behavior change.
 
+# HTML Backend refactor, Stage 2 (see
+# docs/Backends/HTML-BACKEND-REFACTOR.md / docs/Backends/REFACTOR-INDEX.md
+# row 1, `html-2`): route/asset-path resolution moved to routing.py --
+# imported above, re-exported here for the same backward-compatibility
+# reason Stage 1 re-exports TAG_MAP/VOID_TAGS/_tag_for. This stage is
+# NOT behavior-preserving in one respect, by design: it also lands the
+# `UNROUTED_REFERENCE_ATTRS` fix (`srcset`/`poster`/`action`/
+# `formaction` now route/asset-rewritten instead of only warned about)
+# -- see routing.py's module docstring for the full reasoning per
+# attribute. `UNROUTED_REFERENCE_ATTRS` and `_warn_unrouted_reference`
+# are removed, not re-exported: once every attribute they covered is
+# correctly resolved, nothing calls them and there is nothing left to
+# warn about.
+
 # Prop names that map straight through to HTML attributes.
 PASSTHROUGH_ATTRS = {
     "id", "class", "style", "href", "src", "alt", "title", "target", "name", "type",
@@ -85,6 +109,11 @@ PASSTHROUGH_ATTRS = {
     "min", "max", "step", "pattern", "rows", "cols", "for", "multiple",
     "selected", "maxlength", "minlength", "autocomplete", "accept", "action",
     "method", "enctype", "novalidate", "label", "size", "autofocus", "form",
+    # Stage 2 (docs/Backends/HTML-BACKEND-REFACTOR.md) discovery: `formaction`
+    # was missing here entirely, so it always rendered as `data-formaction`
+    # instead of a real HTML attribute, independent of the routing question
+    # -- see routing.py's module docstring, "A separate, pre-existing bug".
+    "formaction",
     # v0.003: tables.
     "colspan", "rowspan", "scope", "headers",
     # v0.003: media.
@@ -129,35 +158,11 @@ BEHAVIOR_PROP_ATTRS = {
     "toggle_class": "data-ark-toggle-class",
 }
 
-# Attribute names whose value may be resolved relative to the current
-# page ("/", "/about", ...) instead of emitted verbatim. `href` (Link)
-# always points at a page route. `src` (Image/Source/Track/IFrame)
-# usually points at a static asset instead -- see `_resolve_src_ref`.
-ROUTE_AWARE_ATTRS = {"href"}
-ASSET_OR_ROUTE_AWARE_ATTRS = {"src"}
-
-# `src` needs different treatment than `href`: a Link's `href` always
-# names a *page route* ("/about"), but Image/Source/Track/IFrame's `src`
-# usually names a *static asset* ("assets/1.png" or "/assets/1.png") --
-# not a route at all. `_resolve_src_ref` below checks route_to_path
-# first (so an IFrame embedding another ARKlight page still works like
-# href) and otherwise falls back to root-relative asset resolution, the
-# same treatment `styles.css`/`arklight.js`/`favicon`/`og_image` already
-# get via `_relative_asset_path`. See CHANGELOG.md.
-SRC_ATTRS = {"src"}
-
-# v0.0431 emergency patch: these attributes can *also* carry an internal
-# route reference (Picture/PictureSource's `srcset`, Video's `poster`,
-# Form's `action`/`formaction`) but are NOT in ROUTE_AWARE_ATTRS yet --
-# route-rewriting for them is a known gap, tracked for a real fix in a
-# later release (see CHANGELOG.md). Until then this set only drives a
-# build-time warning so a site author finds out at build time, not by
-# discovering a 404 after deploying outside the domain root.
-UNROUTED_REFERENCE_ATTRS = {"srcset", "poster", "action", "formaction"}
-
 # Tags that never have a closing tag / children.
 # (VOID_TAGS itself now lives in tag_map.py -- see the Stage 1 note
-# above; imported at the top of this file.)
+# above; ROUTE_AWARE_ATTRS/ASSET_OR_ROUTE_AWARE_ATTRS/SRC_ATTRS/
+# SRCSET_ATTRS now live in routing.py -- see the Stage 2 note above;
+# both imported at the top of this file.)
 
 
 def _style_dict_to_css(style: dict) -> str:
@@ -170,134 +175,20 @@ def _style_dict_to_css(style: dict) -> str:
     return "; ".join(parts)
 
 
-def _output_path_for_route(route: str) -> str:
-    """
-    Maps a route to a static output file path.
-
-    "/"          -> index.html
-    "/about"     -> about.html
-    "/blog/post" -> blog/post.html
-    """
-    trimmed = route.strip("/")
-    if trimmed == "":
-        return "index.html"
-    return f"{trimmed}.html"
-
-
-def _is_internal_route_ref(value: str) -> bool:
-    """True for values that look like an ARKlight route (`/`, `/about`),
-    as opposed to an external/absolute URL, protocol-relative URL,
-    fragment, or mailto/tel link."""
-    if not value.startswith("/"):
-        return False
-    if value.startswith("//"):
-        return False  # protocol-relative external URL
-    return True
-
-
-def _warn_unrouted_reference(attr_name: str, value: str, *, node_type: str) -> None:
-    """v0.0431 emergency patch: `attr_name` is one of
-    UNROUTED_REFERENCE_ATTRS and isn't route-rewritten today (see the
-    comment on that set). If `value` looks like it was written the same
-    way a `href`/`src` route reference would be, warn at build time
-    instead of letting it silently 404 outside a domain-root deploy.
-
-    `srcset` is a comma-separated list of `url descriptor` pairs, so
-    each URL is checked individually; the other attrs here are a single
-    value.
-    """
-    if attr_name == "srcset":
-        candidates = [entry.strip().split()[0] for entry in value.split(",") if entry.strip()]
-    else:
-        candidates = [value]
-
-    flagged = [c for c in candidates if _is_internal_route_ref(c)]
-    if not flagged:
-        return
-
-    warnings.warn(
-        f"[ARKlight ALPHA] {node_type!r} has {attr_name}={value!r}, which looks "
-        f"like an internal route reference (e.g. {flagged[0]!r}), but "
-        f"{attr_name!r} is not route-rewritten yet in this alpha build -- it "
-        f"will be emitted as-is and may 404 if the site is deployed from a "
-        f"subdirectory or opened via file://. This is a known limitation "
-        f"under active maintenance; a fix is planned for the v0.0431 "
-        f"emergency patch series. Until then, prefer a value that already "
-        f"resolves correctly from wherever you deploy, or track the fix in "
-        f"CHANGELOG.md.",
-        stacklevel=2,
-    )
-
-
-def _resolve_route_ref(value: str, *, current_route: str, route_to_path: dict[str, str]) -> str:
-    """Rewrite an internal route reference into a relative file path
-    from the current page's output location. Unknown routes are left
-    as-is (better a working absolute link than a silently broken one)."""
-    route, _, fragment = value.partition("#")
-    target_path = route_to_path.get(route)
-    if target_path is None:
-        return value  # not a known route -- leave untouched
-
-    current_path = route_to_path[current_route]
-    current_dir = posixpath.dirname(current_path) or "."
-    relative = posixpath.relpath(target_path, current_dir)
-    return f"{relative}#{fragment}" if fragment else relative
-
-
-def _resolve_src_ref(value: str, *, current_route: str, route_to_path: dict[str, str]) -> str:
-    """Rewrite a `src` attribute value (Image, Source, Track, IFrame) so
-    it resolves correctly from the current page's output location.
-
-    Bugfix: unlike `href` (which always points at another ARKlight page
-    route), `src` most commonly points at a *static asset* -- e.g.
-    `assets/1.png` or `sprites/25.png`, copied verbatim into
-    `<output_dir>/assets` by the build (see
-    `compiler/pipeline.py::_copy_assets`) -- not a page route. Previously
-    only `href`/`src` values matching a *known route* were rewritten, so
-    an asset reference (not a route) was silently passed through
-    unchanged and broke on any page not at the output root -- exactly
-    the class of bug `_relative_asset_path` already exists to prevent
-    for `styles.css`/`arklight.js`/`favicon`/`og_image`, just never
-    applied here.
-
-    So: if the value matches a *known* page route, treat it as one (an
-    `IFrame` embedding another ARKlight page, say) and resolve it the
-    same way `href` does. Otherwise, treat it as a root-relative static
-    asset path and rewrite it with `_relative_asset_path`, stripping any
-    leading "/" first -- passing a leading-slash value straight into
-    `_relative_asset_path` would make the result depend on the build
-    process's current working directory instead of the site structure,
-    swapping one nondeterministic bug for another.
-
-    External URLs (`https://...`), protocol-relative URLs (`//...`),
-    and `data:` URIs are left untouched, same as `href`.
-    """
-    if value.startswith("//") or "://" in value:
-        return value  # protocol-relative or scheme:// external URL
-    if value.startswith("data:"):
-        return value
-
-    if _is_internal_route_ref(value) and value.partition("#")[0] in route_to_path:
-        return _resolve_route_ref(value, current_route=current_route, route_to_path=route_to_path)
-
-    asset_path = value.lstrip("/")
-    return _relative_asset_path(asset_path, current_route=current_route, route_to_path=route_to_path)
-
-
-def _relative_asset_path(asset_path: str, *, current_route: str, route_to_path: dict[str, str]) -> str:
-    """Like `_resolve_route_ref`, but for a fixed root-level asset
-    (e.g. styles.css) rather than a page route."""
-    current_path = route_to_path[current_route]
-    current_dir = posixpath.dirname(current_path) or "."
-    return posixpath.relpath(asset_path, current_dir)
-
-
 def _attr_string(
     props: dict,
     *,
     current_route: str,
     route_to_path: dict[str, str],
     page_state: dict | None = None,
+    # `node_type` is no longer read here: its only use was
+    # `_warn_unrouted_reference`'s message, removed by the
+    # `UNROUTED_REFERENCE_ATTRS` fix (see routing.py's module
+    # docstring). Kept as an accepted-but-unused kwarg rather than
+    # removed, since `_render_node` already passes it and a future
+    # attribute-shape warning is a plausible enough reason to want it
+    # again that dropping and later re-adding the parameter isn't
+    # worth the churn.
     node_type: str = "node",
 ) -> str:
     props = dict(props)  # local copy -- may splice the initial bound class in below
@@ -365,8 +256,13 @@ def _attr_string(
                 value = _resolve_route_ref(value, current_route=current_route, route_to_path=route_to_path)
             elif attr_name in ASSET_OR_ROUTE_AWARE_ATTRS and isinstance(value, str) and value:
                 value = _resolve_src_ref(value, current_route=current_route, route_to_path=route_to_path)
-            elif attr_name in UNROUTED_REFERENCE_ATTRS and isinstance(value, str):
-                _warn_unrouted_reference(attr_name, value, node_type=node_type)
+            elif attr_name in SRCSET_ATTRS and isinstance(value, str) and value:
+                # UNROUTED_REFERENCE_ATTRS fix (docs/Backends/HTML-BACKEND-REFACTOR.md
+                # audit / docs/Backends/REFACTOR-INDEX.md row 1): `srcset`
+                # packs multiple URLs into one value, so it gets its own
+                # resolver rather than reusing _resolve_route_ref/_resolve_src_ref
+                # directly -- see routing.py's module docstring.
+                value = _resolve_srcset_ref(value, current_route=current_route, route_to_path=route_to_path)
 
             if attr_name not in PASSTHROUGH_ATTRS and not attr_name.startswith("data-"):
                 # Unknown props are still emitted as data-* attributes rather
