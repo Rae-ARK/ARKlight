@@ -148,9 +148,13 @@ The one exception is called out below: the stage that also lands the
 four newly-rewritten attributes, and should update/extend the tests
 that cover them rather than leave them "unchanged."
 
-- [ ] **Stage 1** -- Extract `TAG_MAP`/`VOID_TAGS`/`_tag_for` into
+- [x] **Stage 1** -- Extract `TAG_MAP`/`VOID_TAGS`/`_tag_for` into
   `tag_map.py` (data + one tiny pure fn, zero behavior change).
-  `render.py` imports them.
+  `render.py` imports them. DONE -- `render.py` re-exports all three
+  names for backward compatibility; `tests/test_html_tag_map.py` adds
+  independent unit coverage alongside the existing
+  `tests/test_html_backend.py` end-to-end suite, which passes
+  unchanged (byte-for-byte identical generated HTML).
 - [ ] **Stage 2** -- Extract routing/asset-path resolution into
   `routing.py`. Land the `UNROUTED_REFERENCE_ATTRS` reachability fix
   from the audit above here, or as its own immediately-following
@@ -172,7 +176,8 @@ that cover them rather than leave them "unchanged."
 
 ## Status
 
-Not started. `docs/CONFIGURABILITY.md` and this design doc exist so
-that when this work starts, the module boundaries and the
+**Stage 1 IMPLEMENTED** (`tag_map.py`; see CHANGELOG.md). Stages 2-6
+not started. `docs/CONFIGURABILITY.md` and this design doc exist so
+that when the rest of this work starts, the module boundaries and the
 `UNROUTED_REFERENCE_ATTRS` fix are decided in advance rather than
 worked out mid-refactor.

@@ -5,6 +5,45 @@ follows [Keep a Changelog](https://keepachangelog.com/); versions
 follow the milestone scheme from ARCHITECTURE.md rather than strict
 SemVer.
 
+## [0.049] -- HTML backend refactor, Stage 1 of 6
+
+Full design in `docs/Backends/HTML-BACKEND-REFACTOR.md`. First of six
+staged, behavior-preserving extractions splitting
+`arklight/backend/html/render.py`'s five unrelated jobs into their own
+modules, mirroring the CSS backend refactor's earlier split.
+
+### Added
+
+- New `arklight/backend/html/tag_map.py`: `TAG_MAP` (IR node type ->
+  HTML tag name), `VOID_TAGS` (tags with no closing tag/children), and
+  `_tag_for(node)` (resolves `Heading`'s tag from its `level` prop,
+  falls back to `TAG_MAP` otherwise) -- moved verbatim out of
+  `render.py`. Pure data plus one tiny pure function, no dependency on
+  anything else in the HTML backend.
+- New `tests/test_html_tag_map.py` -- 8 tests exercising `tag_map.py`
+  directly, independent of `HTMLBackend.render`/a full IR build (the
+  refactor's "independent testability" goal). 661 tests total.
+
+### Changed
+
+- `render.py` now imports `TAG_MAP`/`VOID_TAGS`/`_tag_for` from
+  `tag_map.py` instead of defining them, and re-exports all three
+  names so `from arklight.backend.html.render import TAG_MAP` (etc.)
+  keeps working unchanged. Zero behavior change: `tests/test_html_backend.py`
+  passes unmodified, generated HTML is byte-for-byte identical.
+- `docs/ARCHITECTURE.md`'s Backend Interface section updated to point
+  at the refactor doc's real path (`docs/Backends/HTML-BACKEND-REFACTOR.md`,
+  not `docs/HTML-BACKEND-REFACTOR.md`) and reflect Stage 1 landing.
+
+### Not in this pass
+
+Stages 2-6 (`routing.py`, `attrs.py`, `head_meta.py`, `page_render.py`,
+the `README.md` compiler-pipeline description check) are unstarted --
+see the design doc's staging table. Stage 2 in particular also carries
+the `UNROUTED_REFERENCE_ATTRS` reachability fix (`srcset`/`poster`/
+`action`/`formaction` not route-rewritten) flagged there; deliberately
+not pulled forward into this stage.
+
 ## [0.049] -- Feedback-loop fix + `@import` made experimental
 
 Two fixes, bundled together since both touch the same "Stage 8

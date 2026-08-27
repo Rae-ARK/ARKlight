@@ -69,10 +69,10 @@ The IR models website intent rather than HTML.
 ## Backend Interface
 
 Current:
-- HTML (`arklight/backend/html/`) -- currently one file
-  (`render.py`); a service-oriented module split (mirroring the CSS
-  backend below) is designed but not started, see
-  `docs/HTML-BACKEND-REFACTOR.md`.
+- HTML (`arklight/backend/html/`) -- a service-oriented module split
+  (mirroring the CSS backend below) is designed and Stage 1 of 6 is
+  now implemented (`tag_map.py`), see
+  `docs/Backends/HTML-BACKEND-REFACTOR.md`.
 - CSS (`arklight/backend/css/`) -- already split into
   `base_stylesheet.py`/`design_tokens.py`/`custom_styles.py`/
   `render.py`, see `docs/CSS-BACKEND-REFACTOR.md`.
