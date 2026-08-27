@@ -97,6 +97,9 @@ from arklight.ast.nodes import ActionRef
 from arklight.backend.base import Backend
 from arklight.backend.js.actions import ACTION_FRAGMENTS
 from arklight.backend.js.behaviors import BEHAVIOR_FRAGMENTS
+from arklight.backend.js.runtime import NAV_HIGHLIGHT_JS as _NAV_HIGHLIGHT_JS
+from arklight.backend.js.runtime import NOTIFY_JS as _NOTIFY_JS
+from arklight.backend.js.runtime import STATE_CORE_JS as _STATE_CORE_JS
 from arklight.backend.js.vdom import SNABBDOM_CORE_JS
 from arklight.ir.build import IRNode, WebsiteIR
 
@@ -104,193 +107,13 @@ from arklight.ir.build import IRNode, WebsiteIR
 # relative to the output directory root.
 SCRIPT_PATH = "arklight.js"
 
-_NOTIFY_JS = """  function arkNotify(message) {
-    // Self-contained on-page notice for runtime edge cases the fixed
-    // behavior/action vocabulary didn't anticipate -- deliberately
-    // inline-styled (not a `.stack`/`.card`/etc. class) so it renders
-    // correctly even on a page whose stylesheet this failure might
-    // itself be related to, and wrapped in its own try/catch so a
-    // notification failure can never become a second, worse error.
-    try {
-      var el = document.getElementById("ark-notify");
-      if (!el) {
-        el = document.createElement("div");
-        el.id = "ark-notify";
-        el.setAttribute("role", "alert");
-        el.style.cssText =
-          "position:fixed;bottom:1rem;right:1rem;left:auto;max-width:22rem;" +
-          "background:#111827;color:#f9fafb;padding:0.75rem 1rem;" +
-          "border-radius:0.5rem;font:14px/1.4 system-ui,sans-serif;" +
-          "box-shadow:0 4px 12px rgba(0,0,0,.35);z-index:2147483647;";
-        document.body.appendChild(el);
-      }
-      el.textContent = message;
-      el.style.display = "block";
-      clearTimeout(el._arkNotifyTimer);
-      el._arkNotifyTimer = setTimeout(function () {
-        el.style.display = "none";
-      }, 6000);
-    } catch (notifyErr) {
-      /* notification is best-effort; never let it throw */
-    }
-  }"""
-
-_NAV_HIGHLIGHT_JS = """  function highlightActiveNavLink() {
-    document.querySelectorAll(".nav a").forEach(function (link) {
-      var here = location.href.replace(/#.*$/, "");
-      var there = link.href.replace(/#.*$/, "");
-      if (there === here) {
-        link.classList.add("is-active");
-      }
-    });
-  }"""
-
-_STATE_CORE_JS = """  function createState(initial) {
-    var state = Object.assign({}, initial);
-    var listeners = [];
-    return {
-      get: function (key) { return state[key]; },
-      set: function (key, value) {
-        state[key] = value;
-        listeners.forEach(function (fn) { fn(); });
-      },
-      reset: function (key) {
-        state[key] = initial[key];
-        listeners.forEach(function (fn) { fn(); });
-      },
-      subscribe: function (fn) { listeners.push(fn); }
-    };
-  }
-
-  function renderBindings(store) {
-    document.querySelectorAll("[data-ark-bind]").forEach(function (el) {
-      var key = el.getAttribute("data-ark-bind");
-      var text = String(store.get(key));
-      var next = snabbdom.h(arkSelectorFor(el), {}, text);
-      arkPatch(el.__arkVnode || el, next);
-      el.__arkVnode = next;
-    });
-  }
-
-  function renderClassBindings(store) {
-    // Stage 2 ("Reactive-core vdom staging"): a direct classList
-    // toggle, not routed through the vendored vdom -- the bare core
-    // doesn't carry snabbdom's optional classModule, and re-deriving
-    // the element's selector to include/exclude the class would make
-    // patch() treat it as a different vnode (sameVnode compares `sel`)
-    // and remount the element, dropping any listeners already wired to
-    // it. A one-line classList.toggle has none of that risk.
-    document.querySelectorAll("[data-ark-bind-class]").forEach(function (el) {
-      var className = el.getAttribute("data-ark-bind-class");
-      var key = el.getAttribute("data-ark-bind-class-state");
-      el.classList.toggle(className, !!store.get(key));
-    });
-  }
-
-  function initState() {
-    var raw = document.body.getAttribute("data-ark-state");
-    if (!raw) return null;
-    try {
-      var store = createState(JSON.parse(raw));
-      store.subscribe(function () { renderBindings(store); renderClassBindings(store); });
-      return store;
-    } catch (err) {
-      arkNotify("This page's saved state couldn't be loaded -- interactive features on this page may not work.");
-      return null;
-    }
-  }
-
-  function arkApplyModifiers(el, run) {
-    // Stage 3 ("Reactive-core vdom staging"): one small wrapper, read
-    // once per element from data-ark-modifiers="prevent,debounce:300"
-    // (see ActionRef.modifiers / MODIFIER_REGISTRY), instead of
-    // duplicating debounce/throttle/once/stop into every action
-    // fragment. `run` is a zero-arg callback (the actual state
-    // mutation); this returns a click handler that decides *if*/*when*
-    // to call it. "prevent" is deliberately a no-op here: wireActions'
-    // click listener already unconditionally calls
-    // event.preventDefault() before this runs (existing, pre-Stage-3
-    // behavior this stage doesn't change), so an explicit .with_modifiers("prevent")
-    // is honored by construction rather than by a second call.
-    var raw = el.getAttribute("data-ark-modifiers");
-    if (!raw) return function () { run(); };
-
-    var stop = false, once = false, debounceMs = 0, throttleMs = 0;
-    raw.split(",").forEach(function (token) {
-      var bits = token.split(":");
-      var name = bits[0];
-      if (name === "stop") stop = true;
-      else if (name === "once") once = true;
-      else if (name === "debounce") debounceMs = parseInt(bits[1], 10) || 0;
-      else if (name === "throttle") throttleMs = parseInt(bits[1], 10) || 0;
-    });
-
-    var dispatch = run;
-    if (debounceMs) {
-      dispatch = (function (fn, ms) {
-        var timer;
-        return function () {
-          clearTimeout(timer);
-          timer = setTimeout(fn, ms);
-        };
-      })(dispatch, debounceMs);
-    } else if (throttleMs) {
-      dispatch = (function (fn, ms) {
-        var last = 0;
-        return function () {
-          var now = Date.now();
-          if (now - last >= ms) {
-            last = now;
-            fn();
-          }
-        };
-      })(dispatch, throttleMs);
-    }
-    if (once) {
-      dispatch = (function (fn) {
-        var called = false;
-        return function () {
-          if (called) return;
-          called = true;
-          fn();
-        };
-      })(dispatch);
-    }
-
-    return function (event) {
-      if (stop) event.stopPropagation();
-      dispatch();
-    };
-  }
-
-  function wireActions(store) {
-    if (!store) return;
-    document.querySelectorAll('[data-ark-on-click^="action:"]').forEach(function (el) {
-      try {
-        var actionName = el.getAttribute("data-ark-on-click").slice("action:".length);
-        var stateKey = el.getAttribute("data-ark-action-state");
-        var argsRaw = el.getAttribute("data-ark-action-args");
-        var args = argsRaw ? JSON.parse(argsRaw) : {};
-        var action = actions[actionName];
-        if (!action) return;
-        var dispatch = arkApplyModifiers(el, function () {
-          try {
-            action(store, stateKey, args);
-          } catch (err) {
-            arkNotify("Something went wrong updating this page -- an unsupported or unexpected case was hit.");
-          }
-        });
-        el.addEventListener("click", function (event) {
-          event.preventDefault();
-          dispatch(event);
-        });
-      } catch (err) {
-        // One malformed element (e.g. bad data-ark-action-args JSON)
-        // must not abort wiring for every other element in this loop.
-        arkNotify("One of this page's interactive elements couldn't be set up.");
-      }
-    });
-  }"""
+# _NOTIFY_JS / _NAV_HIGHLIGHT_JS / _STATE_CORE_JS used to be defined
+# inline here as triple-quoted string constants. `refactor-0` (see
+# docs/Backends/REFACTOR-INDEX.md) split them into
+# arklight/backend/js/runtime/{state,bindings,modifiers,dispatch,nav,
+# notify}.py, mirroring the actions/ and behaviors/ per-file pattern.
+# The values imported above are byte-for-byte identical to the old
+# inline constants -- pure refactor, no generated JS output change.
 
 
 def _walk(node: IRNode):

@@ -5,6 +5,59 @@ follows [Keep a Changelog](https://keepachangelog.com/); versions
 follow the milestone scheme from ARCHITECTURE.md rather than strict
 SemVer.
 
+## [0.0492] -- Combined refactor, Stage 2 of 16 (JS runtime module split, `refactor-0`)
+
+Full design in `docs/Backends/JS-BACKEND-REFACTOR-PLAN.md` (`refactor-0`
+row) and `docs/Backends/HTMX-INTEGRATION.md`; sequencing against the
+HTML backend split and the `htmx-*`/`vdom-*` tracks in
+`docs/Backends/REFACTOR-INDEX.md` row 2. Second stage of the merged
+16-row staged order that document closes, and the first stage on the
+JS-backend side of it: splits `arklight/backend/js/render.py`'s old
+`_STATE_CORE_JS` (`createState`, `renderBindings`,
+`renderClassBindings`, `initState`, `arkApplyModifiers`,
+`wireActions`, one 145-line triple-quoted string) plus its
+`_NOTIFY_JS`/`_NAV_HIGHLIGHT_JS` constants into
+`arklight/backend/js/runtime/{state,bindings,modifiers,dispatch,nav,
+notify}.py`, mirroring the `actions/`/`behaviors/` per-file pattern
+already established for the per-name registries. Pure refactor -- no
+generated JS output changes; `render.py` now imports the reassembled
+fragments from `arklight.backend.js.runtime` instead of defining them
+inline. Landed ahead of the `htmx-*` track deliberately, since both
+that track and the not-yet-started `vdom-*` track touch this same
+file -- splitting once first avoids two large, unrelated diffs
+colliding in review (see `JS-BACKEND-REFACTOR-PLAN.md` "Ordering
+rationale, stated explicitly").
+
+### Added
+
+- New `arklight/backend/js/runtime/` package:
+  - `state.py` -- `CREATE_STATE_JS` (`createState`), `INIT_STATE_JS`
+    (`initState`).
+  - `bindings.py` -- `RENDER_BINDINGS_JS` (`renderBindings`),
+    `RENDER_CLASS_BINDINGS_JS` (`renderClassBindings`).
+  - `modifiers.py` -- `APPLY_MODIFIERS_JS` (`arkApplyModifiers`).
+  - `dispatch.py` -- `WIRE_ACTIONS_JS` (`wireActions`).
+  - `nav.py` -- `NAV_HIGHLIGHT_JS` (`highlightActiveNavLink`).
+  - `notify.py` -- `NOTIFY_JS` (`arkNotify`).
+  - `__init__.py` -- reassembles `STATE_CORE_JS` from the six modules
+    above in the original `_STATE_CORE_JS` order, and re-exports
+    `NOTIFY_JS`/`NAV_HIGHLIGHT_JS`.
+- New `tests/test_refactor_0.py` -- 9 tests: each new module exposes
+  the fragment it's supposed to, `STATE_CORE_JS` reassembles them in
+  the original order, and `JSBackend.render()`'s output for both a
+  plain and a stateful page is unaffected by the split. 709 tests
+  total.
+
+### Changed
+
+- `arklight/backend/js/render.py`: `_STATE_CORE_JS` / `_NOTIFY_JS` /
+  `_NAV_HIGHLIGHT_JS` are now imported from
+  `arklight.backend.js.runtime` instead of defined inline; every
+  other function in the file (`_collect_usage`, `_behaviors_block`,
+  `_actions_block`, `_build_runtime_js`, `JSBackend`) is unchanged.
+- `docs/Backends/REFACTOR-INDEX.md`: row 2 (`refactor-0`) marked
+  **Done**.
+
 ## [0.0491] -- HTML backend refactor, Stage 2 of 6 (routing.py + UNROUTED_REFERENCE_ATTRS fix)
 
 Full design in `docs/Backends/HTML-BACKEND-REFACTOR.md`; sequencing
