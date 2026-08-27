@@ -5,6 +5,73 @@ follows [Keep a Changelog](https://keepachangelog.com/); versions
 follow the milestone scheme from ARCHITECTURE.md rather than strict
 SemVer.
 
+## [0.049] -- Feedback-loop fix + `@import` made experimental
+
+Two fixes, bundled together since both touch the same "Stage 8
+compile-time feedback loop" and "at-rule vocabulary" areas from the
+work directly below.
+
+### Fixed
+
+- **Stage 8's self-learning typo feedback loop never actually fired.**
+  Every component (`Heading`, `Image`, ...) is a real Python
+  function/name, so misspelling one (`Headingg(...)`) fails as a
+  plain Python `NameError` inside `Site.build_ark_ast()` -- several
+  pipeline stages before `validate_node()` ever runs -- so it never
+  reached the `ValidationError` `arklight/search/feedback.py`'s
+  `record_validation_feedback` was built to listen for. In ordinary
+  use, that `ValidationError` path is essentially unreachable: all
+  three `ARKNode(type=...)` construction sites in the codebase pass a
+  fixed, correctly-spelled string, never one that round-trips through
+  user input.
+  - New `parse_undefined_component_name`/`record_name_error_feedback`
+    in `arklight/search/feedback.py`, recognizing Python's own
+    `NameError` message shape (`name 'X' is not defined`) -- the
+    message a typo'd component call actually raises.
+  - `compile_site_file` (`arklight/compiler/pipeline.py`) gains a new
+    `except NameError` branch around `site.build_ark_ast()`, ahead of
+    the existing catch-all `except Exception`, calling this new
+    best-effort recorder. Same failure-swallowing, build-behavior-
+    neutral contract as the existing `ValidationError` hook --
+    recording a confusion never affects whether/how a build succeeds
+    or fails.
+  - `record_validation_feedback`/`parse_unknown_component_type` are
+    unchanged and kept for the rarer path where an already-built
+    `ARKNode` reaches `validate_node()` with an unknown `.type`
+    directly (IR constructed by a lower-level caller that skips the
+    documented component functions).
+  - New `tests/test_search_feedback.py` -- 12 tests, including an
+    end-to-end repro of the original bug report (scaffold a typo'd
+    site, build it, confirm a `confusions` row is now actually
+    recorded). 647 tests total, all passing.
+  - Not fixed here, left as-is: `arklight search`'s undisclosed
+    first-run creation of `~/.local/share/arklight/search.sqlite3`
+    (or the platform equivalent) -- flagged in the same audit, but a
+    documentation/disclosure gap, not a bug, and out of scope for this
+    pass.
+
+### Changed
+
+- **`Site.import_style(url)` (`@import`) is now an EXPERIMENTAL API**
+  (see `docs/EXPERIMENTAL-APIS.md`), gated through the same mechanism
+  `site.media_query(...)` already uses. New `css-import` entry in
+  `arklight/experimental.py`'s `FEATURES` registry: *"the imported
+  file's contents can't be validated by ARKlight"* -- unlike every
+  other rule this project generates, an `@import` URL is fetched and
+  applied by the browser at request time, so nothing about it is
+  checked. Every call now prints the inline `[EXPERIMENTAL FEATURE
+  ACTIVE]` banner and an end-of-run summary block, same as
+  `media_query`. `container_query` remains deliberately **not**
+  flagged (unaffected by this change) -- it isn't request-time-opaque
+  the way `@import`/`@media` are.
+  - `tests/test_experimental_apis.py` and
+    `tests/test_css_structural_addendum.py` extended with `css-import`
+    coverage (registration, inline banner, IR threading, invalid-URL-
+    doesn't-record, summary text).
+  - `docs/EXPERIMENTAL-APIS.md` and `docs/DESIGN-NOTES.md` updated to
+    list `css-import` alongside `css-media-queries`/
+    `experimental-install-pwa`.
+
 ## [0.049] -- Pseudo-class vocabulary addendum III
 
 Full writeup in `docs/DESIGN-NOTES.md` ("v0.049: pseudo-class

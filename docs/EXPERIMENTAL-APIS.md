@@ -23,6 +23,14 @@ experimental API.** That currently means:
 - `experimental-install-pwa` -- a native browser install-prompt button
   (`arklight pwa ... --install-button`), which depends entirely on
   `beforeinstallprompt` support in the visiting browser engine.
+- `css-import` -- `Site.import_style(url)`, a real `@import
+  url("...");` statement. Flagged because the imported file's contents
+  can't be validated by ARKlight the way every other generated rule
+  is -- it's fetched and applied by the browser at request time, from
+  whatever the URL resolves to then, and it also blocks the CSS Object
+  Model until it resolves. Prefer `Page(links=[{"rel": "stylesheet",
+  "href": ...}])` where possible; reach for `import_style` only when a
+  stylesheet truly isn't reachable that way.
 
 This list grows as new escape hatches are added. **There is no
 "experimental by convention" bucket** -- if a feature isn't in

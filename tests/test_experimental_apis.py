@@ -140,6 +140,70 @@ def test_experimental_print_summary_deduplicates(capsys):
     assert out.count("Legacy API detected: css-media-queries") == 1
 
 
+# --- css-import (Site.import_style) -------------------------------------
+
+
+def test_import_style_registers_and_records_experimental_usage():
+    site = Site(name="Test")
+    site.import_style("https://fonts.googleapis.com/css2?family=Inter")
+
+    assert site.style_imports == ["https://fonts.googleapis.com/css2?family=Inter"]
+    assert len(site.experimental_usages) == 1
+    assert site.experimental_usages[0].feature_id == "css-import"
+
+
+def test_import_style_invalid_url_does_not_record_usage():
+    site = Site(name="Test")
+    with pytest.raises(ValueError):
+        site.import_style("")
+    with pytest.raises(Exception):
+        site.import_style('evil"; } body { color: red')
+    assert site.experimental_usages == []
+
+
+def test_compile_site_file_threads_import_style_usage_into_ir(tmp_path):
+    site_file = tmp_path / "site.py"
+    site_file.write_text(
+        "from arklight import Site, Page, Heading\n"
+        "site = Site(name='Test')\n"
+        "site.import_style('https://fonts.googleapis.com/css2?family=Inter')\n"
+        "@site.page('/')\n"
+        "def home():\n"
+        "    return Page(Heading('Hi'))\n"
+    )
+    ir = compile_site_file(site_file)
+    assert ir.style_imports == ["https://fonts.googleapis.com/css2?family=Inter"]
+    assert len(ir.experimental_usages) == 1
+    assert ir.experimental_usages[0].feature_id == "css-import"
+
+
+def test_build_emits_inline_banner_for_import_style(tmp_path):
+    site_file = tmp_path / "site.py"
+    site_file.write_text(
+        "from arklight import Site, Page, Heading\n"
+        "site = Site(name='Test')\n"
+        "site.import_style('https://fonts.googleapis.com/css2?family=Inter')\n"
+        "@site.page('/')\n"
+        "def home():\n"
+        "    return Page(Heading('Hi'))\n"
+    )
+    messages: list[str] = []
+    build(site_file, tmp_path / "ARK", on_stage=messages.append)
+    banners = [m for m in messages if m.startswith("\u26a0")]
+    assert len(banners) == 1
+    assert "css-import" in banners[0]
+
+    css = (tmp_path / "ARK" / "styles.css").read_text(encoding="utf-8")
+    assert "@import" in css
+
+
+def test_css_import_summary_mentions_validation_caveat(capsys):
+    usage = experimental.emit("css-import")
+    experimental.print_summary([usage])
+    out = capsys.readouterr().out
+    assert "can't be validated by ARKlight" in out
+
+
 # --- experimental-install-pwa (arklight pwa --install-button) ---
 
 SIMPLE_SITE = """

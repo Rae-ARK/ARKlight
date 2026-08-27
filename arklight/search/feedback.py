@@ -15,13 +15,29 @@ this real project -- exactly the kind of grounded signal the rest of
 this pipeline (Stage 3's usage graph, Stage 4's usage stats) already
 prefers over anything synthetic.
 
-This module never changes what `validate.py` raises or when (it's
-read-only over the message text `compile_site_file` already has), and
-never changes whether/how a build succeeds or fails -- it only ever
-records a background fact *after* a real unknown-component-type error,
-for Stage 2/5's `known_typo` signal and typo short-circuit to use on
-future searches. See `arklight.compiler.pipeline` for the (best-effort,
-failure-swallowing) call site.
+**Bug fixed here:** in ordinary use, that `ValidationError` path is
+essentially unreachable. Every component (`Heading`, `Image`, ...) is
+a real Python function/name -- misspelling one (`Headingg(...)`)
+fails as a plain Python `NameError` *inside* `Site.build_ark_ast()`,
+before an `ARKNode` is ever constructed, so `node.type` can only ever
+hold a string from ARKlight's own fixed, correctly-spelled vocabulary.
+`compile_site_file` catches that `NameError` several stages earlier
+than the `ValidationError` this module was built to listen for, so
+`record_validation_feedback` below never actually fired from a normal
+typo. `parse_undefined_component_name`/`record_name_error_feedback`
+cover that real path; `parse_unknown_component_type`/
+`record_validation_feedback` are kept for the rarer case an
+already-built `ARKNode` reaches `validate_node()` with an unknown
+`.type` directly (e.g. IR constructed by a lower-level caller that
+skips the documented component functions entirely).
+
+This module never changes what `validate.py`/Python itself raises or
+when (it's read-only over message text `compile_site_file` already
+has), and never changes whether/how a build succeeds or fails -- it
+only ever records a background fact *after* a real error, for Stage
+2/5's `known_typo` signal and typo short-circuit to use on future
+searches. See `arklight.compiler.pipeline` for the (best-effort,
+failure-swallowing) call sites.
 """
 
 from __future__ import annotations
@@ -39,6 +55,19 @@ from arklight.search.engine import SearchEngine
 # ...) simply won't match this prefix, which is the only thing that
 # matters for "was this specifically an unknown-component-type error".
 _UNKNOWN_TYPE_RE = re.compile(r"^Unknown component type (?P<type_repr>'(?:[^'\\]|\\.)*') at ")
+
+# Matches Python's own `NameError` message for a bare undefined name
+# (`name 'Headingg' is not defined`) -- what a misspelled component
+# call actually raises, since every component is a real Python
+# function/name rather than a string `validate_node()` checks against
+# `SCHEMA`. Deliberately narrow: only a bare identifier, no dotted
+# attribute access (`foo.bar` typos raise `AttributeError`, not
+# `NameError`, and aren't a component-name typo in the same sense) and
+# no free variable named after a component either raises this in the
+# same shape, so this stays a reasonable (not perfect) heuristic --
+# same "best effort, never trusted blindly" posture the rest of this
+# module already has.
+_NAME_ERROR_RE = re.compile(r"^name '(?P<name>[A-Za-z_][A-Za-z0-9_]*)' is not defined$")
 
 
 def parse_unknown_component_type(message: str) -> str | None:
@@ -62,6 +91,22 @@ def parse_unknown_component_type(message: str) -> str | None:
     except (ValueError, SyntaxError):
         return None
     return value if isinstance(value, str) else None
+
+
+def parse_undefined_component_name(message: str) -> str | None:
+    """
+    If `message` is a Python `NameError` string of the shape `name
+    'X' is not defined`, return `X`. Otherwise `None`.
+
+    This is the message a misspelled component call (`Headingg(...)`
+    instead of `Heading(...)`) actually raises in ordinary use -- see
+    the module docstring's "bug fixed here" note for why the
+    `ValidationError` parser above doesn't see it.
+    """
+    match = _NAME_ERROR_RE.match(message)
+    if match is None:
+        return None
+    return match.group("name")
 
 
 def record_validation_feedback(message: str, engine: SearchEngine) -> None:
@@ -94,3 +139,28 @@ def record_validation_feedback(message: str, engine: SearchEngine) -> None:
         return
 
     engine.record_confusion(typo, results[0].name)
+
+
+def record_name_error_feedback(message: str, engine: SearchEngine) -> None:
+    """
+    Given the text of a `NameError` `compile_site_file` just caught
+    while calling a site's page functions, record a Stage 8 confusion
+    if (and only if) the message matches the "name 'X' is not
+    defined" shape a misspelled component call raises.
+
+    This is the actual live path for "someone typo'd a component
+    name" in ordinary use -- see the module docstring's "bug fixed
+    here" note. Same recording rule and same best-effort contract as
+    `record_validation_feedback` above: no candidate, no record; any
+    failure is the caller's responsibility to swallow.
+    """
+    typo = parse_undefined_component_name(message)
+    if typo is None:
+        return
+
+    results = engine.search(typo, limit=1)
+    if not results:
+        return
+
+    engine.record_confusion(typo, results[0].name)
+

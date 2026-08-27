@@ -42,7 +42,7 @@ from arklight.ir.normalize import normalize_ark_ast
 from arklight.ir.validate import ValidationError, validate_ark_ast
 from arklight.parser.loader import SiteLoadError, load_site
 from arklight.search.engine import default_engine
-from arklight.search.feedback import record_validation_feedback
+from arklight.search.feedback import record_name_error_feedback, record_validation_feedback
 
 # A stage callback: called with a short, human-readable message every
 # time the pipeline moves into a new stage (site discovery, AST build,
@@ -75,6 +75,24 @@ def _record_validation_feedback_best_effort(message: str) -> None:
     """
     try:
         record_validation_feedback(message, default_engine())
+    except Exception:  # noqa: BLE001 -- best-effort only, must never affect the build
+        pass
+
+
+def _record_name_error_feedback_best_effort(message: str) -> None:
+    """The actual live counterpart to the hook above. Every component
+    (`Heading`, `Image`, ...) is a real Python function/name, so a
+    misspelled component call (`Headingg(...)`) fails as a plain
+    Python `NameError` inside `Site.build_ark_ast()` -- several stages
+    before `validate_node()` ever runs, meaning it never reaches the
+    `ValidationError` `_record_validation_feedback_best_effort` above
+    listens for. `compile_site_file` calls this right before
+    re-raising the same `CompileError` it always raised for a
+    `NameError` out of page-function execution, with the same message
+    -- same best-effort, build-behavior-neutral contract as above.
+    """
+    try:
+        record_name_error_feedback(message, default_engine())
     except Exception:  # noqa: BLE001 -- best-effort only, must never affect the build
         pass
 
@@ -139,6 +157,9 @@ def compile_site_file(
 
     try:
         ark_ast = site.build_ark_ast()
+    except NameError as exc:
+        _record_name_error_feedback_best_effort(str(exc))
+        raise CompileError(f"Error while building page(s): {exc}") from exc
     except Exception as exc:  # noqa: BLE001 -- surface page-function errors clearly
         raise CompileError(f"Error while building page(s): {exc}") from exc
 

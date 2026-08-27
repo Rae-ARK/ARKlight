@@ -72,6 +72,28 @@ FEATURES: dict[str, ExperimentalFeature] = {
             "install or use the site."
         ),
     ),
+    "css-import": ExperimentalFeature(
+        id="css-import",
+        inline_note="The imported file's contents can't be validated by ARKlight.",
+        detail_lines=[
+            "@import pulls in a stylesheet from a URL at request time --",
+            "the imported file's contents can't be validated by ARKlight,",
+            "unlike every other rule this project generates.",
+            "It also blocks the CSS Object Model until it resolves, which",
+            "can delay first paint, and its availability/behavior depends",
+            "on the visiting network and browser having access to that URL.",
+            "Prefer Page(links=[{'rel': 'stylesheet', 'href': ...}]) for an",
+            "external stylesheet where possible -- it doesn't block the CSSOM",
+            "the way @import does.",
+        ],
+        legacy_note=(
+            "An @import URL is opaque to ARKlight -- its contents are fetched "
+            "and applied by the browser at request time, so nothing about "
+            "them is checked the way every other generated rule is. Retained "
+            "as an explicit escape hatch for the rare case a stylesheet truly "
+            "isn't reachable via Page(links=[...]), not the default path."
+        ),
+    ),
 }
 
 

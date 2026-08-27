@@ -288,3 +288,15 @@ def test_import_style_rejects_unsafe_url():
     site = _new_site()
     with pytest.raises(CSSSyntaxError):
         site.import_style('evil"; } body { color: red')
+
+
+def test_import_style_is_flagged_experimental():
+    # Unlike container_query (see test_container_query_is_not_flagged_experimental
+    # above), an @import URL's contents can't be validated by ARKlight --
+    # they're fetched and applied by the browser at request time -- so
+    # this goes through the same css-media-queries-style experimental
+    # gate (docs/EXPERIMENTAL-APIS.md).
+    site = _new_site()
+    site.import_style("https://fonts.googleapis.com/css2?family=Inter")
+    assert len(site.experimental_usages) == 1
+    assert site.experimental_usages[0].feature_id == "css-import"

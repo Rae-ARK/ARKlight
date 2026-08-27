@@ -653,6 +653,12 @@ class string). Two new closed-vocabulary mechanisms do the actual work:
     even `BASE_CSS_HEADER`, because the CSS spec requires `@import` to
     precede every other rule (aside from `@charset`, which ARKlight
     doesn't emit) -- see `CSSBackend.render`'s ordering comment.
+    EXPERIMENTAL (see `docs/EXPERIMENTAL-APIS.md`, `css-import`):
+    unlike every other addition in this section, the imported file's
+    contents can't be validated by ARKlight -- it's fetched and
+    applied by the browser at request time -- so this is gated behind
+    the same experimental-feature mechanism `media_query` uses, not a
+    plain passthrough.
 
 All seven additions are pure passthrough data on `WebsiteIR`
 (`selector_rules`, `keyframes`, `font_faces`, `container_queries`,

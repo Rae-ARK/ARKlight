@@ -1249,13 +1249,22 @@ class Site:
 
     def import_style(self, url: str) -> None:
         """
-        Register a sitewide `@import url("...");` statement, emitted
-        first in the generated stylesheet (required -- `@import` must
-        precede every other rule per the CSS spec, aside from
-        `@charset`). Mainly useful for an external stylesheet/webfont
-        host that isn't reachable via `Page(links=[...])` for some
-        reason; prefer `links=` for the common case (it doesn't block
-        the CSS Object Model the way `@import` does).
+        EXPERIMENTAL (see `docs/EXPERIMENTAL-APIS.md`) -- register a
+        sitewide `@import url("...");` statement, emitted first in
+        the generated stylesheet (required -- `@import` must precede
+        every other rule per the CSS spec, aside from `@charset`).
+        Mainly useful for an external stylesheet/webfont host that
+        isn't reachable via `Page(links=[...])` for some reason;
+        prefer `links=` for the common case (it doesn't block the CSS
+        Object Model the way `@import` does).
+
+        Flagged because the imported file's contents can't be
+        validated by ARKlight the way every other generated rule is --
+        it's fetched and applied by the browser at request time, from
+        whatever the URL happens to resolve to then. Every call is
+        flagged: an `[EXPERIMENTAL FEATURE ACTIVE]` banner prints the
+        moment the build detects it, and a summary block prints again
+        at the end of the build.
         """
         if not isinstance(url, str) or not url.strip():
             raise ValueError(
@@ -1268,6 +1277,7 @@ class Site:
                 f"braces, semicolons, and newlines aren't allowed."
             )
         self.style_imports.append(url.strip())
+        self.experimental_usages.append(experimental.emit("css-import"))
 
     def page(self, route: str) -> Callable[[Callable[[], ARKNode]], Callable[[], ARKNode]]:
         if not route.startswith("/"):
