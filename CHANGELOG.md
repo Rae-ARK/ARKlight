@@ -5,6 +5,88 @@ follows [Keep a Changelog](https://keepachangelog.com/); versions
 follow the milestone scheme from ARCHITECTURE.md rather than strict
 SemVer.
 
+## [0.0498] -- Combined refactor, Stage 8 of 16 (HTMX integration, `htmx-2`: modifiers)
+
+Full design in `docs/Backends/HTMX-INTEGRATION.md` ("Stage 2 --
+Modifiers" / "Revised stage atomicity") and
+`docs/Backends/REFACTOR-INDEX.md` row 5. Eighth stage of the merged
+16-row staged order, immediately following `htmx-1`.
+
+Matched-pair change spanning the HTML and JS backends, same atomicity
+constraint `htmx-1` already established:
+
+- **HTML backend** (`arklight/backend/html/attrs.py`): an `ActionRef`'s
+  `.with_modifiers(...)`/`.debounce(...)`/`.throttle(...)` tokens now
+  compile to an `hx-trigger="click debounce:300ms"`-shaped attribute
+  via new `_modifiers_to_hx_trigger`, instead of the comma-joined
+  `data-ark-modifiers="prevent,debounce:300"` attribute. `"once"` maps
+  straight across; `"debounce"`/`"throttle"` gain an `ms` suffix;
+  `"stop"` maps to HTMX's `consume` modifier (the closest built-in
+  equivalent to `stopPropagation`); `"prevent"` produces no token at
+  all -- `wireActions()`'s click listener already calls
+  `event.preventDefault()` unconditionally, so it was "honored by
+  construction" before this stage too. The attribute is omitted
+  entirely when there's nothing left to say (no modifiers, or only
+  `"prevent"`), same "only ship what's used" discipline as elsewhere.
+  `data-ark-on-click="action:..."`/`data-ark-action-state`/
+  `data-ark-action-args` are unaffected -- `htmx-3` scope.
+- **JS backend** (`arklight/backend/js/runtime/`): `arkApplyModifiers`
+  -- the ~60-line hand-rolled debounce/throttle/once/stop wrapper --
+  and its sibling module (`runtime/modifiers.py`) are deleted.
+  `wireActions()` (`runtime/dispatch.py`) no longer wraps its dispatch
+  through it; it now calls the action directly on every native click,
+  same as `event.preventDefault()` already ran unconditionally before.
+  **Documented, temporary gap:** `hx-trigger` is compiled into the
+  page's markup by this stage, but nothing reads it as an actual
+  trigger yet, so `debounce`/`throttle`/`once`/`stop` have no runtime
+  effect until `htmx-3` (`REFACTOR-INDEX.md` row 6) replaces
+  `wireActions()`'s hand-rolled loop with an `htmx:beforeRequest`
+  interceptor that HTMX's own trigger processing actually feeds.
+  `STATE_CORE_JS` (`runtime/__init__.py`) is reassembled without the
+  deleted piece; `_build_runtime_js`'s (`js/render.py`) explanatory
+  header comment updated to match.
+
+### Changed
+
+- `arklight/backend/html/attrs.py`: new `_modifiers_to_hx_trigger` /
+  `_HX_TRIGGER_MODIFIER_MAP`; `ActionRef` branch of `_attr_string`
+  emits `hx-trigger` instead of `data-ark-modifiers`.
+- `arklight/backend/js/runtime/dispatch.py`: `WIRE_ACTIONS_JS` no
+  longer calls `arkApplyModifiers`; module docstring documents the
+  `htmx-3` handoff.
+- `arklight/backend/js/runtime/__init__.py`: `STATE_CORE_JS`
+  reassembled without `APPLY_MODIFIERS_JS`; module docstring updated.
+- `arklight/backend/js/render.py` / `arklight/backend/html/render.py`:
+  module docstrings updated to describe the new attribute shape and
+  the `htmx-3` dependency the temporary functional gap above resolves
+  through.
+- `docs/Backends/HTMX-INTEGRATION.md` / `docs/Backends/REFACTOR-INDEX.md`
+  / `docs/Backends/JS-BACKEND-REFACTOR-PLAN.md`: Stage 2 / row 5 /
+  `htmx-2` marked **Done**.
+- `tests/test_html_attrs.py`, `tests/test_event_modifiers.py`,
+  `tests/test_refactor_0.py` updated to assert on the new `hx-trigger`
+  output shape and the deletion of `arkApplyModifiers`/
+  `data-ark-modifiers`, preserving the same underlying coverage
+  (which modifier combinations are accepted, which attribute shape
+  each produces, that the runtime module split still reassembles
+  correctly) rather than the old assertions verbatim.
+
+### Removed
+
+- `arklight/backend/js/runtime/modifiers.py` (`APPLY_MODIFIERS_JS`):
+  deleted outright, per `HTMX-INTEGRATION.md`'s "Removed by HTMX"
+  section. No successor module -- there is nothing left for a runtime
+  modifier parser to do once modifiers are compiled at build time.
+
+### Not in this pass
+
+`htmx-3` (`REFACTOR-INDEX.md` row 6, `wireActions()`'s wiring loop
+replaced by a single `htmx:beforeRequest` interceptor) is what
+actually makes `hx-trigger` functionally govern dispatch timing --
+until it lands, this stage's `hx-trigger` attribute is compiled but
+inert, as documented above and in `runtime/dispatch.py`'s module
+docstring.
+
 ## [0.0497] -- Combined refactor, Stage 7 of 16 (HTMX integration, `htmx-1`: behaviors)
 
 Full design in `docs/Backends/HTMX-INTEGRATION.md` ("Stage 1 --

@@ -159,16 +159,54 @@ def test_attr_string_action_ref_renders_data_ark_action_attrs():
     assert 'data-ark-action-args="{&quot;delta&quot;: 1}"' in result
 
 
-def test_attr_string_action_ref_with_modifiers_renders_data_ark_modifiers():
+def test_attr_string_action_ref_with_modifiers_renders_hx_trigger():
+    # htmx-2: "prevent" contributes no token (honored by construction),
+    # "once" maps straight across.
     ref = ActionRef(action="set", state="saved", args={}).with_modifiers("prevent", "once")
     result = _attr_string({"on_click": ref}, current_route="/", route_to_path=ROUTE_TO_PATH)
-    assert 'data-ark-modifiers="prevent,once"' in result
+    assert 'hx-trigger="click once"' in result
+    assert "data-ark-modifiers" not in result
 
 
-def test_attr_string_action_ref_without_modifiers_omits_data_ark_modifiers():
+def test_attr_string_action_ref_without_modifiers_omits_hx_trigger():
     ref = ActionRef(action="set", state="saved", args={})
     result = _attr_string({"on_click": ref}, current_route="/", route_to_path=ROUTE_TO_PATH)
+    assert "hx-trigger" not in result
     assert "data-ark-modifiers" not in result
+
+
+def test_attr_string_action_ref_with_only_prevent_omits_hx_trigger():
+    # "prevent" alone has no hx-trigger equivalent -- nothing left to
+    # emit once it's excluded, so the attribute is omitted entirely.
+    ref = ActionRef(action="set", state="saved", args={}).with_modifiers("prevent")
+    result = _attr_string({"on_click": ref}, current_route="/", route_to_path=ROUTE_TO_PATH)
+    assert "hx-trigger" not in result
+
+
+def test_attr_string_action_ref_debounce_and_throttle_render_ms_suffixed_hx_trigger():
+    ref = ActionRef(action="set", state="saved", args={}).debounce(300)
+    result = _attr_string({"on_click": ref}, current_route="/", route_to_path=ROUTE_TO_PATH)
+    assert 'hx-trigger="click debounce:300ms"' in result
+
+    ref = ActionRef(action="increment", state="count", args={}).throttle(250)
+    result = _attr_string({"on_click": ref}, current_route="/", route_to_path=ROUTE_TO_PATH)
+    assert 'hx-trigger="click throttle:250ms"' in result
+
+
+def test_attr_string_action_ref_stop_maps_to_consume():
+    ref = ActionRef(action="remove", state="items", args={}).with_modifiers("stop")
+    result = _attr_string({"on_click": ref}, current_route="/", route_to_path=ROUTE_TO_PATH)
+    assert 'hx-trigger="click consume"' in result
+
+
+def test_attr_string_action_ref_combined_modifiers_render_in_order():
+    ref = (
+        ActionRef(action="remove", state="items", args={})
+        .with_modifiers("prevent", "stop")
+        .debounce(300)
+    )
+    result = _attr_string({"on_click": ref}, current_route="/", route_to_path=ROUTE_TO_PATH)
+    assert 'hx-trigger="click consume debounce:300ms"' in result
 
 
 def test_attr_string_bind_class_renders_data_ark_bind_class_attrs():

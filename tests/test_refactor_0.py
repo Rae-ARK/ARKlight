@@ -3,17 +3,23 @@
 docs/Backends/JS-BACKEND-REFACTOR-PLAN.md): the module split of
 `arklight/backend/js/render.py`'s old `_STATE_CORE_JS` / `_NOTIFY_JS`
 / `_NAV_HIGHLIGHT_JS` constants into
-`arklight/backend/js/runtime/{state,bindings,modifiers,dispatch,nav,
-notify}.py`.
+`arklight/backend/js/runtime/{state,bindings,dispatch,nav,notify}.py`.
+
+At `refactor-0` a sixth sibling, `modifiers.py`, also existed here
+(holding `arkApplyModifiers`); `htmx-2` (see
+docs/Backends/HTMX-INTEGRATION.md "Stage 2 -- Modifiers") deleted it
+along with the `data-ark-modifiers` attribute it used to parse, so
+this file's coverage of it is deleted too -- see
+`tests/test_event_modifiers.py` for `htmx-2`'s own coverage.
 
 This is documented as a pure refactor -- no generated-JS output
-change -- so this stage's tests assert two things: the six new
-sibling modules exist and expose the fragments they're supposed to
-(mirroring the `test_js_backend.py` coverage the `actions/`/
-`behaviors/` packages already get), and `JSBackend.render()`'s output
-is unaffected by the split (every function name that used to come
-from the monolithic string constants is still present exactly once,
-for both a plain page and a stateful one).
+change -- so this stage's tests assert two things: the sibling
+modules exist and expose the fragments they're supposed to (mirroring
+the `test_js_backend.py` coverage the `actions/`/`behaviors/`
+packages already get), and `JSBackend.render()`'s output is
+unaffected by the split (every function name that used to come from
+the monolithic string constants is still present exactly once, for
+both a plain page and a stateful one).
 """
 
 from arklight.api import Action, Button, Page, State, Text
@@ -24,7 +30,6 @@ from arklight.backend.js.runtime.bindings import (
     RENDER_CLASS_BINDINGS_JS,
 )
 from arklight.backend.js.runtime.dispatch import WIRE_ACTIONS_JS
-from arklight.backend.js.runtime.modifiers import APPLY_MODIFIERS_JS
 from arklight.backend.js.runtime.nav import NAV_HIGHLIGHT_JS as NAV_MODULE_JS
 from arklight.backend.js.runtime.notify import NOTIFY_JS as NOTIFY_MODULE_JS
 from arklight.backend.js.runtime.state import CREATE_STATE_JS, INIT_STATE_JS
@@ -68,10 +73,6 @@ def test_bindings_module_exports_both_render_passes():
     assert "function renderClassBindings(store)" in RENDER_CLASS_BINDINGS_JS
 
 
-def test_modifiers_module_exports_apply_modifiers():
-    assert "function arkApplyModifiers(el, run)" in APPLY_MODIFIERS_JS
-
-
 def test_dispatch_module_exports_wire_actions():
     assert "function wireActions(store)" in WIRE_ACTIONS_JS
 
@@ -88,14 +89,14 @@ def test_notify_module_exports_ark_notify():
 
 def test_runtime_package_reassembles_state_core_in_original_order():
     # createState, renderBindings, renderClassBindings, initState,
-    # arkApplyModifiers, wireActions -- same order the old
-    # `_STATE_CORE_JS` triple-quoted string held them in.
+    # wireActions -- same order the old `_STATE_CORE_JS` triple-quoted
+    # string held them in, minus arkApplyModifiers (deleted by
+    # htmx-2 -- see tests/test_event_modifiers.py).
     names = [
         "function createState(initial)",
         "function renderBindings(store)",
         "function renderClassBindings(store)",
         "function initState()",
-        "function arkApplyModifiers(el, run)",
         "function wireActions(store)",
     ]
     positions = [STATE_CORE_JS.index(name) for name in names]
@@ -120,7 +121,6 @@ def test_stateful_page_runtime_unaffected_by_the_split():
         "function renderBindings",
         "function renderClassBindings",
         "function initState",
-        "function arkApplyModifiers",
         "function wireActions",
         "function highlightActiveNavLink",
         "function arkNotify",

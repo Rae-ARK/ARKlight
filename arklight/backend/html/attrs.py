@@ -41,9 +41,25 @@ are unchanged -- they still compile to `data-ark-target`/
 `arklight/backend/js/behaviors/` read off the clicked element exactly
 as before; only *how the click gets wired* changed, not what a
 behavior does once it runs. `on_click=Action.*(...)` (an `ActionRef`)
-is untouched -- that still emits `data-ark-on-click="action:..."`,
-matched-pair with `wireActions()`/`dispatch.py`, which is `htmx-3`
-scope, not this stage's.
+is untouched by `htmx-1` -- that still emits
+`data-ark-on-click="action:..."`, matched-pair with
+`wireActions()`/`dispatch.py`, which is `htmx-3` scope, not that
+stage's.
+
+`htmx-2` (see `docs/Backends/HTMX-INTEGRATION.md` "Stage 2 --
+Modifiers" / `docs/Backends/REFACTOR-INDEX.md` row 5) changes one more
+piece of an `ActionRef`'s attribute shape: `.with_modifiers(...)` /
+`.debounce(...)` / `.throttle(...)` tokens no longer render as the
+`data-ark-modifiers="prevent,debounce:300"` attribute the now-deleted
+`arkApplyModifiers()` runtime parser used to read. Instead
+`_modifiers_to_hx_trigger` below compiles those tokens into HTMX's own
+`hx-trigger` modifier syntax (`click debounce:300ms`) at build time --
+see that function's docstring for the token-by-token mapping, and why
+`"prevent"` never produces an `hx-trigger` token at all.
+`data-ark-on-click="action:..."`/`data-ark-action-state`/
+`data-ark-action-args` are unchanged -- `wireActions()` still reads
+those directly (that's `htmx-3` scope); only the modifier attribute's
+shape changed this stage.
 """
 
 from __future__ import annotations
@@ -128,6 +144,57 @@ BEHAVIOR_PROP_ATTRS = {
 }
 
 
+# htmx-2 (docs/Backends/HTMX-INTEGRATION.md "Stage 2 -- Modifiers"):
+# ARKlight modifier token -> HTMX hx-trigger modifier token. Only
+# covers the two boolean modifiers that have a real HTMX equivalent --
+# "once" maps straight across, "stop" maps to HTMX's "consume" (which
+# stops the event triggering other htmx-wired listeners on ancestor
+# elements, the closest built-in equivalent to stopPropagation HTMX
+# offers). "prevent" is deliberately absent: it has no hx-trigger
+# equivalent and needs none -- see _modifiers_to_hx_trigger below.
+_HX_TRIGGER_MODIFIER_MAP = {"once": "once", "stop": "consume"}
+
+
+def _modifiers_to_hx_trigger(modifiers: tuple[str, ...]) -> str | None:
+    """
+    Compile an `ActionRef.modifiers` tuple into an HTMX `hx-trigger`
+    value, replacing the `data-ark-modifiers` attribute /
+    `arkApplyModifiers()` runtime parser `htmx-2` removes.
+
+    | `MODIFIER_REGISTRY` token | `hx-trigger` token |
+    |---------------------------|---------------------|
+    | `once`                    | `once`              |
+    | `debounce:<ms>`           | `debounce:<ms>ms`   |
+    | `throttle:<ms>`           | `throttle:<ms>ms`   |
+    | `stop`                    | `consume`           |
+    | `prevent`                 | (none)              |
+
+    `"prevent"` produces no token: `wireActions()`'s click listener
+    already calls `event.preventDefault()` unconditionally on every
+    dispatch (unchanged, pre-`htmx-2` behavior), so the modifier is
+    "honored by construction" the same way it already was before this
+    stage -- there's nothing left for `hx-trigger` to additionally
+    encode.
+
+    Returns `None` when there is nothing left to say after that (no
+    modifiers at all, or a tuple containing only `"prevent"`), so the
+    caller can omit the attribute entirely -- same "only ship what's
+    used" discipline as everywhere else in this file.
+    """
+    tokens = []
+    for token in modifiers:
+        name, _, param = token.partition(":")
+        if name == "prevent":
+            continue
+        elif name in _HX_TRIGGER_MODIFIER_MAP:
+            tokens.append(_HX_TRIGGER_MODIFIER_MAP[name])
+        elif name in ("debounce", "throttle"):
+            tokens.append(f"{name}:{param}ms")
+    if not tokens:
+        return None
+    return "click " + " ".join(tokens)
+
+
 def _style_dict_to_css(style: dict) -> str:
     parts = []
     for prop, value in style.items():
@@ -186,11 +253,13 @@ def _attr_string(
             if value.args:
                 parts.append(f' data-ark-action-args="{escape(json.dumps(value.args), quote=True)}"')
             if value.modifiers:
-                # Stage 3 ("Reactive-core vdom staging"): comma-joined
-                # modifier tokens, read by the JS runtime's
-                # arkApplyModifiers -- see arklight/backend/js/render.py.
-                modifiers_str = ",".join(value.modifiers)
-                parts.append(f' data-ark-modifiers="{escape(modifiers_str, quote=True)}"')
+                # htmx-2: compiled into HTMX's own hx-trigger modifier
+                # syntax at build time instead of the deleted
+                # data-ark-modifiers / arkApplyModifiers() pair -- see
+                # _modifiers_to_hx_trigger above.
+                hx_trigger = _modifiers_to_hx_trigger(value.modifiers)
+                if hx_trigger:
+                    parts.append(f' hx-trigger="{escape(hx_trigger, quote=True)}"')
             continue
 
         if key == "on_click" and isinstance(value, str):

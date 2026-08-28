@@ -119,18 +119,23 @@ def test_param_modifier_without_value_raises():
 # ---------------------------------------------------------------------------
 
 
-def test_html_backend_emits_modifiers_attribute():
+def test_html_backend_emits_hx_trigger_for_modifiers():
+    # htmx-2: replaces the old comma-joined data-ark-modifiers
+    # attribute with HTMX's own hx-trigger modifier syntax --
+    # "prevent" contributes nothing (honored by construction).
     tree = Page(
         State("saved", False),
         Button("Save", on_click=Action.set("saved", True).with_modifiers("prevent", "stop").debounce(300)),
     )
     html = HTMLBackend().render(_ir({"/": tree}))["index.html"]
-    assert 'data-ark-modifiers="prevent,stop,debounce:300"' in html
+    assert 'hx-trigger="click consume debounce:300ms"' in html
+    assert "data-ark-modifiers" not in html
 
 
-def test_html_backend_omits_modifiers_attribute_when_none_attached():
+def test_html_backend_omits_hx_trigger_when_none_attached():
     tree = Page(State("count", 0), Button("+1", on_click=Action.increment("count")))
     html = HTMLBackend().render(_ir({"/": tree}))["index.html"]
+    assert "hx-trigger" not in html
     assert "data-ark-modifiers" not in html
 
 
@@ -139,11 +144,17 @@ def test_html_backend_omits_modifiers_attribute_when_none_attached():
 # ---------------------------------------------------------------------------
 
 
-def test_js_backend_ships_apply_modifiers_when_state_present():
-    tree = Page(State("count", 0), Button("+1", on_click=Action.increment("count")))
+def test_js_backend_no_longer_ships_apply_modifiers():
+    # htmx-2: arkApplyModifiers and the data-ark-modifiers attribute it
+    # used to parse are both gone -- modifiers compile to hx-trigger at
+    # build time instead (see the HTML backend tests above).
+    tree = Page(
+        State("count", 0),
+        Button("+1", on_click=Action.increment("count").debounce(300).with_modifiers("stop", "once")),
+    )
     js = JSBackend().render(_ir({"/": tree}))["arklight.js"]
-    assert "function arkApplyModifiers(el, run)" in js
-    assert "data-ark-modifiers" in js
+    assert "arkApplyModifiers" not in js
+    assert "data-ark-modifiers" not in js
 
 
 def test_js_backend_ships_nothing_extra_without_state():
@@ -153,9 +164,11 @@ def test_js_backend_ships_nothing_extra_without_state():
 
 
 def test_wire_actions_still_has_exactly_two_try_blocks():
-    # Regression guard: Stage 3 must not add a new try/catch inside
-    # wireActions itself (arkApplyModifiers is a separate function) --
-    # see tests/test_js_error_handling.py's identical assertion.
+    # Regression guard: the outer wiring try/catch and the inner
+    # action-call try/catch (see arklight/backend/js/runtime/
+    # dispatch.py) -- unaffected by htmx-2 removing the
+    # arkApplyModifiers wrapper that used to sit between them -- see
+    # tests/test_js_error_handling.py's identical assertion.
     tree = Page(State("count", 0), Button("+1", on_click=Action.increment("count")))
     js = JSBackend().render(_ir({"/": tree}))["arklight.js"]
     wire_actions_body = js.split("function wireActions(store) {")[1].split(

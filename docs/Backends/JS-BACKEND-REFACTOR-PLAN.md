@@ -130,7 +130,7 @@ milestones each deserving their own version number.
 |---|---|---|---|
 | refactor-0 | **Module split.** `arklight/backend/js/render.py`'s `_STATE_CORE_JS` (145+ lines: `createState`, `renderBindings`, `renderClassBindings`, `initState`, `arkApplyModifiers`, `wireActions`, all one triple-quoted string) splits into `arklight/backend/js/runtime/{state,bindings,modifiers,dispatch,nav,notify}.py`, mirroring the `actions/`/`behaviors/` per-file pattern already established. Pure refactor -- no output byte changes, no page-facing API change. Same "refactor before growing further" precedent the CSS and HTML backends already set at a comparable line count. | none | **Done** |
 | htmx-1 | Vendor HTMX; replace `wireBehaviors()`. Per `HTMX-INTEGRATION.md` Stage 1. | refactor-0 | Not started |
-| htmx-2 | Replace `wireModifiers()`/`arkApplyModifiers` with `hx-trigger` modifier syntax. Per `HTMX-INTEGRATION.md` Stage 2. | htmx-1 | Not started |
+| htmx-2 | Replace `wireModifiers()`/`arkApplyModifiers` with `hx-trigger` modifier syntax. Per `HTMX-INTEGRATION.md` Stage 2. | htmx-1 | **Done** |
 | htmx-3 | Replace `wireActions()`'s wiring loop with an `htmx:beforeRequest` interceptor into `ACTION_REGISTRY`. Per `HTMX-INTEGRATION.md` Stage 3. | htmx-2 | Not started |
 | **htmx-4 (new)** | **App-shell navigation.** `Site(app_shell=True)` emits `hx-boost="true"`; HTML backend audited so shell-persistent regions (nav/header state) survive a boosted swap. This is the new stage this doc adds -- solves the app-illusion problem above. Each packaging backend doc gets a one-line cross-reference added once this lands. | htmx-3 | Not started |
 | htmx-5 | Audit and remove remaining hand-rolled plumbing. Per `HTMX-INTEGRATION.md` Stage 4. | htmx-4 | Not started |

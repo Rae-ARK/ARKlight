@@ -263,10 +263,16 @@ attributes from the HTML backend for named behaviors (`toggle`,
 `render.py`. All existing behavior tests pass against the new output.
 No change to `wireActions()`, `createState()`, or the reactive core.
 
-**Stage 2 — Replace `wireModifiers()`.**
+**Stage 2 — Replace `wireModifiers()`. -- IMPLEMENTED**
 Map `MODIFIER_REGISTRY` entries to HTMX `hx-trigger` modifier syntax
 at compile time. Delete the hand-rolled modifier parsing and dispatcher
-wrapper. Modifier tests pass.
+wrapper. Modifier tests pass. `"prevent"` maps to no token (honored by
+construction, unchanged from before this stage); `"stop"` maps to
+HTMX's `consume` modifier. `wireActions()` itself no longer wraps its
+dispatch through a modifier-aware function -- it now fires directly on
+every click, so `debounce`/`throttle`/`once`/`stop` are compiled into
+the page's markup but not yet functionally enforced until `htmx-3`'s
+`htmx:beforeRequest` interceptor reads `hx-trigger` for real.
 
 **Stage 3 — Replace `wireActions()` wiring loop.**
 Register an `htmx:beforeRequest` interceptor in `arklight.js` that
@@ -535,7 +541,7 @@ Three changes that must land in the same diff:
 Cannot be split. The HTML backend behavior attribute change *is* the
 JS backend Stage 1 change, viewed from the other side.
 
-**Stage 2 — Modifiers (HTML backend + JS backend, together)**
+**Stage 2 — Modifiers (HTML backend + JS backend, together) -- IMPLEMENTED** (see CHANGELOG.md; `docs/Backends/REFACTOR-INDEX.md` row 5 `htmx-2`)
 
 Two changes that must land in the same diff:
 

@@ -49,11 +49,15 @@ Three things beyond basic tag rendering are handled here:
    backend's reactive core (only shipped for pages that declare state)
    reads to wire up the click.
 
-5. **Stage 3 ("Reactive-core vdom staging"): `.with_modifiers(...)` /
-   `.debounce(...)` / `.throttle(...)` on an `ActionRef` render as a
-   `data-ark-modifiers="prevent,debounce:300"` attribute** alongside
-   the `data-ark-on-click` hooks above -- comma-joined tokens, omitted
-   entirely for an `ActionRef` with no modifiers attached.
+5. **`.with_modifiers(...)` / `.debounce(...)` / `.throttle(...)` on an
+   `ActionRef` render as an `hx-trigger="click debounce:300ms"`
+   attribute** alongside the `data-ark-on-click` hooks above. At Stage
+   3 ("Reactive-core vdom staging") this was a comma-joined
+   `data-ark-modifiers` attribute instead; `htmx-2` (see
+   `arklight.backend.html.attrs._modifiers_to_hx_trigger`) replaced it
+   with HTMX's own trigger-modifier syntax. Omitted entirely for an
+   `ActionRef` with no modifiers attached, or one carrying only
+   `"prevent"` (which has no `hx-trigger` equivalent).
 
 ## HTML Backend refactor -- module map
 

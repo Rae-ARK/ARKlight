@@ -6,22 +6,25 @@ Reactive-state runtime fragments (`refactor-0`, see
 Splits `arklight/backend/js/render.py`'s old `_STATE_CORE_JS` /
 `_NOTIFY_JS` / `_NAV_HIGHLIGHT_JS` constants (145+ lines, one
 triple-quoted string apiece) into one sibling module per function --
-`state.py`, `bindings.py`, `modifiers.py`, `dispatch.py`, `nav.py`,
-`notify.py` -- mirroring the `arklight.backend.js.actions` /
+`state.py`, `bindings.py`, `dispatch.py`, `nav.py`, `notify.py` --
+mirroring the `arklight.backend.js.actions` /
 `arklight.backend.js.behaviors` per-file pattern already established
 for the per-name registries. Unlike those two packages, nothing here
-is keyed by a registry name: these six pieces are the fixed reactive
+is keyed by a registry name: these five pieces are the fixed reactive
 core every stateful page ships as a unit, not a per-usage selection,
 so this module just reassembles them in the same order the old
-monolithic strings held them.
+monolithic string held them.
 
-`STATE_CORE_JS` below is byte-for-byte the old `_STATE_CORE_JS` value:
-`createState` and `initState` (from `state.py`) sandwich
-`renderBindings` / `renderClassBindings` (from `bindings.py`) exactly
-as the original triple-quoted string ordered them, followed by
-`arkApplyModifiers` (`modifiers.py`) and `wireActions`
-(`dispatch.py`). This is a pure refactor -- no generated JS output
-changes as a result of this split.
+At `refactor-0`, `STATE_CORE_JS` below was byte-for-byte the old
+`_STATE_CORE_JS` value, and a sixth sibling -- `modifiers.py` -- sat
+between `state.py` and `dispatch.py`, holding `arkApplyModifiers`.
+`htmx-2` (see `docs/Backends/HTMX-INTEGRATION.md` "Stage 2 --
+Modifiers" / `docs/Backends/REFACTOR-INDEX.md` row 5) deleted that
+module and its export entirely: modifier tokens now compile to an
+`hx-trigger` attribute at build time (`arklight/backend/html/attrs.py`)
+instead of being parsed by a shipped runtime function, so there is
+nothing left for a `modifiers.py` sibling to hold. `STATE_CORE_JS` is
+reassembled the same way, minus that one piece.
 """
 
 from __future__ import annotations
@@ -31,7 +34,6 @@ from arklight.backend.js.runtime.bindings import (
     RENDER_CLASS_BINDINGS_JS,
 )
 from arklight.backend.js.runtime.dispatch import WIRE_ACTIONS_JS
-from arklight.backend.js.runtime.modifiers import APPLY_MODIFIERS_JS
 from arklight.backend.js.runtime.nav import NAV_HIGHLIGHT_JS
 from arklight.backend.js.runtime.notify import NOTIFY_JS
 from arklight.backend.js.runtime.state import CREATE_STATE_JS, INIT_STATE_JS
@@ -42,7 +44,6 @@ STATE_CORE_JS = (
     + RENDER_BINDINGS_JS
     + RENDER_CLASS_BINDINGS_JS
     + INIT_STATE_JS
-    + APPLY_MODIFIERS_JS
     + WIRE_ACTIONS_JS
 )
 
