@@ -25,6 +25,16 @@ module and its export entirely: modifier tokens now compile to an
 instead of being parsed by a shipped runtime function, so there is
 nothing left for a `modifiers.py` sibling to hold. `STATE_CORE_JS` is
 reassembled the same way, minus that one piece.
+
+`htmx-3` (see `docs/Backends/HTMX-INTEGRATION.md` "Stage 3 -- Replace
+`wireActions()` wiring loop" / `docs/Backends/REFACTOR-INDEX.md` row 6)
+renamed `dispatch.py`'s export from `WIRE_ACTIONS_JS` to
+`ACTION_INTERCEPTOR_JS` -- the per-element `querySelectorAll`/
+`forEach` wiring loop it used to hold is gone, replaced by a single
+delegated `click` listener (`wireActionInterceptor`). See that
+module's docstring for why this isn't literally the `htmx:beforeRequest`
+interceptor `HTMX-INTEGRATION.md` describes. `STATE_CORE_JS` is
+reassembled in the same position this piece always occupied.
 """
 
 from __future__ import annotations
@@ -33,7 +43,7 @@ from arklight.backend.js.runtime.bindings import (
     RENDER_BINDINGS_JS,
     RENDER_CLASS_BINDINGS_JS,
 )
-from arklight.backend.js.runtime.dispatch import WIRE_ACTIONS_JS
+from arklight.backend.js.runtime.dispatch import ACTION_INTERCEPTOR_JS
 from arklight.backend.js.runtime.nav import NAV_HIGHLIGHT_JS
 from arklight.backend.js.runtime.notify import NOTIFY_JS
 from arklight.backend.js.runtime.state import CREATE_STATE_JS, INIT_STATE_JS
@@ -44,7 +54,7 @@ STATE_CORE_JS = (
     + RENDER_BINDINGS_JS
     + RENDER_CLASS_BINDINGS_JS
     + INIT_STATE_JS
-    + WIRE_ACTIONS_JS
+    + ACTION_INTERCEPTOR_JS
 )
 
 __all__ = [

@@ -5,6 +5,117 @@ follows [Keep a Changelog](https://keepachangelog.com/); versions
 follow the milestone scheme from ARCHITECTURE.md rather than strict
 SemVer.
 
+## [0.0499] -- Combined refactor, Stage 9 of 16 (HTMX integration, `htmx-3`: action dispatch)
+
+Full design in `docs/Backends/HTMX-INTEGRATION.md` ("Stage 3 --
+Replace `wireActions()` wiring loop" / "Revised stage atomicity" ->
+Stage 3) and `docs/Backends/REFACTOR-INDEX.md` row 6. Ninth stage of
+the merged 16-row staged order, immediately following `htmx-2`.
+
+JS-backend-only change (HTML-side `data-ark-action-*` attributes are
+unchanged, per `REFACTOR-INDEX.md` row 6):
+
+- **JS backend** (`arklight/backend/js/runtime/dispatch.py`): the
+  `wireActions(store)` function -- a `document.querySelectorAll(
+  '[data-ark-on-click^="action:"]')`/`forEach`/per-element-
+  `addEventListener` wiring loop -- is deleted and replaced with
+  `wireActionInterceptor(store)`: a single delegated `click` listener
+  registered once on `document`, resolving the actual target element
+  via `Element.closest('[data-ark-on-click^="action:"]')`. One
+  `addEventListener` call for the whole page instead of one per
+  action element, same "audit and remove hand-rolled plumbing" outcome
+  `htmx-2` left queued for this stage.
+- **Documented deviation from the design doc:** `HTMX-INTEGRATION.md`
+  describes this stage as registering an `htmx:beforeRequest`
+  interceptor. That event is only ever dispatched by HTMX's own
+  request path (`he()`), which only runs for an element carrying a
+  request-verb attribute (`hx-get`/`hx-post`/etc) -- something
+  `Action.*(...)` buttons deliberately never have, being client-local
+  state mutations rather than server requests (see
+  `HTMX-INTEGRATION.md` "HTMX as a client-local interaction target").
+  An `ActionRef` *with* modifiers does get a compiled `hx-trigger`
+  attribute (`htmx-2`) that HTMX's own attribute processing wires a
+  native listener for even without a request verb, but an `ActionRef`
+  with *no* modifiers -- the common case -- gets no compiled attribute
+  at all, so HTMX's own processing does nothing with it. Wiring only
+  through an HTMX-dispatched event would silently drop click handling
+  for every unmodified `Action.*(...)` button. `wireActionInterceptor`
+  is a delegated native `click` listener instead, which is correct for
+  both the modified and unmodified case and still satisfies the
+  "single registration, not a per-element wiring pass" outcome the
+  design calls for. See `dispatch.py`'s module docstring for the full
+  reasoning.
+- **`data-ark-on-click="action:..."`/`data-ark-action-state`/
+  `data-ark-action-args` are unchanged** -- `wireActionInterceptor`
+  reads them exactly as `wireActions()` used to, off the resolved
+  target element instead of a pre-bound closure variable.
+  `event.preventDefault()` is unconditional, same as before -- `
+  "prevent"` remains honored by construction.
+- **Guard shape changed**: `wireActions()` had two `try`/`catch`
+  blocks (an outer per-element wiring guard, an inner per-click
+  dispatch guard). `wireActionInterceptor` has one -- there is no
+  separate wiring phase per element any more, so a single guard around
+  the attribute reads + dispatch on each click covers the same
+  "one malformed element/click can't break anything else" guarantee
+  (each invocation of the delegated listener is independent).
+
+### Changed
+
+- `arklight/backend/js/runtime/dispatch.py`: `WIRE_ACTIONS_JS` ->
+  `ACTION_INTERCEPTOR_JS`; `wireActions(store)` -> `wireActionInterceptor(store)`,
+  rewritten as a delegated `click` listener. Module docstring rewritten
+  to document the `htmx:beforeRequest` deviation above.
+- `arklight/backend/js/runtime/__init__.py`: import/reassembly updated
+  for the renamed export; module docstring updated.
+- `arklight/backend/js/render.py`: `DOMContentLoaded` ready-call
+  updated from `wireActions(store);` to `wireActionInterceptor(store);`;
+  module docstring and the generated runtime's explanatory header
+  comment both updated to describe `htmx-3`.
+- `arklight/backend/html/attrs.py`: module docstring note pointing to
+  `wireActions()`/`dispatch.py` updated to reflect that `htmx-3` has
+  landed (attribute shape itself is unchanged).
+- `docs/Backends/HTMX-INTEGRATION.md` / `docs/Backends/REFACTOR-INDEX.md`
+  / `docs/Backends/JS-BACKEND-REFACTOR-PLAN.md`: Stage 3 / row 6 /
+  `htmx-3` marked **Done**, with the delegated-`click`-listener
+  deviation documented inline.
+- `tests/test_refactor_0.py`, `tests/test_event_modifiers.py`,
+  `tests/test_js_error_handling.py`, `tests/test_js_backend.py`
+  updated to assert on `wireActionInterceptor`/`ACTION_INTERCEPTOR_JS`
+  instead of `wireActions`/`WIRE_ACTIONS_JS`, and on the new
+  single-try/catch guard shape, preserving the same underlying
+  coverage (malformed-input isolation, action dispatch, "only ship
+  what's used") rather than the old assertions verbatim.
+
+### Added
+
+- `tests/test_htmx_3.py`: this stage's dedicated coverage --
+  `wireActions` is gone, `wireActionInterceptor` is present and
+  registered via a single delegated `click` listener (not a
+  `querySelectorAll`/`forEach` loop), dispatch still resolves
+  `data-ark-action-state`/`data-ark-action-args` correctly, `"prevent"`
+  remains honored by construction, and the guard shape holds.
+
+### Removed
+
+- `arklight/backend/js/runtime/dispatch.py`'s old `wireActions(store)`
+  per-element wiring loop. No successor per-element loop -- the
+  delegated listener replaces it outright.
+
+### Not in this pass
+
+Modifier *timing* (`debounce`/`throttle`/`once`/`stop`) is still not
+functionally enforced by the shipped runtime: `wireActionInterceptor`
+dispatches on every native click regardless of the compiled
+`hx-trigger` attribute's contents, same as `wireActions()` did before
+it. Routing this interceptor through HTMX's own trigger-spec parsing
+(the `hx-trigger`-only branch of its attribute processing, which does
+support debounce/throttle/once/consume without a request verb) is
+deferred -- `htmx-4`'s app-shell audit settles what survives a boosted
+DOM swap first, and that answer affects whether trigger-spec parsing
+can be safely relied on here. This is a narrower, more honest version
+of the gap `htmx-2` originally described as closing at this stage; see
+`dispatch.py`'s module docstring for the full reasoning.
+
 ## [0.0498] -- Combined refactor, Stage 8 of 16 (HTMX integration, `htmx-2`: modifiers)
 
 Full design in `docs/Backends/HTMX-INTEGRATION.md` ("Stage 2 --

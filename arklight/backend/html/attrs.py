@@ -43,8 +43,13 @@ as before; only *how the click gets wired* changed, not what a
 behavior does once it runs. `on_click=Action.*(...)` (an `ActionRef`)
 is untouched by `htmx-1` -- that still emits
 `data-ark-on-click="action:..."`, matched-pair with
-`wireActions()`/`dispatch.py`, which is `htmx-3` scope, not that
-stage's.
+`dispatch.py`'s wiring, which was `htmx-3` scope, not that stage's.
+(`htmx-3` -- see `docs/Backends/HTMX-INTEGRATION.md` "Stage 3" -- has
+since landed and renamed that wiring from `wireActions()` to
+`wireActionInterceptor()`; it deliberately did not touch this
+attribute, per that stage's own "JS-only" scope, so everything below
+about `data-ark-on-click`/`data-ark-action-state`/`data-ark-action-args`
+is unaffected and still current.)
 
 `htmx-2` (see `docs/Backends/HTMX-INTEGRATION.md` "Stage 2 --
 Modifiers" / `docs/Backends/REFACTOR-INDEX.md` row 5) changes one more

@@ -84,7 +84,7 @@ def test_js_runtime_omits_state_core_when_no_page_declares_state():
     js = JSBackend().render(_plain_ir())[SCRIPT_PATH]
     assert "createState" not in js
     assert "data-ark-state" not in js
-    assert "wireActions" not in js
+    assert "wireActionInterceptor" not in js
 
 
 def test_js_runtime_includes_state_core_and_used_actions_only():

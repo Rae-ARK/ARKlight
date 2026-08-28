@@ -274,7 +274,7 @@ every click, so `debounce`/`throttle`/`once`/`stop` are compiled into
 the page's markup but not yet functionally enforced until `htmx-3`'s
 `htmx:beforeRequest` interceptor reads `hx-trigger` for real.
 
-**Stage 3 — Replace `wireActions()` wiring loop.**
+**Stage 3 — Replace `wireActions()` wiring loop. -- IMPLEMENTED**
 Register an `htmx:beforeRequest` interceptor in `arklight.js` that
 catches HTMX-triggered events, dispatches into `ACTION_REGISTRY`, and
 cancels the network request. Delete the `wireActions()` loop. Action
@@ -552,13 +552,30 @@ Two changes that must land in the same diff:
 
 Cannot be split. Same matched-pair constraint as Stage 1.
 
-**Stage 3 — Actions (JS backend only)**
+**Stage 3 — Actions (JS backend only) -- IMPLEMENTED**
 
 `data-ark-action-*` attributes on the HTML side are not changing —
-the `htmx:beforeRequest` interceptor still reads them from the event
-target. The change is entirely in `js/render.py`: the `wireActions()`
+the interceptor still reads them from the event target. The change is
+entirely in `js/render.py`/`runtime/dispatch.py`: the `wireActions()`
 loop is replaced by a single interceptor registration. This stage is
 genuinely independent and can land on its own.
+
+**Deviation from the design above, discovered during implementation:**
+landed as a delegated native `click` listener (`wireActionInterceptor`,
+`arklight/backend/js/runtime/dispatch.py`) rather than the
+`htmx:beforeRequest` interceptor described earlier in this document.
+`htmx:beforeRequest` is only dispatched by HTMX's own request path,
+which requires a request-verb attribute (`hx-get`/`hx-post`/etc) --
+something `Action.*(...)` buttons deliberately never carry, being
+client-local state mutations rather than server requests. Wiring only
+through that event would leave every action with no attached
+modifiers (the common case, which also gets no compiled `hx-trigger`
+from `htmx-2`) with no click handling at all. The delegated `click`
+listener preserves both the "single registration, not a per-element
+wiring pass" outcome and correctness for the unmodified-action case,
+at the cost of not (yet) routing modifier timing through HTMX's own
+trigger-spec parsing -- see `dispatch.py`'s module docstring for the
+full reasoning and what remains a documented gap.
 
 **Stage 4 — Audit and cleanup (independent)**
 

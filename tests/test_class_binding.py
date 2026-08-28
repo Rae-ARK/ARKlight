@@ -124,4 +124,9 @@ def test_js_backend_ships_nothing_extra_without_state():
     ir = _ir({"/": tree})
     js = JSBackend().render(ir)["arklight.js"]
     assert "renderClassBindings" not in js
-    assert "snabbdom" not in js.split("\n", 10)[-1]  # no vdom core body shipped
+    # htmx-3 added two more lines to the generated header comment
+    # (see arklight/backend/js/render.py's _build_runtime_js) -- the
+    # split count below is bumped from 10 to 14 to keep skipping past
+    # the whole header (which itself mentions "snabbdom" in prose)
+    # before checking that no vdom core body is actually shipped.
+    assert "snabbdom" not in js.split("\n", 14)[-1]  # no vdom core body shipped

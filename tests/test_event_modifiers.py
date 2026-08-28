@@ -163,19 +163,22 @@ def test_js_backend_ships_nothing_extra_without_state():
     assert "arkApplyModifiers" not in js
 
 
-def test_wire_actions_still_has_exactly_two_try_blocks():
-    # Regression guard: the outer wiring try/catch and the inner
-    # action-call try/catch (see arklight/backend/js/runtime/
-    # dispatch.py) -- unaffected by htmx-2 removing the
-    # arkApplyModifiers wrapper that used to sit between them -- see
+def test_wire_action_interceptor_has_exactly_one_try_block():
+    # htmx-3 (see docs/Backends/HTMX-INTEGRATION.md "Stage 3") replaced
+    # wireActions()'s two-try-block shape (a per-element wiring guard
+    # plus an inner per-click dispatch guard) with a single delegated
+    # click listener, `wireActionInterceptor` -- there's no separate
+    # wiring phase per element any more, so one try/catch around the
+    # attribute-read + dispatch is the whole guard. See
+    # tests/test_htmx_3.py for this stage's dedicated coverage and
     # tests/test_js_error_handling.py's identical assertion.
     tree = Page(State("count", 0), Button("+1", on_click=Action.increment("count")))
     js = JSBackend().render(_ir({"/": tree}))["arklight.js"]
-    wire_actions_body = js.split("function wireActions(store) {")[1].split(
+    wire_body = js.split("function wireActionInterceptor(store) {")[1].split(
         "function highlightActiveNavLink"
     )[0]
-    assert wire_actions_body.count("try {") == 2
-    assert wire_actions_body.count("catch (err)") == 2
+    assert wire_body.count("try {") == 1
+    assert wire_body.count("catch (err)") == 1
 
 
 def test_runtime_still_has_no_eval_or_new_function():

@@ -1,10 +1,19 @@
 """
 Tests for the JS runtime error-handling hardening pass: a shared
 `arkNotify()` on-page notice, plus `try`/`catch` guards around
-`initState()`, `wireActions()`, `wireBehaviors()`, and their per-click
-dispatch, so one malformed attribute or one throwing behavior/action
-can't silently take down interactivity for the rest of the page --
-and the person sees a visible notice instead of nothing at all.
+`initState()`, `wireActionInterceptor()`, `wireBehaviors()`, and their
+per-click dispatch, so one malformed attribute or one throwing
+behavior/action can't silently take down interactivity for the rest
+of the page -- and the person sees a visible notice instead of
+nothing at all.
+
+`htmx-3` (see `docs/Backends/HTMX-INTEGRATION.md` "Stage 3") renamed
+`wireActions()` to `wireActionInterceptor()` and replaced its
+per-element wiring loop with a single delegated `click` listener --
+see `arklight/backend/js/runtime/dispatch.py`'s module docstring.
+`test_wire_actions_guards_each_element_independently` below is
+updated for that shape; see `tests/test_htmx_3.py` for this stage's
+own dedicated coverage.
 """
 
 from arklight.api import Action, Bind, Button, Page, State, Text
@@ -55,8 +64,8 @@ def test_arknotify_shipped_when_state_is_used():
 def test_init_state_is_guarded_against_malformed_json():
     # Previously JSON.parse(raw) in initState() had no guard -- a
     # malformed data-ark-state attribute would throw inside the
-    # DOMContentLoaded handler and silently abort wireActions() (and
-    # anything scheduled after it) for the whole page.
+    # DOMContentLoaded handler and silently abort wireActionInterceptor()
+    # (and anything scheduled after it) for the whole page.
     pages = {
         "/": Page(
             State("count", 0),
@@ -66,15 +75,17 @@ def test_init_state_is_guarded_against_malformed_json():
     }
     js = JSBackend().render(_ir(pages))[SCRIPT_PATH]
     assert "function initState() {" in js
-    init_state_body = js.split("function initState() {")[1].split("function wireActions")[0]
+    init_state_body = js.split("function initState() {")[1].split("function wireActionInterceptor")[0]
     assert "try {" in init_state_body
     assert "catch (err)" in init_state_body
     assert "arkNotify(" in init_state_body
 
 
-def test_wire_actions_guards_each_element_independently():
-    # One malformed data-ark-action-args on one element must not abort
-    # the forEach loop for every other element.
+def test_wire_action_interceptor_guards_dispatch_independently():
+    # htmx-3: the per-element wiring loop is gone -- one malformed
+    # data-ark-action-args read on one click must not break the
+    # delegated listener for any subsequent click. See
+    # tests/test_htmx_3.py for this stage's dedicated coverage.
     pages = {
         "/": Page(
             State("count", 0),
@@ -82,11 +93,12 @@ def test_wire_actions_guards_each_element_independently():
         )
     }
     js = JSBackend().render(_ir(pages))[SCRIPT_PATH]
-    wire_actions_body = js.split("function wireActions(store) {")[1].split("function highlightActiveNavLink")[0]
-    # Guard around the per-element setup (attribute reads + JSON.parse).
-    assert wire_actions_body.count("try {") == 2  # per-element setup + click dispatch
-    assert wire_actions_body.count("catch (err)") == 2
-    assert "arkNotify(" in wire_actions_body
+    wire_body = js.split("function wireActionInterceptor(store) {")[1].split(
+        "function highlightActiveNavLink"
+    )[0]
+    assert wire_body.count("try {") == 1
+    assert wire_body.count("catch (err)") == 1
+    assert "arkNotify(" in wire_body
 
 
 def test_wire_behaviors_guards_each_element_independently():

@@ -12,6 +12,14 @@ along with the `data-ark-modifiers` attribute it used to parse, so
 this file's coverage of it is deleted too -- see
 `tests/test_event_modifiers.py` for `htmx-2`'s own coverage.
 
+`htmx-3` (see docs/Backends/HTMX-INTEGRATION.md "Stage 3") renamed
+`dispatch.py`'s export from `WIRE_ACTIONS_JS` to
+`ACTION_INTERCEPTOR_JS` and replaced the `wireActions(store)` function
+it held with `wireActionInterceptor(store)` -- a single delegated
+`click` listener instead of a `querySelectorAll`/`forEach` wiring
+loop. This file's assertions below are updated for that rename; see
+`tests/test_htmx_3.py` for this stage's own dedicated coverage.
+
 This is documented as a pure refactor -- no generated-JS output
 change -- so this stage's tests assert two things: the sibling
 modules exist and expose the fragments they're supposed to (mirroring
@@ -29,7 +37,7 @@ from arklight.backend.js.runtime.bindings import (
     RENDER_BINDINGS_JS,
     RENDER_CLASS_BINDINGS_JS,
 )
-from arklight.backend.js.runtime.dispatch import WIRE_ACTIONS_JS
+from arklight.backend.js.runtime.dispatch import ACTION_INTERCEPTOR_JS
 from arklight.backend.js.runtime.nav import NAV_HIGHLIGHT_JS as NAV_MODULE_JS
 from arklight.backend.js.runtime.notify import NOTIFY_JS as NOTIFY_MODULE_JS
 from arklight.backend.js.runtime.state import CREATE_STATE_JS, INIT_STATE_JS
@@ -73,8 +81,8 @@ def test_bindings_module_exports_both_render_passes():
     assert "function renderClassBindings(store)" in RENDER_CLASS_BINDINGS_JS
 
 
-def test_dispatch_module_exports_wire_actions():
-    assert "function wireActions(store)" in WIRE_ACTIONS_JS
+def test_dispatch_module_exports_wire_action_interceptor():
+    assert "function wireActionInterceptor(store)" in ACTION_INTERCEPTOR_JS
 
 
 def test_nav_module_exports_highlight_active_nav_link():
@@ -89,15 +97,17 @@ def test_notify_module_exports_ark_notify():
 
 def test_runtime_package_reassembles_state_core_in_original_order():
     # createState, renderBindings, renderClassBindings, initState,
-    # wireActions -- same order the old `_STATE_CORE_JS` triple-quoted
-    # string held them in, minus arkApplyModifiers (deleted by
-    # htmx-2 -- see tests/test_event_modifiers.py).
+    # wireActionInterceptor -- same slot the old `_STATE_CORE_JS`
+    # triple-quoted string held wireActions() in, minus arkApplyModifiers
+    # (deleted by htmx-2 -- see tests/test_event_modifiers.py) and with
+    # wireActions() itself renamed/replaced by htmx-3 (see
+    # tests/test_htmx_3.py).
     names = [
         "function createState(initial)",
         "function renderBindings(store)",
         "function renderClassBindings(store)",
         "function initState()",
-        "function wireActions(store)",
+        "function wireActionInterceptor(store)",
     ]
     positions = [STATE_CORE_JS.index(name) for name in names]
     assert positions == sorted(positions)
@@ -109,7 +119,7 @@ def test_runtime_package_reassembles_state_core_in_original_order():
 def test_plain_page_runtime_unaffected_by_the_split():
     js = JSBackend().render(_plain_ir())[SCRIPT_PATH]
     assert "createState" not in js
-    assert "wireActions" not in js
+    assert "wireActionInterceptor" not in js
     assert "highlightActiveNavLink" in js
     assert js.count("function highlightActiveNavLink") == 1
 
@@ -121,7 +131,7 @@ def test_stateful_page_runtime_unaffected_by_the_split():
         "function renderBindings",
         "function renderClassBindings",
         "function initState",
-        "function wireActions",
+        "function wireActionInterceptor",
         "function highlightActiveNavLink",
         "function arkNotify",
     ]:
