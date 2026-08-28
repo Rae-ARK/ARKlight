@@ -166,10 +166,21 @@ def test_wire_actions_still_has_exactly_two_try_blocks():
 
 
 def test_runtime_still_has_no_eval_or_new_function():
+    # htmx-1: this page now also ships vendored HTMX (state is
+    # present), which -- like any general-purpose library -- contains
+    # its own internal `eval`/`new Function` uses the "no eval, no new
+    # Function" guarantee was never about. That guarantee is about
+    # ARKlight's *own* authored runtime code never treating a string
+    # as executable code; it doesn't extend to a vendored third-party
+    # dependency's internals. See test_js_error_handling.py's
+    # identical adjustment for the same reasoning.
+    from arklight.backend.js.htmx import HTMX_JS
+
     tree = Page(
         State("count", 0),
         Button("+1", on_click=Action.increment("count").debounce(300).with_modifiers("stop", "once")),
     )
     js = JSBackend().render(_ir({"/": tree}))["arklight.js"]
-    assert "eval(" not in js
-    assert "new Function(" not in js
+    ark_authored_js = js.replace(HTMX_JS, "")
+    assert "eval(" not in ark_authored_js
+    assert "new Function(" not in ark_authored_js

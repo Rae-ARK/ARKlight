@@ -37,7 +37,12 @@ def test_js_runtime_includes_only_the_behavior_actually_used():
     pages = {"/": Page(Button("Show", on_click="toggle", behavior_target="#panel"))}
     js = JSBackend().render(_ir(pages))[SCRIPT_PATH]
     assert "toggle:" in js
-    assert "data-ark-on-click" in js
+    # htmx-1: no more data-ark-on-click wiring loop -- the runtime now
+    # exposes arkBehaviors/arkRunBehavior for HTMX's hx-on:click to
+    # call directly (see arklight/backend/js/render.py).
+    assert "arkBehaviors" in js
+    assert "arkRunBehavior" in js
+    assert "data-ark-on-click" not in js
     assert "data-ark-target" in js
     assert "data-ark-toggle-class" in js
     # Behaviors that aren't referenced on this site don't ship.
@@ -96,8 +101,16 @@ def test_js_runtime_includes_state_core_and_used_actions_only():
     # `set` / `toggle_bool` weren't referenced on this site.
     assert "toggle_bool:" not in js
     assert "\n    set: function (store, key, args) {" not in js
-    assert "eval(" not in js
-    assert "new Function(" not in js
+    # htmx-1: this page ships vendored HTMX (state is present), which
+    # -- like any general-purpose library -- has its own internal
+    # eval/new Function uses unrelated to ARKlight's own "no eval, no
+    # new Function" guarantee about its own authored code. Scope the
+    # check to what ARKlight itself generated.
+    from arklight.backend.js.htmx import HTMX_JS
+
+    ark_authored_js = js.replace(HTMX_JS, "")
+    assert "eval(" not in ark_authored_js
+    assert "new Function(" not in ark_authored_js
 
 
 def test_action_ref_targets_survive_into_ir():

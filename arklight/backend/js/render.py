@@ -89,6 +89,41 @@ listener already unconditionally calls `event.preventDefault()`
 modifier itself to additionally do. Named behaviors (`on_click=
 "toggle"`, etc.) have no modifier-attaching API yet -- deliberately
 left for a future addendum rather than speculatively wired up now.
+
+`htmx-1` (see `docs/Backends/HTMX-INTEGRATION.md` "Stage 1 --
+Behaviors" / `docs/Backends/REFACTOR-INDEX.md` row 4) replaces the
+named-behavior wiring pass with HTMX. `wireBehaviors()` and its
+`_behaviors_block` are gone -- there is no more `DOMContentLoaded`
+query/`addEventListener` loop over `[data-ark-on-click]` elements,
+because `arklight/backend/html/attrs.py` now compiles a string
+`on_click` straight to `hx-on:click="arkRunBehavior('<name>', this)"`
+and HTMX's own attribute-processing pass (which runs on page load and
+on any DOM HTMX subsequently swaps in, not just once at
+`DOMContentLoaded`) does the wiring instead. What stays on the
+ARKlight side is only what HTMX has no equivalent for: the closed
+`behaviors` dispatch object itself (still just the four
+`BEHAVIOR_FRAGMENTS` entries this site's IR actually references, same
+"only ship what's used" discipline as before) and a one-line
+`arkRunBehavior(name, el)` wrapper that looks a name up in it and
+guards the call in `try`/`catch` -- the same guarantee
+`wireBehaviors()`'s per-element `try`/`catch` used to give, just
+scoped per-*call* instead of per-*wiring-pass* now that there is no
+wiring pass to wrap. Both are attached to `window` because HTMX
+evaluates `hx-on:click`'s value in the browser's normal (non-strict,
+non-module) global scope, not inside this file's own IIFE closure --
+see `arklight/backend/js/htmx.py`'s module docstring for why the two
+scripts don't otherwise need to share scope.
+
+Vendored HTMX itself (`arklight/backend/js/htmx.py`, upstream 2.0.10,
+Zero-Clause BSD) ships whenever a page uses a named behavior *or*
+declares state -- see `_build_runtime_js`'s `needs_htmx`. State-only
+pages don't yet emit any `hx-*` attribute (that's `htmx-2`/`htmx-3`
+territory: modifiers and `Action.*` dispatch still go through
+`data-ark-modifiers`/`wireActions()` unchanged by this stage), but
+`docs/Backends/REFACTOR-INDEX.md` row 4 scopes HTMX's inclusion to
+"behaviors or state" rather than "behaviors only" so that landing
+`htmx-2`/`htmx-3` later doesn't also have to touch this
+already-shipped condition.
 """
 
 from __future__ import annotations
@@ -97,6 +132,7 @@ from arklight.ast.nodes import ActionRef
 from arklight.backend.base import Backend
 from arklight.backend.js.actions import ACTION_FRAGMENTS
 from arklight.backend.js.behaviors import BEHAVIOR_FRAGMENTS
+from arklight.backend.js.htmx import HTMX_JS
 from arklight.backend.js.runtime import NAV_HIGHLIGHT_JS as _NAV_HIGHLIGHT_JS
 from arklight.backend.js.runtime import NOTIFY_JS as _NOTIFY_JS
 from arklight.backend.js.runtime import STATE_CORE_JS as _STATE_CORE_JS
@@ -145,6 +181,16 @@ def _collect_usage(ir: WebsiteIR) -> tuple[set[str], set[str], bool]:
 
 
 def _behaviors_block(used_behaviors: set[str]) -> str | None:
+    # htmx-1: no more wiring loop here -- HTMX's own hx-on:click
+    # processing is the wiring pass now (see arklight/backend/html/
+    # attrs.py and this file's module docstring). What's left is just
+    # the closed dispatch object (`arkBehaviors`, still only the
+    # fragments this site's IR actually references) and a one-line
+    # lookup-and-call wrapper (`arkRunBehavior`) that HTMX's
+    # hx-on:click="arkRunBehavior('<name>', this)" attribute value
+    # calls directly. Both attach to `window` because HTMX evaluates
+    # that attribute's value in normal global scope, not inside this
+    # file's own IIFE.
     if not used_behaviors:
         return None
     fragments = [
@@ -154,28 +200,18 @@ def _behaviors_block(used_behaviors: set[str]) -> str | None:
         return None
     entries = ",\n".join(fragments)
     return (
-        "  var behaviors = {\n" + entries + "\n  };\n\n"
-        "  function wireBehaviors() {\n"
-        '    document.querySelectorAll("[data-ark-on-click]").forEach(function (el) {\n'
-        "      try {\n"
-        '        var name = el.getAttribute("data-ark-on-click");\n'
-        "        var behavior = behaviors[name];\n"
-        "        if (!behavior) return;\n"
-        '        el.addEventListener("click", function (event) {\n'
-        "          event.preventDefault();\n"
-        "          try {\n"
-        "            behavior(el);\n"
-        "          } catch (err) {\n"
-        '            arkNotify("Something went wrong running this action -- an unsupported or unexpected case was hit.");\n'
-        "          }\n"
-        "        });\n"
-        "      } catch (err) {\n"
-        "        // One malformed element must not abort wiring for\n"
-        "        // every other behavior-tagged element on the page.\n"
-        '        arkNotify("One of this page\'s interactive elements couldn\'t be set up.");\n'
-        "      }\n"
-        "    });\n"
-        "  }"
+        "  var arkBehaviors = {\n" + entries + "\n  };\n"
+        "  window.arkBehaviors = arkBehaviors;\n\n"
+        "  function arkRunBehavior(name, el) {\n"
+        "    var behavior = arkBehaviors[name];\n"
+        "    if (!behavior) return;\n"
+        "    try {\n"
+        "      behavior(el);\n"
+        "    } catch (err) {\n"
+        '      arkNotify("Something went wrong running this action -- an unsupported or unexpected case was hit.");\n'
+        "    }\n"
+        "  }\n"
+        "  window.arkRunBehavior = arkRunBehavior;"
     )
 
 
@@ -191,21 +227,37 @@ def _actions_block(used_actions: set[str]) -> str:
 def _build_runtime_js(ir: WebsiteIR) -> str:
     used_behaviors, used_actions, has_state = _collect_usage(ir)
 
+    behaviors_block = _behaviors_block(used_behaviors)
+
+    # htmx-1 (docs/Backends/REFACTOR-INDEX.md row 4): vendored HTMX
+    # ships whenever a page uses a named behavior or declares state --
+    # see arklight/backend/js/htmx.py's module docstring for why the
+    # "or state" half of this condition is scoped ahead of what this
+    # stage alone strictly needs.
+    needs_htmx = bool(behaviors_block) or has_state
+
     parts: list[str] = [
         "// Generated by ARKlight -- v0.0035 runtime + Stage 1-3 of the",
         "// reactive-core vdom staging (vdom core, class binding, event",
-        "// modifiers). Implements only the named behaviors and",
-        "// Action.*(...) references this site actually uses -- see",
+        "// modifiers), plus htmx-1 (named behaviors now wire through",
+        "// vendored HTMX's hx-on:click instead of a hand-rolled wiring",
+        "// pass). Implements only the named behaviors and Action.*(...)",
+        "// references this site actually uses -- see",
         "// arklight.ir.schema.BEHAVIOR_REGISTRY / ACTION_REGISTRY /",
         "// MODIFIER_REGISTRY. No other JavaScript runs on this site.",
         "// Pages with state also carry a vendored snabbdom core (init + h,",
         "// no optional modules) -- see arklight/backend/js/vdom.py.",
-        "(function () {",
-        '  "use strict";',
-        "",
     ]
 
-    behaviors_block = _behaviors_block(used_behaviors)
+    if needs_htmx:
+        parts.append("")
+        parts.append(HTMX_JS)
+
+    parts.append("")
+    parts.append("(function () {")
+    parts.append('  "use strict";')
+    parts.append("")
+
     needs_notify = bool(behaviors_block) or has_state
     if needs_notify:
         parts.append(_NOTIFY_JS)
@@ -224,10 +276,9 @@ def _build_runtime_js(ir: WebsiteIR) -> str:
     parts.append(_NAV_HIGHLIGHT_JS)
     parts.append("")
 
-    ready_calls = []
-    if behaviors_block:
-        ready_calls.append("    wireBehaviors();")
-    ready_calls.append("    highlightActiveNavLink();")
+    # htmx-1: wireBehaviors() is gone -- HTMX processes hx-on:click
+    # itself, so named behaviors need no ready_calls entry any more.
+    ready_calls = ["    highlightActiveNavLink();"]
     if has_state:
         ready_calls.append("    var store = initState();")
         ready_calls.append("    if (store) { renderBindings(store); renderClassBindings(store); }")

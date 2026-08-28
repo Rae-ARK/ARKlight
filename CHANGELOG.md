@@ -5,6 +5,80 @@ follows [Keep a Changelog](https://keepachangelog.com/); versions
 follow the milestone scheme from ARCHITECTURE.md rather than strict
 SemVer.
 
+## [0.0497] -- Combined refactor, Stage 7 of 16 (HTMX integration, `htmx-1`: behaviors)
+
+Full design in `docs/Backends/HTMX-INTEGRATION.md` ("Stage 1 --
+Behaviors" / "Revised stage atomicity") and
+`docs/Backends/REFACTOR-INDEX.md` row 4. Seventh stage of the merged
+16-row staged order, and the first of the `htmx-*` rows -- the ones
+Stages 1-6 (the HTML backend module split) were sequenced ahead of
+specifically so this landed directly in the new modules instead of
+the 580-line `render.py` those stages had already split apart.
+
+This is a matched-pair change spanning the HTML and JS backends at
+once, per `HTMX-INTEGRATION.md`'s own atomicity note -- changing one
+side without the other breaks named behaviors silently, so both land
+in this single stage:
+
+- **Vendored HTMX** (`arklight/backend/js/htmx.py`, new file): the
+  real `htmx.org` npm package, version 2.0.10, Zero-Clause BSD
+  licensed, `dist/htmx.min.js` included unmodified byte-for-byte --
+  same "cite the vendored source" discipline
+  `arklight/backend/js/vdom.py` already established for snabbdom.
+  Unlike snabbdom's Stage 1 (a hand-picked "bare core" subset), HTMX
+  ships as one self-contained bundle with no smaller subset to
+  extract, so it's vendored whole.
+- **HTML backend** (`arklight/backend/html/attrs.py`): a plain string
+  `on_click` (a named behavior -- `toggle`/`scroll-to`/`copy`/
+  `dismiss`) now compiles to `hx-on:click="arkRunBehavior('<name>',
+  this)"` instead of `data-ark-on-click="<name>"`. `on_click` removed
+  from `BEHAVIOR_PROP_ATTRS` accordingly (the generic dict-based
+  dispatch it used to go through is now dead for this key --
+  special-cased ahead of it instead, same shape as the pre-existing
+  `ActionRef` special case). `behavior_target`/`toggle_class` are
+  unaffected -- still `data-ark-target`/`data-ark-toggle-class`.
+  `on_click=Action.*(...)` (`ActionRef`) is untouched; that's
+  `htmx-3` scope.
+- **JS backend** (`arklight/backend/js/render.py`): `wireBehaviors()`
+  and its `DOMContentLoaded` query/`addEventListener` wiring loop over
+  `[data-ark-on-click]` are gone -- HTMX's own `hx-on:click` attribute
+  processing does the wiring now (and, unlike the old pass, keeps
+  working on any DOM HTMX subsequently swaps in, not just once at
+  page load). `_behaviors_block` now emits only the closed
+  `arkBehaviors` dispatch object (still just the fragments a site's
+  IR actually references) plus a one-line `arkRunBehavior(name, el)`
+  lookup-and-call wrapper, both attached to `window` since HTMX
+  evaluates `hx-on:click`'s value in normal global scope, not inside
+  `arklight.js`'s own IIFE. `_build_runtime_js` ships vendored HTMX
+  whenever a page uses a named behavior or declares state (state-only
+  pages don't yet emit any `hx-*` attribute themselves, but are scoped
+  in now per `REFACTOR-INDEX.md` row 4 so `htmx-2`/`htmx-3` landing
+  later doesn't also have to touch this condition).
+
+### Changed
+
+- `arklight/backend/html/attrs.py`: string `on_click` special-cased
+  to emit `hx-on:click`; `on_click` removed from `BEHAVIOR_PROP_ATTRS`.
+- `arklight/backend/js/render.py`: `wireBehaviors()` deleted;
+  `_behaviors_block` rewritten around `arkBehaviors`/`arkRunBehavior`;
+  `_build_runtime_js` includes vendored `HTMX_JS` per `needs_htmx`.
+- `docs/Backends/HTMX-INTEGRATION.md` / `docs/Backends/REFACTOR-INDEX.md`:
+  Stage 1 / row 4 marked **Done**.
+- Six test files updated to assert on the new `hx-on:click`/
+  `arkRunBehavior` output shape instead of `data-ark-on-click`/
+  `wireBehaviors` -- `tests/test_html_attrs.py`,
+  `tests/test_html_backend.py`, `tests/test_js_backend.py`,
+  `tests/test_js_error_handling.py`, `tests/test_event_modifiers.py`.
+  Two of these also scope their pre-existing "no eval/no new Function"
+  guarantee to ARKlight's own authored code, now that pages shipping
+  vendored HTMX (a general-purpose third-party library) legitimately
+  contain those tokens internally, unrelated to that guarantee.
+
+### Added
+
+- `arklight/backend/js/htmx.py`: vendored HTMX 2.0.10 (`HTMX_JS`) plus
+  its upstream Zero-Clause BSD license text (`HTMX_LICENSE`).
+
 ## [0.0496] -- Combined refactor, Stage 6 of 16 (HTML backend refactor confirmation check, `html-6`)
 
 Full design in `docs/Backends/HTML-BACKEND-REFACTOR.md` (Stage 6) and

@@ -27,6 +27,23 @@ same generated HTML byte-for-byte as before this module existed.
 `BEHAVIOR_PROP_ATTRS`/`_style_dict_to_css`/`_attr_string` for backward
 compatibility with anything that already imported them from there,
 same as Stages 1-2.
+
+`htmx-1` (see `docs/Backends/HTMX-INTEGRATION.md` "Stage 1 --
+Behaviors" / `docs/Backends/REFACTOR-INDEX.md` row 4) landed here as
+promised above: a plain string `on_click` (a named behavior --
+`"toggle"`, `"scroll-to"`, `"copy"`, `"dismiss"`) now emits
+`hx-on:click="arkRunBehavior('<name>', this)"` instead of
+`data-ark-on-click="<name>"`, so HTMX's own attribute-processing pass
+does the wiring that `arklight/backend/js/render.py`'s now-deleted
+`wireBehaviors()` used to do by hand. `behavior_target`/`toggle_class`
+are unchanged -- they still compile to `data-ark-target`/
+`data-ark-toggle-class`, which the behavior fragments in
+`arklight/backend/js/behaviors/` read off the clicked element exactly
+as before; only *how the click gets wired* changed, not what a
+behavior does once it runs. `on_click=Action.*(...)` (an `ActionRef`)
+is untouched -- that still emits `data-ark-on-click="action:..."`,
+matched-pair with `wireActions()`/`dispatch.py`, which is `htmx-3`
+scope, not this stage's.
 """
 
 from __future__ import annotations
@@ -96,8 +113,16 @@ PROP_ALIASES = {"class_name": "class", "for_": "for", "html_for": "for"}
 # from PROP_ALIASES/the generic data-* fallback so the attribute names
 # are exact and documented in one place, matching what
 # arklight/backend/js/render.py's RUNTIME_JS expects.
+#
+# `on_click` itself is deliberately absent as of `htmx-1`: a plain
+# string `on_click` no longer maps through this generic dict at all --
+# `_attr_string` below special-cases it (same way it already
+# special-cased `on_click=Action.*(...)`/`ActionRef` before this
+# stage) so it can emit the `hx-on:click="arkRunBehavior(...)"` shape
+# HTMX needs instead of a bespoke `data-ark-on-click` attribute. The
+# two props that describe what a behavior does once wired --
+# `behavior_target`/`toggle_class` -- are unaffected and stay here.
 BEHAVIOR_PROP_ATTRS = {
-    "on_click": "data-ark-on-click",
     "behavior_target": "data-ark-target",
     "toggle_class": "data-ark-toggle-class",
 }
@@ -166,6 +191,25 @@ def _attr_string(
                 # arkApplyModifiers -- see arklight/backend/js/render.py.
                 modifiers_str = ",".join(value.modifiers)
                 parts.append(f' data-ark-modifiers="{escape(modifiers_str, quote=True)}"')
+            continue
+
+        if key == "on_click" and isinstance(value, str):
+            # htmx-1 (docs/Backends/HTMX-INTEGRATION.md "Stage 1 --
+            # Behaviors"): a named behavior wires through HTMX's
+            # `hx-on:click` instead of `data-ark-on-click` + the
+            # now-deleted `wireBehaviors()` query/listener pass.
+            # `arkRunBehavior` is exposed on `window` by
+            # `arklight/backend/js/render.py`'s `_behaviors_block` --
+            # HTMX evaluates this attribute's value as a function body
+            # with `this` bound to the element that received the
+            # event, so `this` here *is* the clicked element, the same
+            # thing `wireBehaviors()` used to pass as `el`. The
+            # behavior name is escaped, not validated here -- the
+            # Validation stage (`arklight.ir.validate`) already
+            # rejects anything not in `KNOWN_BEHAVIORS` before this
+            # code runs.
+            call = f"arkRunBehavior('{value}', this)"
+            parts.append(f' hx-on:click="{escape(call, quote=True)}"')
             continue
 
         if key == "bind_class" and isinstance(value, ClassBindSpec):

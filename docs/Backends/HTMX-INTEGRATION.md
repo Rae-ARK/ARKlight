@@ -521,7 +521,7 @@ This means the atomic unit of work is not per-file. It is per-pair.
 
 ### Revised stage atomicity
 
-**Stage 1 — Behaviors (HTML backend + JS backend + HTMX vendor, together)**
+**Stage 1 — Behaviors (HTML backend + JS backend + HTMX vendor, together) -- IMPLEMENTED** (see CHANGELOG.md `[0.0497]`; `docs/Backends/REFACTOR-INDEX.md` row 4 `htmx-1`)
 
 Three changes that must land in the same diff:
 

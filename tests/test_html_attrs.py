@@ -53,8 +53,11 @@ def test_prop_aliases_maps_class_name_and_for():
 
 
 def test_behavior_prop_attrs_maps_known_behaviors():
+    # htmx-1: `on_click` no longer lives in this dict -- see the
+    # docstring above BEHAVIOR_PROP_ATTRS in attrs.py for why (a
+    # string on_click is now special-cased to emit hx-on:click
+    # directly, ahead of this generic dict-based dispatch).
     assert BEHAVIOR_PROP_ATTRS == {
-        "on_click": "data-ark-on-click",
         "behavior_target": "data-ark-target",
         "toggle_class": "data-ark-toggle-class",
     }
