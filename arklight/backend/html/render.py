@@ -54,15 +54,45 @@ Three things beyond basic tag rendering are handled here:
    `data-ark-modifiers="prevent,debounce:300"` attribute** alongside
    the `data-ark-on-click` hooks above -- comma-joined tokens, omitted
    entirely for an `ActionRef` with no modifiers attached.
+
+## HTML Backend refactor -- module map
+
+This file used to hold all five of the HTML backend's unrelated jobs
+in one ~580-line module; `docs/Backends/HTML-BACKEND-REFACTOR.md`
+splits them across sibling modules, staged one concern per commit:
+
+- **Stage 1** -- `tag_map.py`: IR-node-type -> HTML-tag-name mapping
+  (`TAG_MAP`, `VOID_TAGS`, `_tag_for`).
+- **Stage 2** -- `routing.py`: route/asset-path resolution
+  (`ROUTE_AWARE_ATTRS`, `_output_path_for_route`,
+  `_is_internal_route_ref`, `_resolve_route_ref`, `_resolve_src_ref`,
+  `_resolve_srcset_ref`, `_relative_asset_path`), including the
+  `UNROUTED_REFERENCE_ATTRS` reachability fix.
+- **Stage 3** -- `attrs.py`: attribute rendering (`PASSTHROUGH_ATTRS`,
+  `PROP_ALIASES`, `BEHAVIOR_PROP_ATTRS`, `_style_dict_to_css`,
+  `_attr_string`).
+- **Stage 4** -- `head_meta.py`: per-page `<head>` metadata assembly
+  (`_render_head_meta`).
+- **Stage 5** -- `page_render.py`: per-page composition
+  (`_render_bind`, `_render_children`, `_render_node`, `_render_page`).
+
+With Stage 5 done, this file holds only `HTMLBackend`, whose
+`render()` is a short composition of the sibling modules above --
+the target shape's stated end state. Every name from Stages 1-5 is
+still re-exported here (`from arklight.backend.html.render import ...`
+keeps working for anything that imported them from their old
+location), so this docstring is the map for "where does X actually
+live now," not a list of what's still defined in this file.
+
+**Stage 6** (confirming whether `README.md`'s "Compiler pipeline" HTML
+Backend line still describes only external behavior) is a check
+against the finished state of this split, not a code change, and is
+not yet done.
 """
 
 from __future__ import annotations
 
-import json
-from html import escape
-
 from arklight.backend.base import Backend
-from arklight.backend.css.render import STYLESHEET_PATH
 from arklight.backend.html.attrs import (
     BEHAVIOR_PROP_ATTRS,
     PASSTHROUGH_ATTRS,
@@ -71,6 +101,12 @@ from arklight.backend.html.attrs import (
     _style_dict_to_css,
 )
 from arklight.backend.html.head_meta import _render_head_meta
+from arklight.backend.html.page_render import (
+    _render_bind,
+    _render_children,
+    _render_node,
+    _render_page,
+)
 from arklight.backend.html.routing import (
     ASSET_OR_ROUTE_AWARE_ATTRS,
     ROUTE_AWARE_ATTRS,
@@ -84,142 +120,16 @@ from arklight.backend.html.routing import (
     _resolve_srcset_ref,
 )
 from arklight.backend.html.tag_map import TAG_MAP, VOID_TAGS, _tag_for
-from arklight.backend.js.render import SCRIPT_PATH
-from arklight.ir.build import IRNode, IRPage, WebsiteIR
+from arklight.ir.build import WebsiteIR
 
-# HTML Backend refactor, Stage 1 (see
-# docs/Backends/HTML-BACKEND-REFACTOR.md): TAG_MAP/VOID_TAGS/_tag_for
-# moved to tag_map.py -- imported above, re-exported here (`TAG_MAP`,
-# `VOID_TAGS`, `_tag_for` are still valid `from
-# arklight.backend.html.render import ...` names) so nothing importing
-# them from their old location breaks. Zero behavior change.
-
-# HTML Backend refactor, Stage 2 (see
-# docs/Backends/HTML-BACKEND-REFACTOR.md / docs/Backends/REFACTOR-INDEX.md
-# row 1, `html-2`): route/asset-path resolution moved to routing.py --
-# imported above, re-exported here for the same backward-compatibility
-# reason Stage 1 re-exports TAG_MAP/VOID_TAGS/_tag_for. This stage is
-# NOT behavior-preserving in one respect, by design: it also lands the
-# `UNROUTED_REFERENCE_ATTRS` fix (`srcset`/`poster`/`action`/
-# `formaction` now route/asset-rewritten instead of only warned about)
-# -- see routing.py's module docstring for the full reasoning per
-# attribute. `UNROUTED_REFERENCE_ATTRS` and `_warn_unrouted_reference`
-# are removed, not re-exported: once every attribute they covered is
-# correctly resolved, nothing calls them and there is nothing left to
-# warn about.
-
-# HTML Backend refactor, Stage 3 (see
-# docs/Backends/HTML-BACKEND-REFACTOR.md / docs/Backends/REFACTOR-INDEX.md
-# row 3, `html-3`): PASSTHROUGH_ATTRS/PROP_ALIASES/BEHAVIOR_PROP_ATTRS/
-# _style_dict_to_css/_attr_string moved to attrs.py -- imported above,
-# re-exported here for the same backward-compatibility reason Stages
-# 1-2 re-export their own moved names. Zero behavior change: same
-# attribute names, same resolution order, same generated HTML
-# byte-for-byte as before this stage.
-
-# Tags that never have a closing tag / children.
-# (VOID_TAGS itself now lives in tag_map.py -- see the Stage 1 note
-# above; ROUTE_AWARE_ATTRS/ASSET_OR_ROUTE_AWARE_ATTRS/SRC_ATTRS/
-# SRCSET_ATTRS now live in routing.py -- see the Stage 2 note above;
-# PASSTHROUGH_ATTRS/PROP_ALIASES/BEHAVIOR_PROP_ATTRS/_style_dict_to_css/
-# _attr_string now live in attrs.py -- see the Stage 3 note above; all
-# three are imported at the top of this file.)
-
-
-def _render_bind(node: IRNode, *, page_state: dict) -> str:
-    """
-    v0.0035: `Bind("count")` renders as a `<span data-ark-bind="count">`
-    pre-filled with the page's current (build-time) state value, so the
-    page is fully readable with JS disabled -- the shipped reactive
-    core just keeps this element's text in sync with client-side state
-    changes after that.
-    """
-    name = node.props.get("name")
-    value = page_state.get(name, "")
-    return f'<span data-ark-bind="{escape(str(name), quote=True)}">{escape(str(value))}</span>'
-
-
-def _render_children(
-    children: list, *, current_route: str, route_to_path: dict[str, str], page_state: dict
-) -> str:
-    rendered = []
-    for child in children:
-        if isinstance(child, IRNode):
-            rendered.append(
-                _render_node(
-                    child, current_route=current_route, route_to_path=route_to_path, page_state=page_state
-                )
-            )
-        else:
-            rendered.append(escape(str(child)))
-    return "".join(rendered)
-
-
-def _render_node(node: IRNode, *, current_route: str, route_to_path: dict[str, str], page_state: dict) -> str:
-    if node.type == "Bind":
-        return _render_bind(node, page_state=page_state)
-
-    tag = _tag_for(node)
-    attrs = _attr_string(
-        node.props,
-        current_route=current_route,
-        route_to_path=route_to_path,
-        page_state=page_state,
-        node_type=node.type,
-    )
-
-    if tag in VOID_TAGS:
-        return f"<{tag}{attrs} />"
-
-    inner = _render_children(
-        node.children, current_route=current_route, route_to_path=route_to_path, page_state=page_state
-    )
-    return f"<{tag}{attrs}>{inner}</{tag}>"
-
-
-# HTML Backend refactor, Stage 4 (see
-# docs/Backends/HTML-BACKEND-REFACTOR.md / docs/Backends/REFACTOR-INDEX.md
-# row 7, `html-4`): `_render_head_meta` moved to head_meta.py -- imported
-# above, re-exported here for the same backward-compatibility reason
-# Stages 1-3 re-export their own moved names. Zero behavior change:
-# same optional-prop reading, same tag order, same generated `<head>`
-# HTML byte-for-byte as before this stage.
-
-
-def _render_page(
-    page: IRPage, site_name: str, route_to_path: dict[str, str], *, site_lang: str
-) -> str:
-    title = page.root.props.get("title", site_name)
-    lang = page.root.props.get("lang", site_lang)
-    body_inner = _render_children(
-        page.root.children, current_route=page.route, route_to_path=route_to_path, page_state=page.state
-    )
-    stylesheet_href = _relative_asset_path(
-        STYLESHEET_PATH, current_route=page.route, route_to_path=route_to_path
-    )
-    script_src = _relative_asset_path(SCRIPT_PATH, current_route=page.route, route_to_path=route_to_path)
-    head_meta = _render_head_meta(page, title, current_route=page.route, route_to_path=route_to_path)
-    # v0.0035: pages that declare State(...) hydrate the client-side
-    # store from here -- a JSON blob of the same initial values the
-    # page was rendered with, so client and server never disagree.
-    body_attrs = ""
-    if page.state:
-        body_attrs = f' data-ark-state="{escape(json.dumps(page.state), quote=True)}"'
-    return (
-        "<!DOCTYPE html>\n"
-        f'<html lang="{escape(str(lang), quote=True)}">\n'
-        "<head>\n"
-        '  <meta charset="utf-8">\n'
-        '  <meta name="viewport" content="width=device-width, initial-scale=1">\n'
-        f"  <title>{escape(str(title))}</title>\n"
-        f'  <link rel="stylesheet" href="{escape(stylesheet_href, quote=True)}">\n'
-        f"{head_meta}"
-        "</head>\n"
-        f"<body{body_attrs}>\n{body_inner}\n"
-        f'<script src="{escape(script_src, quote=True)}" defer></script>\n'
-        "</body>\n"
-        "</html>\n"
-    )
+# All of the re-exported names above (Stages 1-5) exist purely for
+# backward compatibility with anything already doing
+# `from arklight.backend.html.render import <name>` -- see the module
+# docstring's "module map" section for where each one is actually
+# defined and maintained now. Zero behavior change from any stage:
+# same tag names, same route/asset resolution, same attribute
+# strings, same <head> tags, same per-page composition, same
+# generated HTML byte-for-byte as before this split started.
 
 
 class HTMLBackend(Backend):

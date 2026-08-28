@@ -5,6 +5,61 @@ follows [Keep a Changelog](https://keepachangelog.com/); versions
 follow the milestone scheme from ARCHITECTURE.md rather than strict
 SemVer.
 
+## [0.0495] -- Combined refactor, Stage 5 of 16 (HTML backend page_render.py split, `html-5`)
+
+Full design in `docs/Backends/HTML-BACKEND-REFACTOR.md` (Stage 5) and
+`docs/Backends/REFACTOR-INDEX.md` row 8. Fifth stage of the merged
+16-row staged order, and the last of the HTML-side module
+extractions: splits `arklight/backend/html/render.py`'s per-page
+composition -- `_render_bind`, `_render_children`, `_render_node`,
+`_render_page` -- into a new `arklight/backend/html/page_render.py`,
+mirroring the `tag_map.py`/`routing.py`/`attrs.py`/`head_meta.py`
+per-concern split Stages 1-4 already established. With this stage
+done, `render.py` holds only `HTMLBackend`, whose `render()` is a
+short composition of the five sibling modules -- the target shape's
+stated end state. Pure refactor -- no generated HTML output changes;
+`render.py` now imports the moved functions from
+`arklight.backend.html.page_render` instead of defining them inline,
+and re-exports them for backward compatibility, same as Stages 1-4.
+Sequenced ahead of the not-yet-started `htmx-4` (app-shell navigation)
+deliberately, per `REFACTOR-INDEX.md` row 8: `_render_page` is exactly
+where that stage's shell-persistent-region audit has to look, so this
+extraction lands first -- the same reasoning `html-3` already applied
+ahead of `htmx-1`.
+
+### Added
+
+- New `arklight/backend/html/page_render.py`: `_render_bind`,
+  `_render_children`, `_render_node`, `_render_page` -- moved
+  verbatim from `render.py`. Imports tag selection from `tag_map.py`
+  (Stage 1), route/asset-path resolution from `routing.py` (Stage 2),
+  attribute rendering from `attrs.py` (Stage 3), and `<head>`
+  metadata assembly from `head_meta.py` (Stage 4) -- the same call
+  graph `render.py` had before this split, just addressed through
+  the sibling modules directly instead of re-exported names.
+- New `tests/test_html_page_render.py` -- 17 tests: `_render_bind`
+  (value rendering, missing-key default, escaping), `_render_node`/
+  `_render_children` (simple containers, void tags, `Bind` dispatch,
+  text/nested-node flattening, escaping, route-relative link
+  resolution through recursion), and `_render_page` (full document
+  shell, title/lang fallback and override, state hydration presence/
+  absence, nested-route asset-path resolution, head-meta inclusion).
+  761 tests total.
+
+### Changed
+
+- `arklight/backend/html/render.py`: rewritten to hold only
+  `HTMLBackend` plus the Stages 1-5 backward-compatibility re-exports;
+  every per-node/per-page rendering function now lives in
+  `page_render.py`. Module docstring rewritten with a "module map"
+  section pointing at where each Stage 1-5 concern actually lives, so
+  "what does the HTML backend do" is answerable without a 580-line
+  scroll -- the same goal the original design doc's "Cheap to read"
+  bullet named for the finished split.
+- `docs/Backends/HTML-BACKEND-REFACTOR.md`: Stage 5 checkbox and
+  Status line marked **Done**.
+- `docs/Backends/REFACTOR-INDEX.md`: row 8 (`html-5`) marked **Done**.
+
 ## [0.0494] -- Combined refactor, Stage 4 of 16 (HTML backend head_meta.py split, `html-4`)
 
 Full design in `docs/Backends/HTML-BACKEND-REFACTOR.md` (Stage 4) and

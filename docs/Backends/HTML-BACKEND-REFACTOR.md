@@ -191,10 +191,18 @@ that cover them rather than leave them "unchanged."
   `page_render.py` (Stage 5). `tests/test_html_head_meta.py` adds
   independent unit coverage (Stages 1-3's pattern); `tests/
   test_html_backend.py`'s existing suite passes unchanged.
-- [ ] **Stage 5** -- Extract `_render_bind`/`_render_children`/
+- [x] **Stage 5** -- Extract `_render_bind`/`_render_children`/
   `_render_node`/`_render_page` into `page_render.py`. `render.py`
   left holding only `HTMLBackend`, whose `render()` becomes a short
-  composition of the sibling modules.
+  composition of the sibling modules. DONE -- `render.py` re-exports
+  `_render_bind`/`_render_children`/`_render_node`/`_render_page` for
+  backward compatibility, same as Stages 1-4. Pure move, zero behavior
+  change: `page_render.py` imports tag/attribute/head-meta/route
+  resolution from `tag_map.py`/`attrs.py`/`head_meta.py`/`routing.py`
+  the same way `render.py` did before the split.
+  `tests/test_html_page_render.py` adds independent unit coverage
+  (Stages 1-4's pattern); `tests/test_html_backend.py`'s existing
+  suite passes unchanged.
 - [ ] **Stage 6** -- Confirm (don't assume) whether `README.md`'s
   "Compiler pipeline" HTML Backend line still describes only external
   behavior -- it does today, so this is likely a no-op, same as the
@@ -206,7 +214,8 @@ that cover them rather than leave them "unchanged."
 IMPLEMENTED** (`routing.py`, including the `UNROUTED_REFERENCE_ATTRS`
 fix; see CHANGELOG.md). **Stage 3 IMPLEMENTED** (`attrs.py`; see
 CHANGELOG.md). **Stage 4 IMPLEMENTED** (`head_meta.py`; see
-CHANGELOG.md). Stages 5-6 not started. `docs/CONFIGURABILITY.md`
-and this design doc exist so that when the rest of this work starts,
-the module boundaries are decided in advance rather than worked out
-mid-refactor.
+CHANGELOG.md). **Stage 5 IMPLEMENTED** (`page_render.py`; see
+CHANGELOG.md) -- `render.py` now holds only `HTMLBackend`. Stage 6 not
+started. `docs/CONFIGURABILITY.md` and this design doc exist so that
+when the rest of this work starts, the module boundaries are decided
+in advance rather than worked out mid-refactor.
