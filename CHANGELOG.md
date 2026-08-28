@@ -5,6 +5,46 @@ follows [Keep a Changelog](https://keepachangelog.com/); versions
 follow the milestone scheme from ARCHITECTURE.md rather than strict
 SemVer.
 
+## [0.0496] -- Combined refactor, Stage 6 of 16 (HTML backend refactor confirmation check, `html-6`)
+
+Full design in `docs/Backends/HTML-BACKEND-REFACTOR.md` (Stage 6) and
+`docs/Backends/REFACTOR-INDEX.md` row 11. Sixth stage of the merged
+16-row staged order, and the last of the six HTML-side staging items
+-- a confirmation check against the *finished* state of the HTML
+backend split (Stages 1-5, all now done), not a code change: does
+`README.md`'s "Compiler pipeline" HTML Backend bullet still describe
+only external behavior, now that Stages 1-5 have moved every function
+it could plausibly reference out of `render.py` and into
+`tag_map.py`/`routing.py`/`attrs.py`/`head_meta.py`/`page_render.py`?
+
+Confirmed, as the design doc predicted: no code or doc change needed.
+`README.md`'s bullet describes what the backend does from the outside
+-- maps IR node types to HTML tags, rewrites internal `Link`/`Image`
+references to relative file paths, links the generated stylesheet and
+behavior runtime -- none of which changed across Stages 1-5; only
+*where* that logic lives internally changed. The bullet names
+`arklight/backend/html/render.py` as the pipeline stage (not a
+specific function inside it), and that's still exactly where
+`HTMLBackend.render()` lives after the split, so the reference stays
+accurate. `docs/ARCHITECTURE.md`'s pipeline diagram was checked for
+the same reason (it names "HTML Backend" as a stage with no function-
+level detail at all) and is unaffected for the same reason.
+
+With this stage done, every row `HTML-BACKEND-REFACTOR.md` originally
+staged (1-6) is complete; `docs/Backends/REFACTOR-INDEX.md`'s merged
+order moves on to the not-yet-started `htmx-*`/`vdom-*` rows (12-16 in
+that table), none of which are part of this document's own scope.
+
+### Changed
+
+- `docs/Backends/HTML-BACKEND-REFACTOR.md`: Stage 6 checkbox marked
+  **Done** with the confirmation writeup above; Status line updated to
+  reflect all six stages implemented.
+- `docs/Backends/REFACTOR-INDEX.md`: row 11 (`html-6`) marked **Done**.
+
+No source or test files touched -- this stage is a documentation
+confirmation, not an extraction. 761 tests, unchanged from Stage 5.
+
 ## [0.0495] -- Combined refactor, Stage 5 of 16 (HTML backend page_render.py split, `html-5`)
 
 Full design in `docs/Backends/HTML-BACKEND-REFACTOR.md` (Stage 5) and

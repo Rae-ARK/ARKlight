@@ -203,10 +203,23 @@ that cover them rather than leave them "unchanged."
   `tests/test_html_page_render.py` adds independent unit coverage
   (Stages 1-4's pattern); `tests/test_html_backend.py`'s existing
   suite passes unchanged.
-- [ ] **Stage 6** -- Confirm (don't assume) whether `README.md`'s
+- [x] **Stage 6** -- Confirm (don't assume) whether `README.md`'s
   "Compiler pipeline" HTML Backend line still describes only external
   behavior -- it does today, so this is likely a no-op, same as the
-  CSS refactor's equivalent check.
+  CSS refactor's equivalent check. DONE, confirmed as predicted: no
+  code or doc change needed. `README.md`'s HTML Backend bullet (under
+  "Compiler pipeline") describes what the backend does from the
+  outside -- maps IR node types to HTML tags, rewrites internal
+  `Link`/`Image` references to relative file paths, links the
+  generated stylesheet and behavior runtime -- none of which changed
+  across Stages 1-5; only *where* that logic lives internally changed
+  (`tag_map.py`/`routing.py`/`attrs.py`/`head_meta.py`/
+  `page_render.py`), which the README line was never coupled to in
+  the first place (it names `arklight/backend/html/render.py` as the
+  stage, not a specific function inside it, and that's still exactly
+  where `HTMLBackend.render()` lives). `docs/ARCHITECTURE.md`'s
+  pipeline diagram was checked too, for the same reason -- also
+  external-behavior-only, also unaffected.
 
 ## Status
 
@@ -215,7 +228,9 @@ IMPLEMENTED** (`routing.py`, including the `UNROUTED_REFERENCE_ATTRS`
 fix; see CHANGELOG.md). **Stage 3 IMPLEMENTED** (`attrs.py`; see
 CHANGELOG.md). **Stage 4 IMPLEMENTED** (`head_meta.py`; see
 CHANGELOG.md). **Stage 5 IMPLEMENTED** (`page_render.py`; see
-CHANGELOG.md) -- `render.py` now holds only `HTMLBackend`. Stage 6 not
-started. `docs/CONFIGURABILITY.md` and this design doc exist so that
-when the rest of this work starts, the module boundaries are decided
-in advance rather than worked out mid-refactor.
+CHANGELOG.md) -- `render.py` now holds only `HTMLBackend`. **Stage 6
+IMPLEMENTED** (confirmation only, no code change; see CHANGELOG.md).
+All six staged extractions in this document are now complete.
+`docs/CONFIGURABILITY.md` and this design doc exist so that when the
+rest of this work started, the module boundaries were decided in
+advance rather than worked out mid-refactor.
