@@ -183,7 +183,14 @@ that cover them rather than leave them "unchanged."
   split. `tests/test_html_attrs.py` adds independent unit coverage
   (Stage 1/2's pattern); `tests/test_html_backend.py`'s existing suite
   passes unchanged.
-- [ ] **Stage 4** -- Extract `_render_head_meta` into `head_meta.py`.
+- [x] **Stage 4** -- Extract `_render_head_meta` into `head_meta.py`.
+  DONE -- `render.py` re-exports `_render_head_meta` for backward
+  compatibility, same as Stages 1-3. Pure move, zero behavior change:
+  `head_meta.py` depends only on `routing.py`'s `_relative_asset_path`
+  (Stage 2), nothing from `attrs.py` (Stage 3) or the not-yet-split
+  `page_render.py` (Stage 5). `tests/test_html_head_meta.py` adds
+  independent unit coverage (Stages 1-3's pattern); `tests/
+  test_html_backend.py`'s existing suite passes unchanged.
 - [ ] **Stage 5** -- Extract `_render_bind`/`_render_children`/
   `_render_node`/`_render_page` into `page_render.py`. `render.py`
   left holding only `HTMLBackend`, whose `render()` becomes a short
@@ -198,7 +205,8 @@ that cover them rather than leave them "unchanged."
 **Stage 1 IMPLEMENTED** (`tag_map.py`; see CHANGELOG.md). **Stage 2
 IMPLEMENTED** (`routing.py`, including the `UNROUTED_REFERENCE_ATTRS`
 fix; see CHANGELOG.md). **Stage 3 IMPLEMENTED** (`attrs.py`; see
-CHANGELOG.md). Stages 4-6 not started. `docs/CONFIGURABILITY.md`
+CHANGELOG.md). **Stage 4 IMPLEMENTED** (`head_meta.py`; see
+CHANGELOG.md). Stages 5-6 not started. `docs/CONFIGURABILITY.md`
 and this design doc exist so that when the rest of this work starts,
 the module boundaries are decided in advance rather than worked out
 mid-refactor.

@@ -5,6 +5,52 @@ follows [Keep a Changelog](https://keepachangelog.com/); versions
 follow the milestone scheme from ARCHITECTURE.md rather than strict
 SemVer.
 
+## [0.0494] -- Combined refactor, Stage 4 of 16 (HTML backend head_meta.py split, `html-4`)
+
+Full design in `docs/Backends/HTML-BACKEND-REFACTOR.md` (Stage 4) and
+`docs/Backends/REFACTOR-INDEX.md` row 7. Fourth stage of the merged
+16-row staged order, and the fourth HTML-side extraction: splits
+`arklight/backend/html/render.py`'s per-page `<head>` metadata
+assembly -- `_render_head_meta` -- into a new
+`arklight/backend/html/head_meta.py`, mirroring the `tag_map.py`/
+`routing.py`/`attrs.py` per-concern split Stages 1-3 already
+established. Pure refactor -- no generated HTML output changes;
+`render.py` now imports `_render_head_meta` from
+`arklight.backend.html.head_meta` instead of defining it inline, and
+re-exports it for backward compatibility, same as Stages 1-3.
+Independent of the not-yet-started `htmx-*` track per
+`REFACTOR-INDEX.md` row 7's own note -- no shared surface with
+behavior/modifier/action attribute emission, so this stage didn't need
+to wait on or block anything in that track.
+
+### Added
+
+- New `arklight/backend/html/head_meta.py`: `_render_head_meta` --
+  moved verbatim from `render.py`. Depends on `routing.py` (Stage 2)
+  for `_relative_asset_path` (resolves `favicon`/`og_image` the same
+  way `page_render.py` resolves the stylesheet/script paths); depends
+  on nothing from `attrs.py` (Stage 3) or the not-yet-split
+  `page_render.py` (Stage 5).
+- New `tests/test_html_head_meta.py` -- 11 tests: the no-optional-
+  props empty-string case, `description`/`favicon` rendering,
+  Open-Graph opt-in behavior (no og_* prop supplied vs. `description`
+  alone vs. an explicit `og_title` override), `og_image` asset-path
+  resolution, `meta`/`links` dict/list rendering (ordering, multiple
+  entries, `links`' verbatim-not-asset-resolved handling), and HTML
+  escaping. 744 tests total.
+
+### Changed
+
+- `arklight/backend/html/render.py`: `_render_head_meta` is now
+  imported from `arklight.backend.html.head_meta` instead of defined
+  inline. Every other function in the file (`_render_bind`,
+  `_render_children`, `_render_node`, `_render_page`, `HTMLBackend`) is
+  unchanged; the `IRPage` import stays, still used by `_render_page`'s
+  own signature.
+- `docs/Backends/HTML-BACKEND-REFACTOR.md`: Stage 4 checkbox and
+  Status line marked **Done**.
+- `docs/Backends/REFACTOR-INDEX.md`: row 7 (`html-4`) marked **Done**.
+
 ## [0.0493] -- Combined refactor, Stage 3 of 16 (HTML backend attrs.py split, `html-3`)
 
 Full design in `docs/Backends/HTML-BACKEND-REFACTOR.md` (Stage 3) and
