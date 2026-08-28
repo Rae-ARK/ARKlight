@@ -5,6 +5,57 @@ follows [Keep a Changelog](https://keepachangelog.com/); versions
 follow the milestone scheme from ARCHITECTURE.md rather than strict
 SemVer.
 
+## [0.0493] -- Combined refactor, Stage 3 of 16 (HTML backend attrs.py split, `html-3`)
+
+Full design in `docs/Backends/HTML-BACKEND-REFACTOR.md` (Stage 3) and
+`docs/Backends/REFACTOR-INDEX.md` row 3. Third stage of the merged
+16-row staged order, and the third HTML-side extraction: splits
+`arklight/backend/html/render.py`'s attribute-rendering concern --
+`PASSTHROUGH_ATTRS`, `PROP_ALIASES`, `BEHAVIOR_PROP_ATTRS`,
+`_style_dict_to_css`, `_attr_string` -- into a new
+`arklight/backend/html/attrs.py`, mirroring the `tag_map.py`/
+`routing.py` per-concern split Stages 1-2 already established. Pure
+refactor -- no generated HTML output changes; `render.py` now imports
+the moved names from `arklight.backend.html.attrs` instead of defining
+them inline, and re-exports them for backward compatibility, same as
+Stages 1-2. Sequenced ahead of the not-yet-started `htmx-1` stage
+deliberately, per `REFACTOR-INDEX.md`'s "Why the HTML split and the
+HTMX attribute changes collide": landing the HTMX attribute-emission
+rewrite directly in `attrs.py` once that stage starts, rather than in
+`render.py` a few commits before being moved out from under it.
+
+### Added
+
+- New `arklight/backend/html/attrs.py`: `PASSTHROUGH_ATTRS`,
+  `PROP_ALIASES`, `BEHAVIOR_PROP_ATTRS`, `_style_dict_to_css`,
+  `_attr_string` -- moved verbatim from `render.py`. Depends on
+  `routing.py` (Stage 2) for the route/asset-path resolution
+  `_attr_string` delegates to; depends on nothing from `head_meta.py`
+  or `page_render.py` (Stages 4-5, not yet split out).
+- New `tests/test_html_attrs.py` -- 24 tests: the moved data
+  tables' exact contents, `_style_dict_to_css` conversion/joining/
+  filtering, and `_attr_string` across passthrough attrs, aliases,
+  inline styles, unknown-prop `data-*` fallback, `aria_*` mapping,
+  boolean attrs, route-aware `href` rewriting, `ActionRef`/
+  `ClassBindSpec` attribute emission (including modifiers and
+  state-driven class pre-fill). 733 tests total.
+
+### Changed
+
+- `arklight/backend/html/render.py`: `PASSTHROUGH_ATTRS`/
+  `PROP_ALIASES`/`BEHAVIOR_PROP_ATTRS`/`_style_dict_to_css`/
+  `_attr_string` are now imported from `arklight.backend.html.attrs`
+  instead of defined inline. The now-unused `ActionRef`/
+  `ClassBindSpec` import was dropped from `render.py` (both are only
+  referenced from `attrs.py` now); `json`/`html.escape` imports stay,
+  still used by `_render_bind`/`_render_head_meta`/`_render_page`.
+  Every other function in the file (`_render_bind`, `_render_children`,
+  `_render_node`, `_render_head_meta`, `_render_page`, `HTMLBackend`)
+  is unchanged.
+- `docs/Backends/HTML-BACKEND-REFACTOR.md`: Stage 3 checkbox and
+  Status line marked **Done**.
+- `docs/Backends/REFACTOR-INDEX.md`: row 3 (`html-3`) marked **Done**.
+
 ## [0.0492] -- Combined refactor, Stage 2 of 16 (JS runtime module split, `refactor-0`)
 
 Full design in `docs/Backends/JS-BACKEND-REFACTOR-PLAN.md` (`refactor-0`

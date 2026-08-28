@@ -174,9 +174,15 @@ that cover them rather than leave them "unchanged."
   (`tag_map.py`'s Stage 1 pattern); `tests/test_html_backend.py`'s
   existing suite passes unchanged except for the four newly-rewritten
   attributes' tests, extended per this doc's own exception above.
-- [ ] **Stage 3** -- Extract `PASSTHROUGH_ATTRS`/`PROP_ALIASES`/
+- [x] **Stage 3** -- Extract `PASSTHROUGH_ATTRS`/`PROP_ALIASES`/
   `BEHAVIOR_PROP_ATTRS`/`_style_dict_to_css`/`_attr_string` into
-  `attrs.py`.
+  `attrs.py`. DONE -- `render.py` re-exports the moved names for
+  backward compatibility, same as Stages 1-2. Pure move, zero behavior
+  change: `attrs.py` imports its route/asset resolution from
+  `routing.py` (Stage 2) the same way `render.py` did before the
+  split. `tests/test_html_attrs.py` adds independent unit coverage
+  (Stage 1/2's pattern); `tests/test_html_backend.py`'s existing suite
+  passes unchanged.
 - [ ] **Stage 4** -- Extract `_render_head_meta` into `head_meta.py`.
 - [ ] **Stage 5** -- Extract `_render_bind`/`_render_children`/
   `_render_node`/`_render_page` into `page_render.py`. `render.py`
@@ -191,7 +197,8 @@ that cover them rather than leave them "unchanged."
 
 **Stage 1 IMPLEMENTED** (`tag_map.py`; see CHANGELOG.md). **Stage 2
 IMPLEMENTED** (`routing.py`, including the `UNROUTED_REFERENCE_ATTRS`
-fix; see CHANGELOG.md). Stages 3-6 not started. `docs/CONFIGURABILITY.md`
+fix; see CHANGELOG.md). **Stage 3 IMPLEMENTED** (`attrs.py`; see
+CHANGELOG.md). Stages 4-6 not started. `docs/CONFIGURABILITY.md`
 and this design doc exist so that when the rest of this work starts,
 the module boundaries are decided in advance rather than worked out
 mid-refactor.
