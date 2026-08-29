@@ -31,7 +31,6 @@ table, see [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md).
 | v0.060   | User-defined, reusable components -- renumbered from v0.100     | PLANNED |
 | v0.080   | Desktop backend (`arklight desktop` packaging) -- renumbered from v0.060 | PLANNED |
 | v0.100   | Android backend (`arklight android` -- `androidx.webkit.WebViewAssetLoader` packaging) -- renumbered from v0.080 | PLANNED |
-| v0.120   | KaiOS backend (`arklight kaios` -- packaged-app/`manifest.webapp` zip); design complete in `docs/Backends/KAIOS-BACKEND-IMPLEMENTATION.md`, no native toolchain dependency, implementation not started -- previously unnumbered | PLANNED |
 | v1.0     | Stable compiler                                              | PLANNED |
 
 ### Planned, not yet scheduled to a version
@@ -59,7 +58,24 @@ go-ahead before implementation starts on any of these:
   `app_shell=True` navigation stage the packaging backends
   (Android/KaiOS/Desktop) all implicitly need, and names -- without
   scoping -- a later, explicitly opt-in server-backed state-streaming
-  milestone informed by an external reference prototype.
+  milestone informed by an external reference prototype. 10 of 16
+  merged stages done as of this session (see
+  `docs/Backends/REFACTOR-INDEX.md`'s table for the full, current
+  per-row status) -- most recently `htmx-4` (app-shell navigation:
+  `Site(app_shell=True)`, `hx-boost`, `shell_persistent=True` ->
+  `hx-preserve`).
+- **KaiOS backend.** Design complete --
+  `docs/Far Future Concern/KAIOS-BACKEND-IMPLEMENTATION.md` (plus the
+  constraint-gathering doc in the same directory,
+  `kaios-app-design-doc.md`) -- but pulled back out of the numbered
+  roadmap (it briefly held `v0.120`, assigned in the same reshuffle
+  that produced `v0.060`/`v0.080`/`v0.100` above -- see
+  `docs/ARCHITECTURE.md`'s "Renumbered" note for that history, and the
+  amendment immediately below it for this reversal). No committed
+  version number or scheduled slot -- the same "Far Future Concern"
+  tier `docs/Far Future Concern/WINDOWS-PHONE-BACKEND.md`'s Windows
+  Phone/UWP backend already sits at: a written, plausible design with
+  no roadmap commitment behind it.
 
 ## v0.048 -- Stage B: `responsive_style` + `@media` compilation (DONE)
 

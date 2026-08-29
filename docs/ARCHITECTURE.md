@@ -152,7 +152,6 @@ here rather than keeping their own copies. Status: DONE / PLANNED.
 | v0.060 | User-defined, reusable components | PLANNED |
 | v0.080 | Desktop backend -- `arklight desktop` packages a `build-dir` into a cross-platform desktop app (Tauri-based or similar); design pending | PLANNED |
 | v0.100 | Android backend -- `arklight android` packages a `build-dir` into a native Android project via `androidx.webkit.WebViewAssetLoader` (staged `scaffold` -> `build` -> `--install` -> `--release` CLI ladder); design complete in `docs/DESIGN-NOTES.md`, implementation not started | PLANNED |
-| v0.120 | KaiOS backend -- `arklight kaios` packages a `build-dir` into a KaiOS packaged app (`manifest.webapp` + zip, no native toolchain dependency); design complete in `docs/Backends/KAIOS-BACKEND-IMPLEMENTATION.md`, implementation not started | PLANNED |
 | v1.0 | Stable compiler | PLANNED |
 
 **Renumbered.** v0.048 (CSS `@media` + `<head>` extension) is now
@@ -160,18 +159,38 @@ DONE -- both Stage A (`meta`/`links` on `Page(...)`) and Stage B
 (`responsive_style` + `@media` compilation) have landed; see
 `docs/DESIGN-NOTES.md` for both designs and `PROGRESS.md` for the
 implementation record of each stage. With v0.048 out of the way, the
-milestones behind it were renumbered to close the gap and make room
-for a dedicated KaiOS slot: JS backend capability expansion moved
-`v0.044` -> `v0.054`; user-defined components moved `v0.100` ->
-`v0.060`; the Desktop backend moved `v0.060` -> `v0.080`; the Android
-backend moved `v0.080` -> `v0.100`; and the KaiOS backend -- previously
-designed but unnumbered -- was given `v0.120`. None of this reordering
-changes scope or design, only sequencing: v0.054 (JS backend
-expansion) is queued next; v0.060 (user-defined components), v0.080
-(Desktop), v0.100 (Android), and v0.120 (KaiOS) are designed (Desktop
-excepted -- design pending) but implementation is deferred. Alternate
-backends (Vue, Svelte) remain moved to unscheduled future work,
-pending further development of the IR and state/event semantics.
+milestones behind it were renumbered to close the gap and, at the
+time, make room for a dedicated KaiOS slot: JS backend capability
+expansion moved `v0.044` -> `v0.054`; user-defined components moved
+`v0.100` -> `v0.060`; the Desktop backend moved `v0.060` -> `v0.080`;
+the Android backend moved `v0.080` -> `v0.100`; and the KaiOS
+backend -- previously designed but unnumbered -- was given `v0.120`.
+None of this reordering changed scope or design, only sequencing:
+v0.054 (JS backend expansion) is queued next; v0.060 (user-defined
+components), v0.080 (Desktop), and v0.100 (Android) are designed
+(Desktop excepted -- design pending) but implementation is deferred.
+Alternate backends (Vue, Svelte) remain moved to unscheduled future
+work, pending further development of the IR and state/event
+semantics.
+
+**Un-scheduled (amendment): KaiOS.** `v0.120` above was retired, not
+reassigned -- KaiOS is pulled back out of the numbered roadmap
+entirely and moved to unscheduled future work, the same tier Vue and
+Svelte already sit at. This mirrors, deliberately, how a
+hypothetical dedicated Windows-specific backend would be treated: the
+project has no committed milestone for one, only a written, plausible
+design sitting in `docs/Far Future Concern/WINDOWS-PHONE-BACKEND.md`
+(a Windows Phone/UWP-era backend, in this case) with no version number
+and no roadmap table entry at all -- an acknowledged possibility, not
+a commitment. KaiOS's own design work isn't discarded by this change;
+`docs/Far Future Concern/KAIOS-BACKEND-IMPLEMENTATION.md` (plus the
+constraint-gathering doc alongside it, `kaios-app-design-doc.md`)
+already lived in that same "Far Future Concern" directory even while
+the milestone table above still scheduled it -- this amendment just
+brings the roadmap's own bookkeeping into agreement with where the
+design docs already sat. See `PROGRESS.md`'s "Planned, not yet
+scheduled to a version" section for the equivalent snapshot-table
+change.
 
 ## Non-goals
 

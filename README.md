@@ -641,8 +641,12 @@ canonical copy rather than duplicated here, in `PROGRESS.md`, and in
 `CHANGELOG.md`. Short version: v0.001 through v0.048 (CSS `@media` +
 `<head>`/`<header>` extension, both stages) are done; v0.054 (JS
 backend capability expansion, renumbered from v0.044) is queued next;
-v0.060 (user-defined components), v0.080 (Desktop backend), v0.100
-(Android backend), and v0.120 (KaiOS backend) are planned further out.
-The v0.060/v0.080/v0.100 numbers were reassigned when v0.048 shipped
-and a dedicated slot was carved out for KaiOS -- see
-`docs/ARCHITECTURE.md` for the full renumbering note.
+v0.060 (user-defined components), v0.080 (Desktop backend), and v0.100
+(Android backend) are planned further out. Those three numbers were
+reassigned when v0.048 shipped. A KaiOS backend was briefly given its
+own numbered slot (`v0.120`) in that same reshuffle -- design is
+complete, but it's since been pulled back out to unscheduled future
+work, the same "designed, no roadmap commitment" tier
+`docs/Far Future Concern/WINDOWS-PHONE-BACKEND.md`'s Windows Phone/UWP
+backend already sits at. See `docs/ARCHITECTURE.md` for the full
+renumbering-and-amendment history.

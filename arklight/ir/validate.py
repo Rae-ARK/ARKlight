@@ -51,6 +51,15 @@ Checks performed:
     a `rel`. Structured input only, same "no raw HTML-injection escape
     hatch" discipline every other extension point in the project
     holds.
+12. `shell_persistent`, if `True` on a node, requires that same node
+    to also carry a non-empty `id` (htmx-4, see
+    docs/Backends/REFACTOR-INDEX.md row 9): `hx-preserve` -- the HTML
+    backend's target for this prop, see `arklight/backend/html/attrs.py`
+    -- only works if htmx can find the *same* element in both the old
+    and the newly-fetched DOM to keep, and the only thing it matches
+    on is a stable `id`. A node with no `id` would compile to a
+    `hx-preserve="true"` attribute htmx silently can't use, so this
+    fails loudly at build time instead.
 """
 
 from __future__ import annotations
@@ -260,6 +269,30 @@ def _validate_page_head_extensions(node: ARKNode, *, path: str) -> None:
                 )
 
 
+def _validate_shell_persistent(node: ARKNode, *, path: str) -> None:
+    """
+    htmx-4 (docs/Backends/REFACTOR-INDEX.md row 9): `shell_persistent`
+    is inert (not just unused, but never even checked) on a site that
+    never sets `Site(app_shell=True)` -- this validates the prop's own
+    shape regardless, the same "fail loudly at build time, not
+    silently in the browser" discipline `_validate_responsive_style`/
+    `_validate_page_head_extensions` already hold for props that are
+    only meaningful in combination with something else.
+    """
+    shell_persistent = node.props.get("shell_persistent")
+    if not shell_persistent:
+        return
+    node_id = node.props.get("id")
+    if not isinstance(node_id, str) or not node_id.strip():
+        raise ValidationError(
+            f"{node.type!r} at {path} has shell_persistent=True but no "
+            f"(non-empty) id -- htmx's hx-preserve, which this prop "
+            f"compiles to, can only keep an element across a boosted "
+            f"navigation by matching a stable id between the old and "
+            f"newly-fetched page. Add id=\"...\" to this node."
+        )
+
+
 def _validate_behavior_props(node: ARKNode, *, path: str, page_state: frozenset[str]) -> None:
     on_click = node.props.get("on_click")
     if on_click is None:
@@ -328,6 +361,7 @@ def validate_node(
     _validate_behavior_props(node, path=path, page_state=page_state)
     _validate_class_bind(node, path=path, page_state=page_state)
     _validate_responsive_style(node, path=path)
+    _validate_shell_persistent(node, path=path)
     if node.type == "Page":
         _validate_page_head_extensions(node, path=path)
 

@@ -508,6 +508,7 @@ class Site:
         grid_space: str | None = None,
         center_gutter: str | None = None,
         reel_space: str | None = None,
+        app_shell: bool = False,
     ) -> None:
         self.name = name
         # <html lang="..."> for every page this site builds, unless a
@@ -608,6 +609,24 @@ class Site:
         self.supports_rules: list[tuple[str, str, dict[str, str]]] = []
         self.page_rules: list[tuple[str | None, dict[str, str]]] = []
         self.style_imports: list[str] = []
+
+        # htmx-4 (docs/Backends/REFACTOR-INDEX.md row 9 /
+        # docs/Backends/JS-BACKEND-REFACTOR-PLAN.md "The app-illusion
+        # problem, stated precisely"): opt-in app-shell navigation for
+        # sites that get wrapped in a packaging-backend shell (Android/
+        # KaiOS/Desktop) where a full document reload on every internal
+        # link defeats the point of shipping it as an installable app.
+        # Naming placeholder, per the design doc. Defaults to `False`
+        # -- unset, ARKlight's output is byte-for-byte what it always
+        # was: real multi-page navigation, no `hx-boost` anywhere. Set,
+        # the HTML backend emits `hx-boost="true"` on `<body>` (see
+        # `arklight/backend/html/page_render.py`) and the JS backend
+        # ships HTMX on every page of the site, not just ones that
+        # already needed it for a named behavior or `State(...)` (see
+        # `arklight/backend/js/render.py`'s `needs_htmx`). No
+        # validation needed -- a plain bool, same as every other
+        # `Site(...)` feature flag.
+        self.app_shell = bool(app_shell)
 
     def _set_css_var_override(self, kwarg_name: str, var_name: str, value: str) -> None:
         if not isinstance(value, str) or not value.strip():

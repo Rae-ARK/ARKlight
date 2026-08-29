@@ -5,6 +5,90 @@ follows [Keep a Changelog](https://keepachangelog.com/); versions
 follow the milestone scheme from ARCHITECTURE.md rather than strict
 SemVer.
 
+## [0.0500] -- Combined refactor, Stage 10 of 16 (HTMX integration, `htmx-4`: app-shell navigation)
+
+**Scope:** `docs/Backends/REFACTOR-INDEX.md` row 9 / `docs/Backends/
+JS-BACKEND-REFACTOR-PLAN.md` "The app-illusion problem, stated
+precisely." App-shell navigation for sites wrapped in a packaging
+backend (Android/KaiOS/Desktop), where a full document reload on every
+internal link defeats the point of shipping ARKlight's output as an
+installable app.
+
+**`Site(app_shell=True)`** (naming placeholder kept -- no better name
+turned up) is a new, single feature flag. Defaults to `False`, and
+every existing site's output -- HTML and JS both -- is byte-for-byte
+unaffected unless a site opts in. Threaded through the same
+`Site` -> `build_website_ir` -> `WebsiteIR` -> backends plumbing every
+other `Site(...)` flag already uses.
+
+**HTML backend (`page_render.py`):**
+
+- `<body hx-boost="true">` when `app_shell=True` -- htmx's own
+  mechanism for turning same-origin link clicks into an in-place AJAX
+  swap instead of a full document reload.
+- New `shell_persistent=True` prop (any component) compiles to
+  `hx-preserve="true"` -- htmx's mechanism for keeping an element
+  untouched across a boosted swap, matched by `id` between the old and
+  newly-fetched page. Validation now requires a non-empty `id`
+  alongside `shell_persistent=True`, since a `hx-preserve` with no
+  stable `id` for htmx to match on is silently useless. This is the
+  actual fix for the "shell-persistent regions (nav/header) survive a
+  boosted swap" half of the design doc.
+- A state page's `data-ark-state` blob moves off `<body>` and into a
+  hidden `<div id="ark-state" data-ark-state="...">` marker when
+  `app_shell=True`. Verified directly against htmx's own docs: an
+  `hx-boost`ed swap replaces `<body>`'s *innerHTML* only, never the
+  `<body>` tag's own attributes -- so a `data-ark-state` attribute
+  placed directly on `<body>` (the existing, non-app_shell shape,
+  unchanged) would freeze at whatever page first loaded and never
+  update across a boosted navigation. The marker, being part of the
+  swapped content, updates correctly.
+
+**JS backend (`render.py` + `runtime/`):**
+
+- `needs_htmx` now also ships HTMX for `ir.app_shell` alone, not just
+  "a named behavior or `State(...)` is used somewhere on the site."
+  Closes a real gap the audit surfaced: `arklight.js` is one shared
+  file across the whole site, so a plain nav-only page in an
+  `app_shell` site with no behaviors or state used *anywhere* would
+  previously have shipped without HTMX loaded at all, silently
+  falling back to a real document navigation on every click.
+- Page init (`highlightActiveNavLink()`/`initState()`/
+  `renderBindings()`/`renderClassBindings()`) is extracted into a
+  re-callable `arkInitPage()`. Closes a second gap: `DOMContentLoaded`
+  only ever fires once per real document load, and a boosted
+  navigation doesn't refire it, so nothing before this stage re-ran
+  nav highlighting or state hydration after navigating to a
+  *different* page via a boosted link. `arkInitPage()` is wired to
+  `DOMContentLoaded` unconditionally (unchanged initial-load behavior)
+  and, only for `app_shell` sites, to htmx's own `"htmx:afterSettle"`
+  event too.
+- `runtime/dispatch.py`'s `wireActionInterceptor(store)` becomes
+  `wireActionInterceptor(getStore)` -- a zero-argument getter instead
+  of a fixed value. The interceptor's one `document`-level `click`
+  listener is still registered exactly once, at `DOMContentLoaded`,
+  and must never be re-registered on a later boosted swap (`document`
+  itself is never replaced by `hx-boost`, so a second registration
+  would stack a second listener closing over a now-stale store,
+  double-firing every click). The getter lets that one listener always
+  read whatever `arkInitPage()` most recently assigned to the shared
+  `arkStore` variable, without re-registering.
+- `runtime/state.py`'s `initState()` checks for the `#ark-state`
+  marker element first, falling back to the `<body>` attribute --
+  handles both the `app_shell` and non-`app_shell` shapes without
+  needing to know which one it's looking at.
+
+**Tests:** new `tests/test_htmx_4.py` (23 tests) covering the
+`Site`/IR plumbing, `hx-boost` emission, the state-marker relocation,
+`shell_persistent`/`hx-preserve` (including the Validation
+requirement), `needs_htmx`'s new condition, and the `arkInitPage()`/
+`htmx:afterSettle` re-init wiring. `wireActionInterceptor`'s signature
+change updates the literal-string assertions in
+`tests/test_htmx_3.py`, `tests/test_class_binding.py`,
+`tests/test_event_modifiers.py`, `tests/test_js_error_handling.py`,
+and `tests/test_refactor_0.py` -- no behavioral assertion in any of
+those files changed, only the function signature they check for.
+
 ## [0.0499] -- Combined refactor, Stage 9 of 16 (HTMX integration, `htmx-3`: action dispatch)
 
 Full design in `docs/Backends/HTMX-INTEGRATION.md` ("Stage 3 --

@@ -59,6 +59,19 @@ Three things beyond basic tag rendering are handled here:
    `ActionRef` with no modifiers attached, or one carrying only
    `"prevent"` (which has no `hx-trigger` equivalent).
 
+6. **htmx-4 (docs/Backends/REFACTOR-INDEX.md row 9): `Site(app_shell=
+   True)` emits `hx-boost="true"` on `<body>`**, turning same-origin
+   link clicks into an in-place AJAX swap instead of a full document
+   reload -- see `page_render.py`'s `_render_page` docstring for the
+   full reasoning, including why a state page's `data-ark-state` blob
+   moves off `<body>` and into the swapped content when this is set.
+   A node carrying `shell_persistent=True` (and, per Validation, a
+   matching `id`) compiles to `hx-preserve="true"`, htmx's mechanism
+   for keeping that element untouched across a boosted swap -- the
+   fix for the "shell-persistent regions (nav/header) survive a
+   boosted swap" half of the same design doc. Defaults to `False`;
+   every existing site's output is unaffected.
+
 ## HTML Backend refactor -- module map
 
 This file used to hold all five of the HTML backend's unrelated jobs
@@ -144,5 +157,7 @@ class HTMLBackend(Backend):
         output: dict[str, str] = {}
         for page in ir.pages:
             path = route_to_path[page.route]
-            output[path] = _render_page(page, ir.site_name, route_to_path, site_lang=ir.lang)
+            output[path] = _render_page(
+                page, ir.site_name, route_to_path, site_lang=ir.lang, app_shell=ir.app_shell
+            )
         return output

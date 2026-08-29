@@ -93,7 +93,7 @@ def test_wire_action_interceptor_guards_dispatch_independently():
         )
     }
     js = JSBackend().render(_ir(pages))[SCRIPT_PATH]
-    wire_body = js.split("function wireActionInterceptor(store) {")[1].split(
+    wire_body = js.split("function wireActionInterceptor(getStore) {")[1].split(
         "function highlightActiveNavLink"
     )[0]
     assert wire_body.count("try {") == 1

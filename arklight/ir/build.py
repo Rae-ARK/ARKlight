@@ -111,6 +111,17 @@ class WebsiteIR:
     supports_rules: list = field(default_factory=list)
     page_rules: list = field(default_factory=list)
     style_imports: list = field(default_factory=list)
+    # htmx-4 (docs/Backends/REFACTOR-INDEX.md row 9): straight
+    # passthrough of `Site(app_shell=...)`, same shape as `lang`
+    # above. `HTMLBackend` reads this to decide whether to emit
+    # `hx-boost="true"` on `<body>` and route the page's state marker
+    # through the app-shell-safe shape (see
+    # `arklight/backend/html/page_render.py`); the JS backend reads it
+    # to decide whether every page needs HTMX loaded, not just ones
+    # that already needed it for a behavior/State(...) (see
+    # `arklight/backend/js/render.py`'s `needs_htmx`). Defaults to
+    # `False`, unchanged output for every existing caller.
+    app_shell: bool = False
 
 
 @dataclass
@@ -215,6 +226,7 @@ def build_website_ir(
     supports_rules: list | None = None,
     page_rules: list | None = None,
     style_imports: list | None = None,
+    app_shell: bool = False,
 ) -> WebsiteIR:
     """
     Build the Website IR from a normalized + validated ARK AST.
@@ -244,6 +256,10 @@ def build_website_ir(
     `import_style` -- see docs/DESIGN-NOTES.md), forwarded to the
     matching `WebsiteIR` field unchanged. All default to empty/None so
     existing callers are unaffected.
+
+    `app_shell` (htmx-4, see docs/Backends/REFACTOR-INDEX.md row 9) is
+    `Site(app_shell=...)`'s straight passthrough, same shape as
+    `lang`. Defaults to `False`, unchanged output for existing callers.
     """
     collector = _ResponsiveStyleCollector()
     ir_pages = []
@@ -274,4 +290,5 @@ def build_website_ir(
         supports_rules=list(supports_rules) if supports_rules else [],
         page_rules=list(page_rules) if page_rules else [],
         style_imports=list(style_imports) if style_imports else [],
+        app_shell=app_shell,
     )

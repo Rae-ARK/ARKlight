@@ -218,6 +218,12 @@ def compile_site_file(
         supports_rules=site.supports_rules,
         page_rules=site.page_rules,
         style_imports=site.style_imports,
+        # htmx-4 (docs/Backends/REFACTOR-INDEX.md row 9): straight
+        # passthrough, same shape as the CSS addendum fields above --
+        # no CLI flag equivalent (unlike `lang`/`css_var_overrides`),
+        # since app-shell navigation is a whole-site authoring
+        # decision the site file itself makes, not a per-build override.
+        app_shell=site.app_shell,
     )
 
 

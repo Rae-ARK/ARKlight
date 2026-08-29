@@ -15,7 +15,7 @@ this file's coverage of it is deleted too -- see
 `htmx-3` (see docs/Backends/HTMX-INTEGRATION.md "Stage 3") renamed
 `dispatch.py`'s export from `WIRE_ACTIONS_JS` to
 `ACTION_INTERCEPTOR_JS` and replaced the `wireActions(store)` function
-it held with `wireActionInterceptor(store)` -- a single delegated
+it held with `wireActionInterceptor(getStore)` -- a single delegated
 `click` listener instead of a `querySelectorAll`/`forEach` wiring
 loop. This file's assertions below are updated for that rename; see
 `tests/test_htmx_3.py` for this stage's own dedicated coverage.
@@ -82,7 +82,7 @@ def test_bindings_module_exports_both_render_passes():
 
 
 def test_dispatch_module_exports_wire_action_interceptor():
-    assert "function wireActionInterceptor(store)" in ACTION_INTERCEPTOR_JS
+    assert "function wireActionInterceptor(getStore)" in ACTION_INTERCEPTOR_JS
 
 
 def test_nav_module_exports_highlight_active_nav_link():
@@ -107,7 +107,7 @@ def test_runtime_package_reassembles_state_core_in_original_order():
         "function renderBindings(store)",
         "function renderClassBindings(store)",
         "function initState()",
-        "function wireActionInterceptor(store)",
+        "function wireActionInterceptor(getStore)",
     ]
     positions = [STATE_CORE_JS.index(name) for name in names]
     assert positions == sorted(positions)

@@ -15,6 +15,17 @@ See arklight/backend/js/runtime/dispatch.py's module docstring for why
 this lands as a delegated native `click` listener rather than the
 `htmx:beforeRequest` interceptor docs/Backends/HTMX-INTEGRATION.md
 describes.
+
+`htmx-4` (docs/Backends/REFACTOR-INDEX.md row 9) later changes
+`wireActionInterceptor`'s signature again -- from a fixed `store` value
+to a `getStore` getter, so app-shell navigation can re-hydrate a new
+store after a boosted swap without re-registering the listener. Tests
+below that inspect the function's own body are updated for that
+signature; tests that only check the *outcome* of a click (dispatch
+still runs, `event.preventDefault()` still unconditional, etc.) are
+unaffected by which shape feeds it a store, so a store-in-scope during
+these tests always resolves the same way either signature would give
+it.
 """
 
 from arklight.api import Action, Button, Page, State, Text
@@ -58,15 +69,17 @@ def test_wire_actions_loop_is_gone():
 
 
 def test_wire_action_interceptor_is_present_and_exported():
-    assert "function wireActionInterceptor(store)" in ACTION_INTERCEPTOR_JS
+    # htmx-4 (docs/Backends/REFACTOR-INDEX.md row 9): takes a getStore
+    # getter, not a fixed store -- see runtime/dispatch.py's docstring.
+    assert "function wireActionInterceptor(getStore)" in ACTION_INTERCEPTOR_JS
     js = JSBackend().render(_stateful_ir())[SCRIPT_PATH]
-    assert "function wireActionInterceptor(store)" in js
+    assert "function wireActionInterceptor(getStore)" in js
     assert js.count("function wireActionInterceptor") == 1
 
 
 def test_interceptor_is_a_single_delegated_listener_not_a_per_element_loop():
     js = JSBackend().render(_stateful_ir())[SCRIPT_PATH]
-    body = js.split("function wireActionInterceptor(store) {")[1].split(
+    body = js.split("function wireActionInterceptor(getStore) {")[1].split(
         "function highlightActiveNavLink"
     )[0]
     # One addEventListener call, on document -- not a forEach loop over
@@ -81,13 +94,19 @@ def test_interceptor_is_a_single_delegated_listener_not_a_per_element_loop():
 
 
 def test_no_op_when_store_is_falsy():
-    # Same short-circuit wireActions() always had -- no store, no
-    # listener registered.
+    # Same short-circuit wireActions() always had, just moved inside
+    # the click handler now (htmx-4, docs/Backends/REFACTOR-INDEX.md
+    # row 9): the listener is always registered once, but a click does
+    # nothing if getStore() currently resolves to a falsy value.
     js = JSBackend().render(_stateful_ir())[SCRIPT_PATH]
-    body = js.split("function wireActionInterceptor(store) {")[1].split(
+    body = js.split("function wireActionInterceptor(getStore) {")[1].split(
         "function highlightActiveNavLink"
     )[0]
-    assert body.strip().startswith("if (!store) return;")
+    assert "var store = getStore();" in body
+    assert "if (!store) return;" in body
+    # The guard runs before anything else in the click handler.
+    click_handler = body.split('addEventListener("click", function (event) {')[1]
+    assert click_handler.strip().startswith("var store = getStore();")
 
 
 def test_only_ships_when_state_is_declared():
@@ -105,7 +124,7 @@ def test_only_ships_when_state_is_declared():
 
 def test_dispatch_reads_action_state_and_args_off_the_resolved_element():
     js = JSBackend().render(_stateful_ir())[SCRIPT_PATH]
-    body = js.split("function wireActionInterceptor(store) {")[1].split(
+    body = js.split("function wireActionInterceptor(getStore) {")[1].split(
         "function highlightActiveNavLink"
     )[0]
     assert 'el.getAttribute("data-ark-on-click")' in body
@@ -118,7 +137,7 @@ def test_prevent_default_is_unconditional():
     # "prevent" remains honored by construction, same as every prior
     # stage -- event.preventDefault() doesn't depend on any modifier.
     js = JSBackend().render(_stateful_ir())[SCRIPT_PATH]
-    body = js.split("function wireActionInterceptor(store) {")[1].split(
+    body = js.split("function wireActionInterceptor(getStore) {")[1].split(
         "function highlightActiveNavLink"
     )[0]
     assert "event.preventDefault();" in body
@@ -132,7 +151,7 @@ def test_prevent_default_is_unconditional():
 
 def test_guard_shape_is_one_try_catch_per_click():
     js = JSBackend().render(_stateful_ir())[SCRIPT_PATH]
-    body = js.split("function wireActionInterceptor(store) {")[1].split(
+    body = js.split("function wireActionInterceptor(getStore) {")[1].split(
         "function highlightActiveNavLink"
     )[0]
     assert body.count("try {") == 1
@@ -161,5 +180,9 @@ def test_call_site_updated_in_domcontentloaded_block():
     # "DOMContentLoaded" listener earlier in the file (see
     # tests/test_js_backend.py's identical HTMX_JS-scoping pattern).
     ready_block = js.rsplit('document.addEventListener("DOMContentLoaded", function () {', 1)[1]
-    assert "wireActionInterceptor(store);" in ready_block
+    # htmx-4 (docs/Backends/REFACTOR-INDEX.md row 9): the call site now
+    # passes a getter closure, not the store variable directly -- see
+    # arklight/backend/js/render.py's _build_runtime_js.
+    assert "wireActionInterceptor(function () { return arkStore; });" in ready_block
+    assert "wireActionInterceptor(store);" not in ready_block
     assert "wireActions(store);" not in ready_block

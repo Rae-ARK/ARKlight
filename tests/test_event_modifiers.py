@@ -174,7 +174,7 @@ def test_wire_action_interceptor_has_exactly_one_try_block():
     # tests/test_js_error_handling.py's identical assertion.
     tree = Page(State("count", 0), Button("+1", on_click=Action.increment("count")))
     js = JSBackend().render(_ir({"/": tree}))["arklight.js"]
-    wire_body = js.split("function wireActionInterceptor(store) {")[1].split(
+    wire_body = js.split("function wireActionInterceptor(getStore) {")[1].split(
         "function highlightActiveNavLink"
     )[0]
     assert wire_body.count("try {") == 1

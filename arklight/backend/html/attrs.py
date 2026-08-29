@@ -286,6 +286,24 @@ def _attr_string(
             parts.append(f' hx-on:click="{escape(call, quote=True)}"')
             continue
 
+        if key == "shell_persistent":
+            # htmx-4 (docs/Backends/REFACTOR-INDEX.md row 9): a bool
+            # prop that compiles to htmx's own `hx-preserve="true"` --
+            # the built-in mechanism for keeping an element (matched
+            # by `id`, which Validation already requires alongside
+            # this prop -- see arklight.ir.validate) untouched across
+            # an app-shell boosted swap, instead of being replaced by
+            # whatever the newly-fetched page's markup has in its
+            # place. This is the actual fix for the "shell-persistent
+            # regions (nav/header) survive a boosted swap" half of
+            # `Site(app_shell=True)` -- see `page_render.py` for the
+            # `hx-boost="true"` half. Inert (compiles to the same
+            # attribute either way) on a site that never sets
+            # `app_shell=True`; htmx simply never looks for it there.
+            if value:
+                parts.append(' hx-preserve="true"')
+            continue
+
         if key == "bind_class" and isinstance(value, ClassBindSpec):
             # Stage 2: the runtime reads these two to know which class
             # to toggle and which state key drives it -- the initial

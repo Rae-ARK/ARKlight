@@ -56,13 +56,35 @@ trigger-spec parsing directly, once `htmx-4`'s app-shell audit settles
 what survives a boosted swap) -- this stage closes the "no listener at
 all" gap `htmx-2` left open, not the "modifier timing" gap; that
 remains a documented, deliberate scope boundary of this stage.
+
+`htmx-4` (docs/Backends/REFACTOR-INDEX.md row 9) changes this
+function's signature: `wireActionInterceptor(store)` becomes
+`wireActionInterceptor(getStore)`, taking a zero-argument getter
+instead of a fixed store value. This is the audit `htmx-3`'s docstring
+above already flagged as deferred here, for a reason specific to
+app-shell navigation: `DOMContentLoaded` only ever fires once per real
+document load, but a page carrying `State(...)` under
+`Site(app_shell=True)` needs its store re-created on every boosted
+navigation to a *different* page (see
+`arklight/backend/js/render.py`'s `arkInitPage`) -- each with its own
+initial values. The interceptor itself, though, is registered exactly
+once, at `DOMContentLoaded`, and must never be registered again
+(`document` itself is never replaced by a boosted swap, so a second
+`addEventListener("click", ...)` call would stack a second listener
+closing over a now-stale store, double-firing every click and acting
+on outdated state). Passing a getter instead of a value lets the one
+registered listener always read whatever `arkInitPage` most recently
+assigned, without re-registering. On a non-app_shell site this is a
+no-op difference -- `getStore` is called once per click either way,
+and there's only ever one store to return.
 """
 
 from __future__ import annotations
 
-ACTION_INTERCEPTOR_JS = """  function wireActionInterceptor(store) {
-    if (!store) return;
+ACTION_INTERCEPTOR_JS = """  function wireActionInterceptor(getStore) {
     document.addEventListener("click", function (event) {
+      var store = getStore();
+      if (!store) return;
       var el = event.target.closest('[data-ark-on-click^="action:"]');
       if (!el) return;
       event.preventDefault();
