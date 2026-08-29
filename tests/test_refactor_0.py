@@ -20,6 +20,25 @@ it held with `wireActionInterceptor(getStore)` -- a single delegated
 loop. This file's assertions below are updated for that rename; see
 `tests/test_htmx_3.py` for this stage's own dedicated coverage.
 
+`htmx-5` (see docs/Backends/HTMX-INTEGRATION.md "Stage 4 -- Audit and
+remove remaining hand-rolled plumbing" / docs/Backends/
+REFACTOR-INDEX.md row 10) renamed the export again, to
+`CLICK_INTERCEPTOR_JS` (function `wireClickInterceptor`), and -- more
+significantly for this file -- pulled it *out* of `STATE_CORE_JS`
+entirely, since it now also dispatches named-behavior clicks
+independent of any `State(...)` declaration (see `runtime/
+dispatch.py`'s module docstring for why). `STATE_CORE_JS` is
+reactive-state machinery only as of that stage: `createState`,
+`renderBindings`, `renderClassBindings`, `initState` -- four pieces,
+not five.
+`test_runtime_package_reassembles_state_core_in_original_order` and
+the two `_module_exports_` /
+`test_plain_page_runtime_unaffected_by_the_split` /
+`test_stateful_page_runtime_unaffected_by_the_split` tests below are
+updated for that shape; see `tests/test_htmx_5.py` for this stage's
+own dedicated coverage of the interceptor's new behavior branch and
+the eval-avoidance finding that motivated it.
+
 This is documented as a pure refactor -- no generated-JS output
 change -- so this stage's tests assert two things: the sibling
 modules exist and expose the fragments they're supposed to (mirroring
@@ -37,7 +56,7 @@ from arklight.backend.js.runtime.bindings import (
     RENDER_BINDINGS_JS,
     RENDER_CLASS_BINDINGS_JS,
 )
-from arklight.backend.js.runtime.dispatch import ACTION_INTERCEPTOR_JS
+from arklight.backend.js.runtime.dispatch import CLICK_INTERCEPTOR_JS
 from arklight.backend.js.runtime.nav import NAV_HIGHLIGHT_JS as NAV_MODULE_JS
 from arklight.backend.js.runtime.notify import NOTIFY_JS as NOTIFY_MODULE_JS
 from arklight.backend.js.runtime.state import CREATE_STATE_JS, INIT_STATE_JS
@@ -81,8 +100,8 @@ def test_bindings_module_exports_both_render_passes():
     assert "function renderClassBindings(store)" in RENDER_CLASS_BINDINGS_JS
 
 
-def test_dispatch_module_exports_wire_action_interceptor():
-    assert "function wireActionInterceptor(getStore)" in ACTION_INTERCEPTOR_JS
+def test_dispatch_module_exports_click_interceptor():
+    assert "function wireClickInterceptor(getStore)" in CLICK_INTERCEPTOR_JS
 
 
 def test_nav_module_exports_highlight_active_nav_link():
@@ -95,22 +114,25 @@ def test_notify_module_exports_ark_notify():
     assert NOTIFY_MODULE_JS == NOTIFY_JS
 
 
-def test_runtime_package_reassembles_state_core_in_original_order():
-    # createState, renderBindings, renderClassBindings, initState,
-    # wireActionInterceptor -- same slot the old `_STATE_CORE_JS`
-    # triple-quoted string held wireActions() in, minus arkApplyModifiers
-    # (deleted by htmx-2 -- see tests/test_event_modifiers.py) and with
-    # wireActions() itself renamed/replaced by htmx-3 (see
-    # tests/test_htmx_3.py).
+def test_state_core_reassembles_reactive_pieces_in_original_order():
+    # createState, renderBindings, renderClassBindings, initState --
+    # same relative order the old `_STATE_CORE_JS` triple-quoted
+    # string held these four in, minus arkApplyModifiers (deleted by
+    # htmx-2 -- see tests/test_event_modifiers.py) and, as of htmx-5,
+    # minus the click interceptor too (wireActions() / later
+    # wireActionInterceptor() / later wireClickInterceptor() -- see
+    # tests/test_htmx_3.py and tests/test_htmx_5.py), which is no
+    # longer part of this bundle at all.
     names = [
         "function createState(initial)",
         "function renderBindings(store)",
         "function renderClassBindings(store)",
         "function initState()",
-        "function wireActionInterceptor(getStore)",
     ]
     positions = [STATE_CORE_JS.index(name) for name in names]
     assert positions == sorted(positions)
+    assert "wireActionInterceptor" not in STATE_CORE_JS
+    assert "wireClickInterceptor" not in STATE_CORE_JS
 
 
 # --- `JSBackend.render()` output is unaffected: pure refactor.
@@ -119,7 +141,7 @@ def test_runtime_package_reassembles_state_core_in_original_order():
 def test_plain_page_runtime_unaffected_by_the_split():
     js = JSBackend().render(_plain_ir())[SCRIPT_PATH]
     assert "createState" not in js
-    assert "wireActionInterceptor" not in js
+    assert "wireClickInterceptor" not in js
     assert "highlightActiveNavLink" in js
     assert js.count("function highlightActiveNavLink") == 1
 
@@ -131,7 +153,7 @@ def test_stateful_page_runtime_unaffected_by_the_split():
         "function renderBindings",
         "function renderClassBindings",
         "function initState",
-        "function wireActionInterceptor",
+        "function wireClickInterceptor",
         "function highlightActiveNavLink",
         "function arkNotify",
     ]:

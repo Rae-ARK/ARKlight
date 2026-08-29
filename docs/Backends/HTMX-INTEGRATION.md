@@ -280,9 +280,62 @@ catches HTMX-triggered events, dispatches into `ACTION_REGISTRY`, and
 cancels the network request. Delete the `wireActions()` loop. Action
 tests pass. The reactive store and `renderBindings()` are untouched.
 
-**Stage 4 — Audit and remove remaining hand-rolled plumbing.**
+**Stage 4 — Audit and remove remaining hand-rolled plumbing. -- IMPLEMENTED**
 Review what remains in `arklight.js` after Stages 1-3. Remove any
 plumbing that duplicates HTMX behavior. Document what stays and why.
+
+What actually happened here reversed part of Stage 1, not Stage 3:
+the audit found that `hx-on:click="arkRunBehavior('<name>', this)"`
+(Stage 1's mechanism for named behaviors) routes through HTMX's own
+attribute-processing internals, which construct a function from the
+attribute's *string value* with the `Function` constructor before
+calling it -- an eval-equivalent operation, gated only by
+`htmx.config.allowEval` (`true` by default). This directly
+contradicts ARKlight's own stated "no eval, no new Function, no
+string ever executed as code" invariant, on every single
+named-behavior click, on every site that used one. `arkRunBehavior`'s
+own body was never the problem -- it was a small, fixed,
+statically-readable function all along -- but the mechanism that
+*reached* it, HTMX's `hx-on:*` attribute evaluation, was doing exactly
+what this project promises never to do. This is the "remove hand-rolled
+plumbing that duplicates HTMX" mandate cutting the other way: Stage 3
+had already proven out a hand-rolled mechanism (a single delegated
+`click` listener) that does everything `Action.*(...)` dispatch needs
+without ever constructing a function from a string; folding behavior
+dispatch into that same listener removes the *HTMX* mechanism instead,
+because it's the one with the eval-equivalent step.
+
+Landed: `data-ark-on-click` now carries `"behavior:<name>"` for named
+behaviors, matched-pair with the `"action:<name>"` shape it already
+carried for `Action.*(...)`. The Stage-3 listener (renamed
+`wireClickInterceptor`) gains a second branch reading that prefix,
+each branch with its own `try`/`catch`. `arkBehaviors`/`arkRunBehavior`
+(the `window`-attached pair HTMX's attribute evaluation needed to
+reach) are gone -- the closed dispatch object is now a plain local
+`behaviors` var, read by closure exactly the way `actions` already
+was. A behavior-only page (no `State(...)` anywhere) now ships no
+HTMX at all, since `hx-on:click` processing was the only reason it
+ever needed to. As defense-in-depth (not required for correctness,
+given the above): whenever HTMX does ship (state or `app_shell`
+pages), `arklight.js` sets `htmx.config.allowEval = false` right after
+loading it, closing the handful of other vendored-HTMX paths that
+construct a function from a string (`hx-vals`/`hx-vars`,
+bracket-syntax `hx-trigger` event filters) -- paths ARKlight's
+compiler never emits into, but which this stops relying on "never
+emits" alone to guarantee. What stays, and why: `createState`/
+`renderBindings`/`renderClassBindings` (HTMX has no equivalent for a
+closed-vocabulary reactive `Bind`/`ClassBind` core); `ACTION_REGISTRY`
+and its dispatch (same reasoning `htmx-3` already documented -- HTMX's
+own request-triggering interceptor doesn't fire for a non-AJAX local
+state mutation); `htmx-2`'s `hx-trigger` modifier compilation (still
+compiled into markup, still not functionally enforced -- an
+explicitly documented, unchanged scope boundary from that stage, not
+something this audit found duplicated); `htmx-4`'s `hx-boost`/
+`hx-preserve`/`arkInitPage` app-shell machinery (unaffected -- neither
+touches the eval-equivalent paths this stage removed reliance on). See
+`arklight/backend/js/runtime/dispatch.py`'s module docstring for the
+full technical account and `tests/test_htmx_5.py` for dedicated
+regression coverage.
 
 Each stage is a standalone diff. No stage changes the ARKlight Python
 API. No stage changes what a site author writes. The change is entirely

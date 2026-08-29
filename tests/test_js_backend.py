@@ -37,12 +37,18 @@ def test_js_runtime_includes_only_the_behavior_actually_used():
     pages = {"/": Page(Button("Show", on_click="toggle", behavior_target="#panel"))}
     js = JSBackend().render(_ir(pages))[SCRIPT_PATH]
     assert "toggle:" in js
-    # htmx-1: no more data-ark-on-click wiring loop -- the runtime now
-    # exposes arkBehaviors/arkRunBehavior for HTMX's hx-on:click to
-    # call directly (see arklight/backend/js/render.py).
-    assert "arkBehaviors" in js
-    assert "arkRunBehavior" in js
-    assert "data-ark-on-click" not in js
+    # htmx-5: behaviors dispatch through the same delegated click
+    # interceptor Action.*(...) already used (htmx-3), reading a plain
+    # local `behaviors` object -- not through arkBehaviors/
+    # arkRunBehavior exposed on window for HTMX's hx-on:click to call,
+    # which htmx-1 originally set up and htmx-5 removed (see
+    # tests/test_htmx_5.py for the eval-avoidance rationale, and
+    # arklight/backend/js/runtime/dispatch.py's module docstring for
+    # the full audit finding).
+    assert "var behaviors = {" in js
+    assert "wireClickInterceptor" in js
+    assert "arkBehaviors" not in js
+    assert "arkRunBehavior" not in js
     assert "data-ark-target" in js
     assert "data-ark-toggle-class" in js
     # Behaviors that aren't referenced on this site don't ship.

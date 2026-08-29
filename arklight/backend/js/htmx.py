@@ -17,15 +17,34 @@ extract, and the doc's own sizing note ("< 15 kB minified + gzip")
 describes this exact build. It is included as-is, wrapped in its own
 IIFE that assigns `window.htmx`, and simply concatenated ahead of
 ARKlight's own `arklight.js` IIFE in `_build_runtime_js()`
-(`arklight/backend/js/render.py`) -- the two closures don't need to
-share scope, since HTMX's `hx-on:*` processing dispatches into
-`window.arkRunBehavior` (a name ARKlight's own IIFE deliberately
-exposes globally for exactly this reason) rather than into any
-private variable of either closure.
+(`arklight/backend/js/render.py`).
 
-Only shipped when a page actually uses a named behavior or declares
-state (`_build_runtime_js`'s `needs_htmx` check) -- sites with neither
-get no HTMX, no `arklight.js`, and no JavaScript at all, unchanged
+`htmx-5` (see `docs/Backends/HTMX-INTEGRATION.md` "Stage 4 -- Audit
+and remove remaining hand-rolled plumbing" / `docs/Backends/
+REFACTOR-INDEX.md` row 10) removed the reason the two closures ever
+needed to interact at all: through `htmx-4`, HTMX's `hx-on:*`
+attribute processing dispatched into `window.arkRunBehavior` for every
+named-behavior click -- which meant constructing a function from a
+string internally (`new Function("event", attributeValue)`, gated only
+by `htmx.config.allowEval`, `true` by default) to do it, an
+eval-equivalent operation this project's own runtime code never
+performs (see `arklight/backend/js/render.py`'s module docstring). As
+of `htmx-5`, named behaviors dispatch through ARKlight's own delegated
+`click` listener instead (`arklight/backend/js/runtime/dispatch.py`),
+the same mechanism `Action.*(...)` already used -- nothing in
+ARKlight's compiled output triggers HTMX's `hx-on:*`,
+`hx-vals`/`hx-vars`, or bracket-syntax `hx-trigger` processing
+anymore, all of which construct a function from a string internally.
+`_build_runtime_js` additionally sets `htmx.config.allowEval = false`
+whenever this file ships, so those paths fail safely
+(`htmx:evalDisallowedError`) rather than silently executing, as
+defense-in-depth beyond "the compiler just never emits that."
+
+Only shipped when a page declares state or the site sets
+`Site(app_shell=True)` (`_build_runtime_js`'s `needs_htmx` check,
+narrowed at `htmx-5` -- named behaviors no longer trigger it, since
+they no longer touch any `hx-*` attribute) -- a site using neither
+gets no HTMX, no `arklight.js`, and no JavaScript at all, unchanged
 from the "only ship what's used" discipline this codebase already
 applies everywhere else.
 """

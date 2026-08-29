@@ -5,6 +5,104 @@ follows [Keep a Changelog](https://keepachangelog.com/); versions
 follow the milestone scheme from ARCHITECTURE.md rather than strict
 SemVer.
 
+## [0.0501] -- Combined refactor, Stage 11 of 16 (HTMX integration, `htmx-5`: audit and remove remaining hand-rolled plumbing)
+
+**Scope:** `docs/Backends/REFACTOR-INDEX.md` row 10 / `docs/Backends/
+HTMX-INTEGRATION.md` "Implementation ladder" Stage 4. Audit what's
+left in `arklight.js` after `htmx-1` through `htmx-4` and remove
+anything that duplicates HTMX. The audit's actual finding cuts the
+other way from what the stage description implies: the plumbing worth
+removing turned out to be a piece of *HTMX's own* attribute
+processing, not anything hand-rolled.
+
+**The finding:** `htmx-1`'s `hx-on:click="arkRunBehavior('<name>',
+this)"` (the mechanism every named behavior -- `toggle`, `scroll-to`,
+`copy`, `dismiss` -- used to wire a click) turns out to route through
+HTMX's own `hx-on:*` attribute-processing internals, which build a
+function from the attribute's *string value* with the `Function`
+constructor (`new Function("event", attributeValue)`) before calling
+it. This is an eval-equivalent operation, gated only by
+`htmx.config.allowEval` (`true` by default in the vendored release).
+Every named-behavior click on every ARKlight site was, through
+`htmx-4`, routing through that path -- directly contradicting this
+project's own stated invariant (`arklight/backend/js/render.py`'s
+module docstring: "there is no eval, no new Function, no string ever
+executed as code"). `arkRunBehavior`'s own body was always a small,
+fixed, statically-readable function; the eval-equivalent step was
+HTMX's attribute-processing machinery *getting there*, not anything
+ARKlight wrote.
+
+**HTML backend (`attrs.py`):**
+
+- A named behavior now compiles to `data-ark-on-click="behavior:<name>"`,
+  reverting `htmx-1`'s `hx-on:click` shape. Matched-pair with the
+  `"action:<name>"` shape `on_click=Action.*(...)` already emitted --
+  both are now read by the same delegated listener on the JS side.
+  `behavior_target`/`toggle_class` (`data-ark-target`/
+  `data-ark-toggle-class`) are unaffected.
+
+**JS backend (`render.py` + `runtime/`):**
+
+- `runtime/dispatch.py`'s `wireActionInterceptor` is renamed
+  `wireClickInterceptor` and gains a `"behavior:"` branch alongside
+  its existing `"action:"` one -- still exactly one
+  `document.addEventListener("click", ...)` registration for the
+  whole page, branching on the clicked element's
+  `data-ark-on-click` prefix. Each branch has its own `try`/`catch`.
+- `arkBehaviors`/`arkRunBehavior` (previously attached to `window` so
+  HTMX's attribute evaluation could reach them) are gone. The closed
+  behavior-dispatch object is now a plain local `behaviors` var, read
+  by closure the same way `actions` already was.
+- `STATE_CORE_JS` is reactive-state machinery only now
+  (`createState`/`renderBindings`/`renderClassBindings`/`initState`)
+  -- the click interceptor is pulled out of that bundle entirely,
+  since it's no longer tied to `has_state` (a behavior-only page has
+  no `State(...)` at all, but still needs the interceptor).
+  `_build_runtime_js` ships `actions`/`behaviors`/
+  `wireClickInterceptor` whenever a page uses an `Action.*(...)` or a
+  named behavior, independent of `has_state`.
+- `needs_htmx` drops the "or a named behavior is used" condition --
+  named behaviors no longer touch any `hx-*` attribute, so a
+  behavior-only page (the common "toggle a menu, nothing else" case)
+  now ships no HTMX at all. `has_state` and `ir.app_shell` are
+  unaffected and remain the only two conditions.
+- Defense-in-depth, not required for correctness given the above:
+  whenever HTMX does ship, `arklight.js` sets `htmx.config.allowEval =
+  false` right after loading it, closing the other vendored-HTMX code
+  paths that construct a function from a string
+  (`hx-vals`/`hx-vars`, bracket-syntax `hx-trigger` event filters) --
+  paths ARKlight's compiler never emits into, but which this stops
+  relying on "never emits" alone to guarantee.
+- A pure-display state page (`Bind(...)` only, no `Action.*(...)`, no
+  named behavior) previously always shipped an unused
+  `var actions = {};` alongside its reactive core. It no longer does
+  -- a further "ship only what's used" tightening this audit turned up
+  as a side effect, not the goal.
+
+**Tests:** new `tests/test_htmx_5.py` covering the renamed
+interceptor's two branches, the `data-ark-on-click="behavior:..."`
+HTML shape, the dropped `needs_htmx` condition (a behavior-only page
+now ships no HTMX), `htmx.config.allowEval = false` being present
+whenever HTMX does ship, and -- the actual regression this stage
+exists to prevent -- that no ARKlight-compiled HTML output ever
+contains `hx-on:*`/`hx-vals`/`hx-vars` for any behavior/action/state
+combination. The rename (`wireActionInterceptor` ->
+`wireClickInterceptor`, `ACTION_INTERCEPTOR_JS` ->
+`CLICK_INTERCEPTOR_JS`, `arkRunBehavior`/`arkBehaviors` removed)
+updates literal-string assertions in `tests/test_htmx_3.py`,
+`tests/test_htmx_4.py`, `tests/test_html_attrs.py`,
+`tests/test_html_backend.py`, `tests/test_js_backend.py`,
+`tests/test_js_error_handling.py`, `tests/test_class_binding.py`,
+`tests/test_event_modifiers.py`,
+`tests/test_stateful_js_vocabulary_addendum.py`, and
+`tests/test_refactor_0.py`. Two of those updates reflect the actual
+behavior changes above, not just the rename: `test_refactor_0.py`'s
+`STATE_CORE_JS`-ordering test now checks four reactive-core pieces,
+not five (the interceptor is no longer part of that bundle), and
+`test_stateful_js_vocabulary_addendum.py`'s pure-display-state test
+now asserts `actions`/`wireClickInterceptor` ship *neither*, not that
+`actions` ships empty.
+
 ## [0.0500] -- Combined refactor, Stage 10 of 16 (HTMX integration, `htmx-4`: app-shell navigation)
 
 **Scope:** `docs/Backends/REFACTOR-INDEX.md` row 9 / `docs/Backends/

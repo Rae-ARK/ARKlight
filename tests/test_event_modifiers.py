@@ -163,22 +163,28 @@ def test_js_backend_ships_nothing_extra_without_state():
     assert "arkApplyModifiers" not in js
 
 
-def test_wire_action_interceptor_has_exactly_one_try_block():
+def test_wire_click_interceptor_action_branch_has_exactly_one_try_block():
     # htmx-3 (see docs/Backends/HTMX-INTEGRATION.md "Stage 3") replaced
     # wireActions()'s two-try-block shape (a per-element wiring guard
     # plus an inner per-click dispatch guard) with a single delegated
-    # click listener, `wireActionInterceptor` -- there's no separate
-    # wiring phase per element any more, so one try/catch around the
-    # attribute-read + dispatch is the whole guard. See
-    # tests/test_htmx_3.py for this stage's dedicated coverage and
-    # tests/test_js_error_handling.py's identical assertion.
+    # click listener -- there's no separate wiring phase per element
+    # any more, so one try/catch around the attribute-read + dispatch
+    # is the whole guard for a given dispatch kind. htmx-5 (docs/
+    # Backends/REFACTOR-INDEX.md row 10) renamed that listener
+    # wireActionInterceptor -> wireClickInterceptor and gave it a
+    # second branch (behaviors), each with its own try/catch -- so
+    # this test now scopes to the action branch specifically. See
+    # tests/test_htmx_3.py and tests/test_htmx_5.py for dedicated
+    # coverage, and tests/test_js_error_handling.py's identical
+    # assertion.
     tree = Page(State("count", 0), Button("+1", on_click=Action.increment("count")))
     js = JSBackend().render(_ir({"/": tree}))["arklight.js"]
-    wire_body = js.split("function wireActionInterceptor(getStore) {")[1].split(
+    wire_body = js.split("function wireClickInterceptor(getStore) {")[1].split(
         "function highlightActiveNavLink"
     )[0]
-    assert wire_body.count("try {") == 1
-    assert wire_body.count("catch (err)") == 1
+    action_branch = wire_body.split('raw.indexOf("action:") === 0) {')[1].split("} else if")[0]
+    assert action_branch.count("try {") == 1
+    assert action_branch.count("catch (err)") == 1
 
 
 def test_runtime_still_has_no_eval_or_new_function():

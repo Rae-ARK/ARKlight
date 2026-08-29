@@ -332,11 +332,16 @@ def test_behavior_props_render_as_data_ark_attributes():
         {"/": Page(Button("Show", on_click="toggle", behavior_target="#panel", toggle_class="hidden"))}
     )
     html = output["index.html"]
-    # htmx-1: a string on_click now wires through HTMX's hx-on:click
-    # instead of a bespoke data-ark-on-click attribute -- see
-    # arklight/backend/html/attrs.py's module docstring.
-    assert "hx-on:click=\"arkRunBehavior(&#x27;toggle&#x27;, this)\"" in html
-    assert 'data-ark-on-click="toggle"' not in html
+    # htmx-5: reverted to a bespoke data-ark-on-click attribute, but
+    # with a "behavior:" prefix now (matched-pair with the "action:"
+    # prefix ActionRef already used) -- see arklight/backend/html/
+    # attrs.py's module docstring and tests/test_htmx_5.py for why
+    # htmx-1's hx-on:click shape was reverted (it routed every
+    # behavior click through HTMX's own eval-equivalent
+    # Function-from-string attribute dispatch).
+    assert 'data-ark-on-click="behavior:toggle"' in html
+    assert "hx-on:click" not in html
+    assert "arkRunBehavior" not in html
     assert 'data-ark-target="#panel"' in html
     assert 'data-ark-toggle-class="hidden"' in html
     # And NOT emitted as a real "target" HTML attribute, which would be wrong

@@ -243,9 +243,13 @@ def test_after_settle_listener_only_registered_for_app_shell():
 def test_action_interceptor_registered_exactly_once_regardless_of_app_shell():
     # The bug this stage's design deliberately avoids: re-registering
     # the click listener on every boosted swap would stack duplicate
-    # listeners, each closing over a stale store.
+    # listeners, each closing over a stale store. htmx-5 renamed the
+    # function (wireActionInterceptor -> wireClickInterceptor -- see
+    # tests/test_htmx_5.py); the call-once guarantee this test checks
+    # is unaffected by that rename.
     js = JSBackend().render(_stateful_ir(app_shell=True))[SCRIPT_PATH]
-    assert js.count("wireActionInterceptor(function () { return arkStore; });") == 1
+    assert js.count("wireClickInterceptor(function () { return arkStore; });") == 1
+    assert "wireActionInterceptor" not in js
     # Scoped to ARKlight's own IIFE, not vendored HTMX's source (which
     # registers its own internal click listener(s) too).
     own_iife = js.split('(function () {\n  "use strict";', 1)[1]

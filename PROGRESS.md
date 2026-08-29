@@ -58,12 +58,15 @@ go-ahead before implementation starts on any of these:
   `app_shell=True` navigation stage the packaging backends
   (Android/KaiOS/Desktop) all implicitly need, and names -- without
   scoping -- a later, explicitly opt-in server-backed state-streaming
-  milestone informed by an external reference prototype. 10 of 16
+  milestone informed by an external reference prototype. 11 of 16
   merged stages done as of this session (see
   `docs/Backends/REFACTOR-INDEX.md`'s table for the full, current
-  per-row status) -- most recently `htmx-4` (app-shell navigation:
-  `Site(app_shell=True)`, `hx-boost`, `shell_persistent=True` ->
-  `hx-preserve`).
+  per-row status) -- most recently `htmx-5` (audit: removed
+  `hx-on:click` for named behaviors after finding it routed through
+  vendored HTMX's own eval-equivalent `Function`-from-string attribute
+  dispatch, which this project's own "no eval" invariant doesn't
+  permit; behaviors now dispatch through the same delegated `click`
+  listener `Action.*(...)` already used).
 - **KaiOS backend.** Design complete --
   `docs/Far Future Concern/KAIOS-BACKEND-IMPLEMENTATION.md` (plus the
   constraint-gathering doc in the same directory,

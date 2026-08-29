@@ -14,6 +14,29 @@ see `arklight/backend/js/runtime/dispatch.py`'s module docstring.
 `test_wire_actions_guards_each_element_independently` below is
 updated for that shape; see `tests/test_htmx_3.py` for this stage's
 own dedicated coverage.
+
+`htmx-5` (see `docs/Backends/HTMX-INTEGRATION.md` "Stage 4 -- Audit
+and remove remaining hand-rolled plumbing" / `docs/Backends/
+REFACTOR-INDEX.md` row 10) renamed `wireActionInterceptor()` again, to
+`wireClickInterceptor()`, and removed `wireBehaviors()`'s successor,
+`arkRunBehavior()`, entirely: behavior dispatch now happens inside
+`wireClickInterceptor()`'s own `"behavior:"` branch, guarded by its
+own `try`/`catch`, rather than through a standalone
+`window`-attached wrapper vendored HTMX's `hx-on:click` attribute
+processing used to call. The tests below that referenced
+`arkRunBehavior`/`wireActionInterceptor` by name are updated
+accordingly; `tests/test_htmx_5.py` has this stage's own dedicated
+coverage, including of the actual bug this stage fixes:
+`hx-on:click`'s attribute-value dispatch was, under the hood,
+`new Function("event", attributeValue)` -- an eval-equivalent
+operation this project's own "no eval, no new Function" invariant
+(see `arklight/backend/js/render.py`'s module docstring) doesn't
+permit, vendored dependency or not. `test_runtime_still_has_no_eval_
+or_new_function` below, notably, could never have caught that bug --
+it only inspects the *JS* file, and the `new Function(...)` call only
+ever happened as a side effect of vendored HTMX *processing an HTML
+attribute*; the HTML output itself is what needed inspecting, which
+`tests/test_html_backend.py` and `tests/test_htmx_5.py` now do.
 """
 
 from arklight.api import Action, Bind, Button, Page, State, Text
@@ -44,9 +67,11 @@ def test_arknotify_shipped_when_a_behavior_is_used():
     pages = {"/": Page(Button("Show", on_click="toggle", behavior_target="#panel"))}
     js = JSBackend().render(_ir(pages))[SCRIPT_PATH]
     assert "function arkNotify(message)" in js
-    # htmx-1: wireBehaviors() is gone -- arkRunBehavior is the guard
-    # now (see arklight/backend/js/render.py's module docstring).
-    assert "arkRunBehavior" in js
+    # htmx-5: the guard now lives in wireClickInterceptor's behavior
+    # branch (see arklight/backend/js/runtime/dispatch.py) -- there is
+    # no more standalone arkRunBehavior wrapper.
+    assert "wireClickInterceptor" in js
+    assert "arkRunBehavior" not in js
 
 
 def test_arknotify_shipped_when_state_is_used():
@@ -75,17 +100,22 @@ def test_init_state_is_guarded_against_malformed_json():
     }
     js = JSBackend().render(_ir(pages))[SCRIPT_PATH]
     assert "function initState() {" in js
-    init_state_body = js.split("function initState() {")[1].split("function wireActionInterceptor")[0]
+    init_state_body = js.split("function initState() {")[1].split("function wireClickInterceptor")[0]
     assert "try {" in init_state_body
     assert "catch (err)" in init_state_body
     assert "arkNotify(" in init_state_body
 
 
-def test_wire_action_interceptor_guards_dispatch_independently():
+def test_wire_click_interceptor_guards_action_dispatch_independently():
     # htmx-3: the per-element wiring loop is gone -- one malformed
     # data-ark-action-args read on one click must not break the
     # delegated listener for any subsequent click. See
     # tests/test_htmx_3.py for this stage's dedicated coverage.
+    # htmx-5: renamed wireActionInterceptor -> wireClickInterceptor;
+    # the shipped function now always carries both an action branch
+    # and a behavior branch (each with its own try/catch), regardless
+    # of which this particular page actually uses -- see
+    # tests/test_htmx_5.py.
     pages = {
         "/": Page(
             State("count", 0),
@@ -93,30 +123,32 @@ def test_wire_action_interceptor_guards_dispatch_independently():
         )
     }
     js = JSBackend().render(_ir(pages))[SCRIPT_PATH]
-    wire_body = js.split("function wireActionInterceptor(getStore) {")[1].split(
+    wire_body = js.split("function wireClickInterceptor(getStore) {")[1].split(
         "function highlightActiveNavLink"
     )[0]
-    assert wire_body.count("try {") == 1
-    assert wire_body.count("catch (err)") == 1
+    assert wire_body.count("try {") == 2
+    assert wire_body.count("catch (err)") == 2
     assert "arkNotify(" in wire_body
 
 
-def test_wire_behaviors_guards_each_element_independently():
-    # htmx-1: there is no more wireBehaviors() wiring pass -- HTMX's
-    # own hx-on:click processing does the wiring, and per-call
-    # guarding now happens inside arkRunBehavior instead of a
-    # querySelectorAll/forEach loop. This test now checks that
-    # smaller, per-call guard directly.
+def test_wire_click_interceptor_guards_behavior_dispatch_independently():
+    # htmx-1 originally guarded per-behavior dispatch inside a
+    # standalone arkRunBehavior() wrapper, called from HTMX's own
+    # hx-on:click attribute processing. htmx-5 removed that wrapper --
+    # the guard now lives directly in wireClickInterceptor's
+    # "behavior:" branch (see arklight/backend/js/runtime/dispatch.py
+    # and tests/test_htmx_5.py for why).
     pages = {"/": Page(Button("Show", on_click="toggle", behavior_target="#panel"))}
     js = JSBackend().render(_ir(pages))[SCRIPT_PATH]
     assert "function wireBehaviors() {" not in js
-    assert "function arkRunBehavior(name, el) {" in js
-    run_behavior_body = js.split("function arkRunBehavior(name, el) {")[1].split(
-        "window.arkRunBehavior"
+    assert "function arkRunBehavior(name, el) {" not in js
+    wire_body = js.split("function wireClickInterceptor(getStore) {")[1].split(
+        "function highlightActiveNavLink"
     )[0]
-    assert run_behavior_body.count("try {") == 1
-    assert run_behavior_body.count("catch (err)") == 1
-    assert "arkNotify(" in run_behavior_body
+    behavior_branch = wire_body.split('raw.indexOf("behavior:") === 0) {')[1]
+    assert behavior_branch.count("try {") == 1
+    assert behavior_branch.count("catch (err)") == 1
+    assert "arkNotify(" in behavior_branch
 
 
 def test_copy_behavior_handles_clipboard_rejection():
@@ -135,10 +167,20 @@ def test_runtime_still_has_no_eval_or_new_function():
     # The hardening pass must not introduce any string-as-code
     # execution -- arkNotify only ever sets textContent/cssText.
     #
-    # htmx-1: this page ships vendored HTMX, a general-purpose
-    # third-party library that (like most such libraries) has its own
-    # internal eval/new Function uses unrelated to this guarantee --
-    # see test_js_backend.py's identical scoping adjustment.
+    # This check only ever inspected the JS file, scoped to exclude
+    # vendored HTMX's own source -- which is why it could never have
+    # caught htmx-5's actual finding (hx-on:click's attribute-value
+    # dispatch was, under the hood, new Function("event",
+    # attributeValue), reached from an *HTML* attribute this stage
+    # removed, not from anything in this JS file). See
+    # tests/test_htmx_5.py for the dedicated regression coverage on
+    # the HTML side, and arklight/backend/js/runtime/dispatch.py's
+    # module docstring for the full finding. This test remains valid
+    # for what it actually checks: ARKlight's own authored JS, with
+    # vendored HTMX's source excluded, contains no eval-equivalent
+    # call -- true before and after htmx-5, since ARKlight's own
+    # authored JS never routed through hx-on:click in the first place
+    # (only the *compiled HTML attribute* did).
     from arklight.backend.js.htmx import HTMX_JS
 
     pages = {

@@ -33,8 +33,27 @@ renamed `dispatch.py`'s export from `WIRE_ACTIONS_JS` to
 `forEach` wiring loop it used to hold is gone, replaced by a single
 delegated `click` listener (`wireActionInterceptor`). See that
 module's docstring for why this isn't literally the `htmx:beforeRequest`
-interceptor `HTMX-INTEGRATION.md` describes. `STATE_CORE_JS` is
-reassembled in the same position this piece always occupied.
+interceptor `HTMX-INTEGRATION.md` describes.
+
+`htmx-5` (see `docs/Backends/HTMX-INTEGRATION.md` "Stage 4 -- Audit
+and remove remaining hand-rolled plumbing" / `docs/Backends/
+REFACTOR-INDEX.md` row 10) renamed that export again, to
+`CLICK_INTERCEPTOR_JS` (function `wireClickInterceptor`), and pulled
+it out of `STATE_CORE_JS` entirely -- it's no longer a piece of the
+reactive-state bundle. This module's docstring above described
+`STATE_CORE_JS` as "the fixed reactive core every stateful page ships
+as a unit"; that framing stopped being accurate for the interceptor
+once `htmx-5` made it also dispatch named-behavior clicks, which have
+nothing to do with reactive state and can appear on a page with no
+`State(...)` at all (see `dispatch.py`'s module docstring for why that
+stage happened -- folding behavior dispatch out of vendored HTMX's
+`hx-on:click`, which used a `Function`-from-string call ARKlight's own
+"no eval" invariant doesn't permit). `arklight/backend/js/render.py`'s
+`_build_runtime_js` now includes `CLICK_INTERCEPTOR_JS` whenever a
+page uses a named behavior *or* an action, independent of `has_state`,
+alongside `STATE_CORE_JS` (createState/bindings/initState) whenever
+`has_state` alone -- the two are shipped independently now, not always
+together.
 """
 
 from __future__ import annotations
@@ -43,22 +62,23 @@ from arklight.backend.js.runtime.bindings import (
     RENDER_BINDINGS_JS,
     RENDER_CLASS_BINDINGS_JS,
 )
-from arklight.backend.js.runtime.dispatch import ACTION_INTERCEPTOR_JS
+from arklight.backend.js.runtime.dispatch import CLICK_INTERCEPTOR_JS
 from arklight.backend.js.runtime.nav import NAV_HIGHLIGHT_JS
 from arklight.backend.js.runtime.notify import NOTIFY_JS
 from arklight.backend.js.runtime.state import CREATE_STATE_JS, INIT_STATE_JS
 
-# Reassembled in the exact original order -- see module docstring.
+# Reactive-state pieces only -- the click interceptor is no longer
+# part of this bundle as of htmx-5 (see module docstring above).
 STATE_CORE_JS = (
     CREATE_STATE_JS
     + RENDER_BINDINGS_JS
     + RENDER_CLASS_BINDINGS_JS
     + INIT_STATE_JS
-    + ACTION_INTERCEPTOR_JS
 )
 
 __all__ = [
     "STATE_CORE_JS",
+    "CLICK_INTERCEPTOR_JS",
     "NOTIFY_JS",
     "NAV_HIGHLIGHT_JS",
 ]
