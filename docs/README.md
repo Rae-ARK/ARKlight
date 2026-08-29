@@ -1,4 +1,9 @@
-# ARKlight's Philosophy
+# ARKlight Documentation
+
+This folder is the documentation index for ARKlight. Start here, then
+follow the links below into the subfolders for the topic you need.
+
+## Philosophy
 
 - **"The browser never executes Python."** (`arklight/__init__.py`) —
   output is plain HTML/CSS/vanilla JS; the compiler is the only thing
@@ -19,20 +24,54 @@
   repeatedly frames "inspectable, predictable" output as the point of
   compiling to plain HTML at all (`README.md`'s opening description).
 
-# Other Folders
+## Folder Guide
 
-`docs/Foundational` - has the important docs.
+### `docs/Foundational/`
 
--  *ARCHITECTURE.md* 
+The core reading for understanding how ARKlight works and why it's
+built the way it is.
 
-- *CONFIGURABILITY.md* 
+| File | Covers |
+| --- | --- |
+| [`ARCHITECTURE.md`](Foundational/ARCHITECTURE.md) | High-level system design: how source is parsed, compiled to IR, and rendered by a backend. |
+| [`CONFIGURABILITY.md`](Foundational/CONFIGURABILITY.md) | Configuration surface — what can be tuned per-project via `config.py` and friends. |
+| [`DEPLOYMENT-CLI.md`](Foundational/DEPLOYMENT-CLI.md) | The `arklight` CLI: build/deploy workflows and commands. |
+| [`DESIGN-NOTES.md`](Foundational/DESIGN-NOTES.md) | Rationale and trade-offs behind key design decisions. |
+| [`EXPERIMENTAL-APIS.md`](Foundational/EXPERIMENTAL-APIS.md) | APIs that are unstable or opt-in (`experimental.py`), and their stability guarantees. |
 
-- *DEPLOYMENT-CLU.md* 
+### `docs/Backends/`
 
-- *DESIGN-NOTES.md* 
+Details specific to individual output backends and their refactor history.
 
-- *EXPERIMENTAL-APIS.md*
+| File | Covers |
+| --- | --- |
+| [`REFACTOR-INDEX.md`](Backends/REFACTOR-INDEX.md) | Index/overview of backend refactor efforts — start here for this folder. |
+| [`HTML-BACKEND-REFACTOR.md`](Backends/HTML-BACKEND-REFACTOR.md) | HTML backend refactor notes. |
+| [`JS-BACKEND-REFACTOR-PLAN.md`](Backends/JS-BACKEND-REFACTOR-PLAN.md) | Plan for the JS backend refactor. |
+| [`HTMX-INTEGRATION.md`](Backends/HTMX-INTEGRATION.md) | How htmx is integrated and only shipped when used. |
+| [`NEUTRALINO-INTEGRATION.md`](Backends/NEUTRALINO-INTEGRATION.md) | Neutralino desktop-app integration. |
 
-`docs/Backends` - has the Backend Related details.
+### `docs/new js backend proposal/`
 
-*this file is not completed yet...*
+Proposals under consideration for a redesigned JS backend.
+
+| File | Covers |
+| --- | --- |
+| [`ARCHITECTURE-VDOM.md`](<new js backend proposal/ARCHITECTURE-VDOM.md>) | Proposal using a virtual DOM approach. |
+| [`ARCHITECTURE no vdom.md`](<new js backend proposal/ARCHITECTURE no vdom.md>) | Alternative proposal without a virtual DOM. |
+
+### `docs/Far Future Concern/`
+
+Speculative/backlog material for backends that aren't a near-term
+priority.
+
+| File | Covers |
+| --- | --- |
+| [`kaios-app-design-doc.md`](<Far Future Concern/kaios-app-design-doc.md>) | Design doc for a potential KaiOS app. |
+| [`KAIOS-BACKEND-IMPLEMENTATION.md`](<Far Future Concern/KAIOS-BACKEND-IMPLEMENTATION.md>) | Implementation notes for a KaiOS backend. |
+| [`WINDOWS-PHONE-BACKEND.md`](<Far Future Concern/WINDOWS-PHONE-BACKEND.md>) | Notes on a (very) speculative Windows Phone backend. |
+
+## Contributing to the Docs
+
+If you add a new doc file, add a row for it in the relevant table
+above so this index stays accurate.
