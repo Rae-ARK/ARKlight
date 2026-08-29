@@ -133,11 +133,13 @@ longer wraps its dispatch through that function -- it calls the action
 directly on every click, same as before Stage 3 existed. This is a
 deliberate, documented, temporary gap: `hx-trigger` is compiled into
 the page's markup by this stage, but nothing reads it as a *trigger*
-yet, so `debounce`/`throttle`/`once`/`stop` have no runtime effect
-until `htmx-3` (row 6) replaces `wireActions`'s hand-rolled loop with
-an `htmx:beforeRequest` interceptor that HTMX's own trigger processing
-actually feeds. `prevent` is unaffected either way, per Stage 3's note
-above.
+yet, so `debounce`/`throttle`/`once`/`stop` have no runtime effect at
+this point. `prevent` is unaffected either way, per Stage 3's note
+above. **This remained true through `htmx-5`** -- the delegated click
+listener `htmx-3` built never grew modifier-timing enforcement either,
+despite the design doc's original expectation that it would; see
+`runtime/dispatch.py`'s module docstring, "Bug fix (post-`htmx-5`...)"
+section, for where and how that gap was finally closed.
 
 `htmx-3` (see `docs/Backends/HTMX-INTEGRATION.md` "Stage 3 -- Replace
 `wireActions()` wiring loop" / `docs/Backends/REFACTOR-INDEX.md` row 6)

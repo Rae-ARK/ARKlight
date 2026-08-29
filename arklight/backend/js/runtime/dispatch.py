@@ -107,13 +107,36 @@ unmodified by this stage, matching `REFACTOR-INDEX.md` row 6's "HTML-
 side `data-ark-action-*` attributes are unchanged" note. `"prevent"`
 remains honored by construction (the `event.preventDefault()` call
 below is unconditional, independent of any modifier, same as every
-prior stage). `debounce`/`throttle`/`once`/`stop`'s *compiled*
-`hx-trigger` tokens still describe intent in the page's markup (kept
-for a future stage that wires this interceptor through HTMX's own
-trigger-spec parsing directly, once `htmx-4`'s app-shell audit settles
-what survives a boosted swap) -- this stage closes the "no listener at
-all" gap `htmx-2` left open, not the "modifier timing" gap; that
-remains a documented, deliberate scope boundary of this stage.
+prior stage). `debounce`/`throttle`/`once`/`stop`'s *compiled* `hx-trigger` tokens
+described intent in the page's markup from `htmx-2` onward, but this
+stage originally closed only the "no listener at all" gap `htmx-2`
+left open, not the "modifier timing" gap -- that was a documented,
+deliberate scope boundary here, later closed by the bug-fix pass
+below.
+
+**Bug fix (post-`htmx-5`, see `docs/bug_fixes.md` finding 1):** the
+gap above was live long enough to ship -- every `Action.*` click fired
+immediately regardless of any declared modifier, because this
+listener never read `hx-trigger` at all. Fixed by having
+`wireClickInterceptor` parse the element's own already-compiled
+`hx-trigger` attribute at dispatch time (`parseTriggerModifiers`,
+plain `String.split`/`indexOf` -- no eval, no `new Function`, nothing
+that treats a string as code) and enforce it: `once` is tracked in a
+`WeakSet` of already-fired elements, `throttle:<ms>` in a `WeakMap` of
+per-element last-fire timestamps, `debounce:<ms>` in a `WeakMap` of
+per-element pending timers (a new click clears and restarts the
+timer), and `consume` calls `event.stopPropagation()` directly rather
+than relying on HTMX's own `hx-trigger`-only listener (whose
+`htmx:trigger` event nothing in ARKlight's runtime ever listened for
+-- that listener still gets registered by vendored HTMX's own
+attribute processing and is now genuinely redundant with this fix,
+but removing it would mean touching `attrs.py`'s compiled output for
+a JS-only bug fix, which is out of scope here). `prevent` is
+unaffected, still honored by the unconditional `event.preventDefault()`
+already in place. The actual `action(...)` call keeps its original,
+single `try`/`catch` guard -- just now invoked either synchronously or
+from inside the debounce timer's callback, instead of always
+synchronously.
 
 `htmx-4` (docs/Backends/REFACTOR-INDEX.md row 9) changed this
 function's signature (then still named `wireActionInterceptor`) from
@@ -147,6 +170,30 @@ that always returns `null`, which the action branch's existing
 from __future__ import annotations
 
 CLICK_INTERCEPTOR_JS = """  function wireClickInterceptor(getStore) {
+    var debounceTimers = new WeakMap();
+    var throttleLast = new WeakMap();
+    var onceFired = new WeakSet();
+
+    function parseTriggerModifiers(el) {
+      var mods = { once: false, consume: false, debounce: null, throttle: null };
+      var raw = el.getAttribute("hx-trigger");
+      if (!raw) return mods;
+      var tokens = raw.split(/\\s+/).slice(1);
+      for (var i = 0; i < tokens.length; i++) {
+        var token = tokens[i];
+        if (token === "once") {
+          mods.once = true;
+        } else if (token === "consume") {
+          mods.consume = true;
+        } else if (token.indexOf("debounce:") === 0) {
+          mods.debounce = parseInt(token.slice("debounce:".length), 10);
+        } else if (token.indexOf("throttle:") === 0) {
+          mods.throttle = parseInt(token.slice("throttle:".length), 10);
+        }
+      }
+      return mods;
+    }
+
     document.addEventListener("click", function (event) {
       var el = event.target.closest("[data-ark-on-click]");
       if (!el) return;
@@ -155,16 +202,40 @@ CLICK_INTERCEPTOR_JS = """  function wireClickInterceptor(getStore) {
         var store = getStore();
         if (!store) return;
         event.preventDefault();
-        try {
-          var actionName = raw.slice("action:".length);
-          var stateKey = el.getAttribute("data-ark-action-state");
-          var argsRaw = el.getAttribute("data-ark-action-args");
-          var args = argsRaw ? JSON.parse(argsRaw) : {};
-          var action = actions[actionName];
-          if (!action) return;
-          action(store, stateKey, args);
-        } catch (err) {
-          arkNotify("Something went wrong updating this page -- an unsupported or unexpected case was hit.");
+        var mods = parseTriggerModifiers(el);
+        if (mods.consume) event.stopPropagation();
+        if (mods.once) {
+          if (onceFired.has(el)) return;
+          onceFired.add(el);
+        }
+        if (mods.throttle !== null) {
+          var now = Date.now();
+          var lastRun = throttleLast.get(el) || 0;
+          if (now - lastRun < mods.throttle) return;
+          throttleLast.set(el, now);
+        }
+        var runAction = function () {
+          try {
+            var actionName = raw.slice("action:".length);
+            var stateKey = el.getAttribute("data-ark-action-state");
+            var argsRaw = el.getAttribute("data-ark-action-args");
+            var args = argsRaw ? JSON.parse(argsRaw) : {};
+            var action = actions[actionName];
+            if (!action) return;
+            action(store, stateKey, args);
+          } catch (err) {
+            arkNotify("Something went wrong updating this page -- an unsupported or unexpected case was hit.");
+          }
+        };
+        if (mods.debounce !== null) {
+          var existingTimer = debounceTimers.get(el);
+          if (existingTimer) clearTimeout(existingTimer);
+          debounceTimers.set(el, setTimeout(function () {
+            debounceTimers.delete(el);
+            runAction();
+          }, mods.debounce));
+        } else {
+          runAction();
         }
       } else if (raw.indexOf("behavior:") === 0) {
         event.preventDefault();

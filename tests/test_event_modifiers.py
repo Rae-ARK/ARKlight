@@ -206,3 +206,97 @@ def test_runtime_still_has_no_eval_or_new_function():
     ark_authored_js = js.replace(HTMX_JS, "")
     assert "eval(" not in ark_authored_js
     assert "new Function(" not in ark_authored_js
+
+
+# ---------------------------------------------------------------------------
+# Bug fix (docs/bug_fixes.md finding 1): compiled `hx-trigger` modifiers
+# are now actually enforced by wireClickInterceptor at dispatch time,
+# not just compiled into inert markup. These assertions are static --
+# same as every other test in this module -- since nothing in this test
+# suite executes the emitted JS; they check that the enforcement logic
+# is present in the right branch, with the right per-element bookkeeping
+# shape, rather than simulating click timing.
+# ---------------------------------------------------------------------------
+
+
+def test_click_interceptor_reads_hx_trigger_for_modifier_enforcement():
+    tree = Page(
+        State("count", 0),
+        Button("+1", on_click=Action.increment("count").debounce(300)),
+    )
+    js = JSBackend().render(_ir({"/": tree}))["arklight.js"]
+    wire_body = js.split("function wireClickInterceptor(getStore) {")[1].split(
+        "function highlightActiveNavLink"
+    )[0]
+    assert 'el.getAttribute("hx-trigger")' in wire_body
+    assert "parseTriggerModifiers" in wire_body
+
+
+def test_click_interceptor_enforces_once_per_element():
+    tree = Page(
+        State("count", 0),
+        Button("+1", on_click=Action.increment("count").with_modifiers("once")),
+    )
+    js = JSBackend().render(_ir({"/": tree}))["arklight.js"]
+    wire_body = js.split("function wireClickInterceptor(getStore) {")[1].split(
+        "function highlightActiveNavLink"
+    )[0]
+    assert "onceFired" in wire_body
+    assert "new WeakSet()" in wire_body
+
+
+def test_click_interceptor_enforces_throttle_per_element():
+    tree = Page(
+        State("count", 0),
+        Button("+1", on_click=Action.increment("count").throttle(250)),
+    )
+    js = JSBackend().render(_ir({"/": tree}))["arklight.js"]
+    wire_body = js.split("function wireClickInterceptor(getStore) {")[1].split(
+        "function highlightActiveNavLink"
+    )[0]
+    assert "throttleLast" in wire_body
+    assert "Date.now()" in wire_body
+
+
+def test_click_interceptor_enforces_debounce_per_element():
+    tree = Page(
+        State("count", 0),
+        Button("+1", on_click=Action.increment("count").debounce(300)),
+    )
+    js = JSBackend().render(_ir({"/": tree}))["arklight.js"]
+    wire_body = js.split("function wireClickInterceptor(getStore) {")[1].split(
+        "function highlightActiveNavLink"
+    )[0]
+    assert "debounceTimers" in wire_body
+    assert "setTimeout(" in wire_body
+    assert "clearTimeout(existingTimer)" in wire_body
+
+
+def test_click_interceptor_stop_calls_stop_propagation():
+    tree = Page(
+        State("count", 0),
+        Button("+1", on_click=Action.increment("count").with_modifiers("stop")),
+    )
+    js = JSBackend().render(_ir({"/": tree}))["arklight.js"]
+    wire_body = js.split("function wireClickInterceptor(getStore) {")[1].split(
+        "function highlightActiveNavLink"
+    )[0]
+    assert "event.stopPropagation()" in wire_body
+
+
+def test_click_interceptor_without_modifiers_still_dispatches_synchronously():
+    # An unmodified Action.*(...) button has no hx-trigger attribute at
+    # all (attrs.py omits it entirely -- see
+    # test_html_backend_omits_hx_trigger_when_none_attached above), so
+    # parseTriggerModifiers must return its all-false/all-null default
+    # rather than erroring on a missing attribute, and the action must
+    # still fire on the same click (no debounce delay introduced for
+    # the common, unmodified case).
+    tree = Page(State("count", 0), Button("+1", on_click=Action.increment("count")))
+    html = HTMLBackend().render(_ir({"/": tree}))["index.html"]
+    assert "hx-trigger" not in html
+    js = JSBackend().render(_ir({"/": tree}))["arklight.js"]
+    wire_body = js.split("function wireClickInterceptor(getStore) {")[1].split(
+        "function highlightActiveNavLink"
+    )[0]
+    assert "if (!raw) return mods;" in wire_body
