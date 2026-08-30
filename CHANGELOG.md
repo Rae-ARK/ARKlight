@@ -5,6 +5,35 @@ follows [Keep a Changelog](https://keepachangelog.com/); versions
 follow the milestone scheme from ARCHITECTURE.md rather than strict
 SemVer.
 
+## [Unreleased] -- `head_meta.py` favicon/og_image root-relative path bugfix
+
+**Bug:** a root-relative `favicon`/`og_image` value (leading `/`, e.g.
+`/assets/favicon.ico`) was passed straight into
+`_relative_asset_path`, which resolves via `posixpath.relpath()`.
+With one argument absolute, `relpath` resolves it against the build
+process's `os.getcwd()` instead of the site's route structure --
+every page ended up with the wrong number of `../` segments (matching
+the *build directory's* path depth, not the page's route depth)
+instead of the correct site-relative path.
+
+`routing.py`'s `_resolve_src_ref` already hit and fixed this exact
+failure mode for `src`-shaped attributes (Image/Source/Track/IFrame/
+`poster`/`srcset`) by stripping a leading `/` before calling
+`_relative_asset_path` -- see `HTML-BACKEND-REFACTOR.md` / the
+`UNROUTED_REFERENCE_ATTRS` fix in `[0.0491]` below. That fix never
+made it to `head_meta.py`'s `favicon`/`og_image` handling, which
+predates it.
+
+**Fix (`arklight/backend/html/head_meta.py`):** both `favicon` and
+`og_image` now go through `.lstrip("/")` before `_relative_asset_path`,
+matching `_resolve_src_ref`'s existing treatment. A root-relative path
+now resolves identically to the same path written without the leading
+`/`, regardless of the directory `arklight build` is invoked from.
+
+**Tests (`tests/test_html_head_meta.py`):** two new regression tests
+assert a leading-`/` favicon/og_image renders identically to the same
+path with no leading `/`, from a nested route.
+
 ## [0.0501] -- Combined refactor, Stage 11 of 16 (HTMX integration, `htmx-5`: audit and remove remaining hand-rolled plumbing)
 
 **Scope:** `docs/Backends/REFACTOR-INDEX.md` row 10 / `docs/Backends/

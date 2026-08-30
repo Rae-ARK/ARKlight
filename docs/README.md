@@ -50,6 +50,7 @@ Details specific to individual output backends and their refactor history.
 | [`JS-BACKEND-REFACTOR-PLAN.md`](Backends/JS-BACKEND-REFACTOR-PLAN.md) | Plan for the JS backend refactor. |
 | [`HTMX-INTEGRATION.md`](Backends/HTMX-INTEGRATION.md) | How htmx is integrated and only shipped when used. |
 | [`NEUTRALINO-INTEGRATION.md`](Backends/NEUTRALINO-INTEGRATION.md) | Neutralino desktop-app integration. |
+| [`ARKLIGHT_DESKTOP_BACKEND_PROPOSAL.md`](Backends/ARKLIGHT_DESKTOP_BACKEND_PROPOSAL.md) | Proposal for a purpose-built native desktop host/packager (replacing Neutralino.js as the canonical desktop backend). |
 
 ### `docs/new js backend proposal/`
 

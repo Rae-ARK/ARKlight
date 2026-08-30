@@ -209,6 +209,118 @@ arklight search Picture
 arklight search pictur   # -> "Did you mean: Picture, PictureSource?"
 ```
 
+- `--limit N` -- max number of "did you mean" suggestions on a miss
+  (default: 5).
+- `--near NAME` -- bias suggestion ranking toward components used
+  structurally close to `NAME` in this project's own usage.
+- `--accept` -- on an exact match, record it in the usage store so
+  future searches rank it higher.
+- `--serve` -- start a long-lived line-delimited JSON stdio server
+  instead of a single lookup (for an editor/IDE extension to launch as
+  a subprocess, the same way an LSP client launches a language
+  server). Mutually exclusive with `name`; runs until stdin closes.
+
+```bash
+arklight search Picture --near Heading --accept
+arklight search --serve
+```
+
+```bash
+arklight new <name> [--template simple|production] [--dir PATH] [--explain-architecture]
+```
+
+- `name` -- name of the new project (also the directory created for
+  it). Optional only when used with `--explain-architecture` alone.
+- `--template` -- `simple` (default; a single `site.py`) or
+  `production` (a `site.py` + `components/` + `pages/` + `content/` +
+  `assets/` layout for sites that outgrow one file).
+- `--dir` -- directory to create the project in (default: current
+  directory).
+- `--explain-architecture` -- print guidance on structuring an
+  ARKlight project as service-oriented, separated-by-concern modules.
+  Run alone (no `name`) to just read the guide, or alongside a
+  `--template production` scaffold to print it right after.
+
+```bash
+arklight new my-site
+arklight new my-blog --template production --explain-architecture
+arklight new --explain-architecture
+```
+
+```bash
+arklight pwa <build-dir> --name "My Site" [--short-name NAME] [--start-url URL]
+    [--theme-color COLOR] [--background-color COLOR]
+    [--display standalone|fullscreen|minimal-ui|browser]
+    [--icon SRC:SIZES[:TYPE]]... [--install-button]
+```
+
+- `build-dir` -- an existing `arklight build` output directory.
+- Turns that directory into an installable PWA: writes a
+  `manifest.json` and a service worker, and injects the manifest
+  link/SW registration into every already-built page.
+- `--icon` is repeatable, e.g.
+  `--icon assets/icon-192.png:192x192 --icon assets/icon-512.png:512x512`.
+- `--install-button` is EXPERIMENTAL (see
+  [`docs/Foundational/EXPERIMENTAL-APIS.md`](./docs/Foundational/EXPERIMENTAL-APIS.md)):
+  injects a native install-prompt button on every page.
+- Idempotent -- safe to re-run after every `arklight build` to keep
+  the manifest/service worker/precache list in sync.
+
+```bash
+arklight build examples/hello_site/site.py -o ARK --no-open
+arklight pwa ARK --name "Hello Site" --icon assets/icon-192.png:192x192
+```
+
+```bash
+arklight live-streaming --subscribe <entry.py> [-o OUTPUT_DIR] [--host HOST] [--port PORT]
+    [--channel [PORT]] [--route ROUTE]
+arklight live-streaming --status [entry.py] [--status-pin]
+arklight live-streaming --unsubscribe [entry.py]
+```
+
+Alpha-only dev tool (see `arklight.CHANNEL`): watches the entry file's
+directory and rebuilds automatically, pushing a browser reload over
+Server-Sent Events after each rebuild. **Development only -- do not
+run in production/CI.**
+
+- `--subscribe ENTRY` -- start a session for `ENTRY` (e.g. `site.py`).
+  Blocks the terminal, streaming rebuild logs, until `Ctrl-C` or
+  `--unsubscribe`.
+- `-o, --output` -- output directory for `--subscribe` (default:
+  `ARK`).
+- `--host` / `--port` -- bind address for the dev server (defaults:
+  `127.0.0.1` / `8347`, or `arklight.config.py`'s
+  `live_streaming.host`/`live_streaming.port`).
+- `--channel [PORT]` -- also serve the selected page's live
+  `State(...)` over SSE, on a second port (a specific `PORT`, e.g.
+  `--channel 2172`, or an OS-assigned free port with bare `--channel`).
+- `--route ROUTE` -- with `--channel`, which page's `State(...)` to
+  serve (default: the site's first page).
+- `--status [ENTRY]` -- show whether a session is running.
+  `--status-pin` prints verbose session details. `ENTRY` may be
+  omitted if exactly one session is running.
+- `--unsubscribe [ENTRY]` -- stop a running session.
+
+```bash
+arklight live-streaming --subscribe examples/hello_site/site.py
+arklight live-streaming --subscribe examples/hello_site/site.py --channel
+arklight live-streaming --status
+arklight live-streaming --unsubscribe
+```
+
+```bash
+arklight --version
+arklight --upgrade-alpha
+```
+
+- `--version` -- print the installed ARKlight version and exit.
+- `--upgrade-alpha` -- switch a git-checkout/editable install over to
+  the `alpha` branch (fetch, switch/create the local branch, pull, and
+  `pip install -e .` again in place) so the CLI reflects it
+  immediately. Only works for a git-checkout/editable install. A
+  standalone action, like `--version` -- it doesn't require (or use) a
+  subcommand.
+
 `arklight --help` (or a bare `arklight` with no subcommand) prints the
 full list of subcommands with a short description of each.
 

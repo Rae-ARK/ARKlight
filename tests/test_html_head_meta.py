@@ -75,6 +75,41 @@ def test_og_image_resolved_as_relative_asset_path():
     assert '<meta property="og:image" content="../social.png">' in result
 
 
+def test_favicon_with_leading_slash_resolved_relative_not_cwd_dependent():
+    # Bugfix regression: a root-relative favicon (leading "/") used to
+    # be passed straight into `_relative_asset_path`, which calls
+    # `posixpath.relpath()` -- with one argument absolute, `relpath`
+    # resolves against the build's `os.getcwd()` instead of the site
+    # structure, so the result varied with the calling directory
+    # instead of being a fixed function of the route. A leading "/"
+    # must now resolve identically to the same path with no leading
+    # "/" (see `routing.py`'s `_resolve_src_ref` for the same fix
+    # applied to `src`-shaped attributes).
+    with_slash = _page({"favicon": "/assets/favicon.ico"})
+    without_slash = _page({"favicon": "assets/favicon.ico"})
+    result_with_slash = _render_head_meta(
+        with_slash, "Home", current_route="/blog/post", route_to_path=ROUTE_TO_PATH
+    )
+    result_without_slash = _render_head_meta(
+        without_slash, "Home", current_route="/blog/post", route_to_path=ROUTE_TO_PATH
+    )
+    assert result_with_slash == result_without_slash
+    assert '<link rel="icon" href="../assets/favicon.ico">' in result_with_slash
+
+
+def test_og_image_with_leading_slash_resolved_relative_not_cwd_dependent():
+    with_slash = _page({"og_image": "/assets/social.png"})
+    without_slash = _page({"og_image": "assets/social.png"})
+    result_with_slash = _render_head_meta(
+        with_slash, "Home", current_route="/blog/post", route_to_path=ROUTE_TO_PATH
+    )
+    result_without_slash = _render_head_meta(
+        without_slash, "Home", current_route="/blog/post", route_to_path=ROUTE_TO_PATH
+    )
+    assert result_with_slash == result_without_slash
+    assert '<meta property="og:image" content="../assets/social.png">' in result_with_slash
+
+
 def test_meta_dict_renders_one_tag_per_entry_in_order():
     page = _page({"meta": {"robots": "noindex", "author": "Rae"}})
     result = _render_head_meta(page, "Home", current_route="/", route_to_path=ROUTE_TO_PATH)

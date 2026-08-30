@@ -52,7 +52,10 @@ def _render_head_meta(
     Supported props (all optional):
       description  -- <meta name="description">
       favicon      -- root-relative asset path, resolved the same way
-                       stylesheet_href/script_src already are
+                       stylesheet_href/script_src already are. A
+                       leading "/" (e.g. "/assets/favicon.ico") is
+                       stripped before resolution -- see the
+                       Bugfix note below.
       og_title, og_description, og_image -- Open Graph tags, emitted
         only once `description` or any `og_*` prop is supplied (so a
         page that touches none of this renders exactly as before);
@@ -69,6 +72,20 @@ def _render_head_meta(
         through `_relative_asset_path`, since a `links` entry is at
         least as likely to point at an external origin (preconnect,
         webfonts) as a local asset.
+
+    Bugfix: `favicon`/`og_image` are documented as root-relative asset
+    paths (e.g. "/assets/favicon.ico"), but `_relative_asset_path`
+    calls `posixpath.relpath()` with a single argument -- when that
+    argument is itself absolute (starts with "/"), `relpath` resolves
+    it against the build process's `os.getcwd()` instead of the site's
+    route structure, producing a wrong, cwd-dependent number of `../`
+    segments on every page. `routing.py`'s `_resolve_src_ref` already
+    hit and fixed this exact failure mode for `src`-shaped attributes
+    by stripping a leading "/" before calling `_relative_asset_path`
+    (see its docstring); that fix just never made it here. Both
+    `favicon` and `og_image` now go through the same `.lstrip("/")`
+    before resolution, so a root-relative path behaves the same
+    (correct) way regardless of which prop it's supplied through.
     """
     description = page.root.props.get("description")
     favicon = page.root.props.get("favicon")
@@ -88,7 +105,7 @@ def _render_head_meta(
         tags.append(f'  <meta name="description" content="{escape(str(description), quote=True)}">\n')
     if favicon:
         favicon_href = _relative_asset_path(
-            str(favicon), current_route=current_route, route_to_path=route_to_path
+            str(favicon).lstrip("/"), current_route=current_route, route_to_path=route_to_path
         )
         tags.append(f'  <link rel="icon" href="{escape(favicon_href, quote=True)}">\n')
     if og_title:
@@ -99,7 +116,7 @@ def _render_head_meta(
         )
     if og_image:
         og_image_href = _relative_asset_path(
-            str(og_image), current_route=current_route, route_to_path=route_to_path
+            str(og_image).lstrip("/"), current_route=current_route, route_to_path=route_to_path
         )
         tags.append(f'  <meta property="og:image" content="{escape(og_image_href, quote=True)}">\n')
 
