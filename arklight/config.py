@@ -45,7 +45,12 @@ CONFIG_FILENAME = "arklight.config.py"
 # (forward-compatible with a config file written against a newer
 # ARKlight that knows more sections than this one does), but nothing
 # in this branch will read it.
-_KNOWN_SECTIONS = {"live_streaming"}
+#
+# "android" is read by `arklight.cli.android` (`arklight android
+# scaffold`) -- see docs/Foundational/DESIGN-NOTES.md's "v0.0438:
+# Android backend" section, "App identity metadata" subsection, for
+# the full key list and defaults.
+_KNOWN_SECTIONS = {"live_streaming", "android"}
 
 
 class ConfigError(Exception):
