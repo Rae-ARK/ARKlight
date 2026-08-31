@@ -10,12 +10,15 @@ wire up.
 
 from __future__ import annotations
 
+from arklight.cli.templates._common import ARKLIGHT_CONFIG_PY
+
 
 def build(name: str) -> dict[str, str]:
     """Return {relative_path: contents} for a fresh `simple` project called `name`."""
     title = repr(name)
     return {
         "site.py": _SITE_PY.format(title=title),
+        "arklight.config.py": ARKLIGHT_CONFIG_PY,
         "README.md": _README_MD.format(name=name),
     }
 
@@ -78,6 +81,9 @@ to skip that).
 - Add an `assets/` folder next to `site.py` (images, fonts, favicons,
   ...) and `arklight build` copies it into the output directory
   automatically.
+- `arklight.config.py` holds optional project settings (e.g. the dev
+  server's host/port) -- everything in it is commented out by default
+  and safe to ignore until you need it.
 - Outgrowing one file? `arklight new <name> --template production`
   scaffolds a `components/` / `pages/` / `content/` layout instead.
 '''

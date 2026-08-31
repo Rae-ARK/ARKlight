@@ -15,6 +15,7 @@ def test_new_simple_writes_expected_files(tmp_path):
     assert result.template == "simple"
     assert (tmp_path / "my_site" / "site.py").exists()
     assert (tmp_path / "my_site" / "README.md").exists()
+    assert (tmp_path / "my_site" / "arklight.config.py").exists()
 
 
 def test_new_production_writes_expected_files(tmp_path):
@@ -32,6 +33,7 @@ def test_new_production_writes_expected_files(tmp_path):
         "content/__init__.py",
         "content/site_content.py",
         "assets/.gitkeep",
+        "arklight.config.py",
     ]:
         assert (project / rel).exists(), rel
 
@@ -86,6 +88,18 @@ def test_scaffolded_project_builds_successfully(tmp_path, template):
     assert (out_dir / "index.html").exists()
     assert (out_dir / "about.html").exists()
     assert build_result.written_paths
+
+
+@pytest.mark.parametrize("template", ["simple", "production"])
+def test_scaffolded_config_file_loads_as_empty_config(tmp_path, template):
+    """The scaffolded `arklight.config.py` is fully commented out --
+    it must still be valid Python that `arklight.config.load_config`
+    can load, resulting in an empty (all-defaults) config."""
+    from arklight.config import load_config
+
+    result = new_project("my_site", template=template, dest_dir=tmp_path)
+
+    assert load_config(result.project_dir) == {}
 
 
 def test_cli_new_scaffolds_and_reports_files(tmp_path, capsys):

@@ -13,6 +13,13 @@ Each template is a callable `name -> dict[relative_path, contents]`
 - `production` -- `templates.production.build`: a `site.py` +
   `components/` + `pages/` + `content/` + `assets/` layout for sites
   that outgrow one file.
+
+Every template also writes an `arklight.config.py` (`templates.
+_common.ARKLIGHT_CONFIG_PY`) -- fully commented out, so it changes no
+behavior by existing, but gives new projects a discoverable, ready-
+to-edit spot for project settings from the start, the same "config
+file scaffolded up front" convention build tools like Vite ship by
+default.
 """
 
 from __future__ import annotations

@@ -28,6 +28,8 @@ Mirrors a proven multi-file layout for sites that outgrow a single
 
 from __future__ import annotations
 
+from arklight.cli.templates._common import ARKLIGHT_CONFIG_PY
+
 
 def build(name: str) -> dict[str, str]:
     """Return {relative_path: contents} for a fresh `production` project called `name`."""
@@ -42,6 +44,7 @@ def build(name: str) -> dict[str, str]:
         "content/__init__.py": _CONTENT_INIT_PY,
         "content/site_content.py": _CONTENT_SITE_CONTENT_PY.format(title=title),
         "assets/.gitkeep": "",
+        "arklight.config.py": ARKLIGHT_CONFIG_PY,
         "README.md": _README_MD.format(name=name),
     }
 
@@ -153,6 +156,8 @@ components/            reusable pieces (nav, etc.), plain functions
 pages/                 one module per route, returns Page(...)
 content/               copy/text constants, kept out of the markup
 assets/                images, fonts, favicons, ... (see below)
+arklight.config.py     optional project settings (dev-server host/
+                        port, etc.) -- commented out by default
 ```
 
 ## Build it
