@@ -88,8 +88,9 @@ Future:
   parser/ir/backend internals" shape as `arklight.packer`. Evolves the
   existing `ARKlight-Viewer-for-Android-Devices` app into this
   backend's runtime rather than generating an Android project from
-  scratch. See `docs/DESIGN-NOTES.md` ("v0.0438: Android backend"),
-  PLANNING.)
+  scratch. See `docs/DESIGN-NOTES.md` ("v0.0438: Android backend") for
+  the design and `docs/Backends/ANDROID-BACKEND-IMPLEMENTATION.md` for
+  the staged implementation order -- Stage 0 in progress.)
 
 ## Public API
 
@@ -154,7 +155,7 @@ here rather than keeping their own copies. Status: DONE / PLANNED.
 | v0.054 | JS backend capability expansion -- computed/derived state, watch effects, two-way input binding, per-item list rendering, conditional show/hide, event modifiers, reactive class binding, all via closed registries (no arbitrary JS/eval) -- design complete in `docs/DESIGN-NOTES.md`, implementation not started | PLANNED |
 | vdom-staging | Reactive-core vdom staging, Stage 1 of 8 -- vendored snabbdom bare core (`init`/`h`/`vnode`/`htmlDomApi`) swapped into `State`'s re-render pass (Stage 1, DONE); reactive class binding via direct `classList.toggle` (Stage 2, DONE); event modifiers/computed state/two-way binding/watch effects/conditional show-hide/list rendering (Stages 3-7, feeding `v0.054`), then `localStorage` persistence (Stage 8) -- see `docs/DESIGN-NOTES.md` ("Reactive-core vdom staging") | IN PROGRESS |
 | v0.060 | User-defined, reusable components | PLANNED |
-| v0.080 | Android backend -- `arklight android` packages a `build-dir` into a native Android project via `androidx.webkit.WebViewAssetLoader`, evolving the existing `ARKlight-Viewer-for-Android-Devices` app into the backend's runtime (staged `scaffold` -> `build` -> `--install` -> `--release` CLI ladder); design complete in `docs/DESIGN-NOTES.md`, implementation not started | PLANNED |
+| v0.080 | Android backend -- `arklight android` packages a `build-dir` into a native Android project via `androidx.webkit.WebViewAssetLoader`, evolving the existing `ARKlight-Viewer-for-Android-Devices` app into the backend's runtime (staged `scaffold` -> `build` -> `--install` -> `--release` CLI ladder); design complete in `docs/DESIGN-NOTES.md`, staged implementation tracked in `docs/Backends/ANDROID-BACKEND-IMPLEMENTATION.md`, Stage 0 in progress | IN PROGRESS |
 | v0.100 | Desktop backend -- `arklight desktop` packages a `build-dir` into a cross-platform desktop app (Tauri-based or similar); design pending | PLANNED |
 | v1.0 | Stable compiler | PLANNED |
 

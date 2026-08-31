@@ -1239,6 +1239,13 @@ file, nothing here is scheduled to a version number yet:
 4. **`arklight android build --release`** -- adds release signing
    pass-through.
 
+Tracked with status/dependencies per stage in
+`docs/Backends/ANDROID-BACKEND-IMPLEMENTATION.md`, the same
+routing-table role `REFACTOR-INDEX.md` plays for the HTML/HTMX/JS
+refactor track -- that file also gives Stage 0 a file-by-file
+breakdown of what in `ARKlight-Viewer-for-Android-Devices` (linked
+there) carries over unchanged vs. needs splitting.
+
 ## v0.044: JS backend capability expansion -- reactive core parity with Vue 3 (PLANNING)
 
 Requested directly by the maintainer: "add all kinds [of] cool JS
