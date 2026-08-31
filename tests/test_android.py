@@ -141,6 +141,34 @@ def test_scaffold_github_actions_workflow_slugifies_app_name_for_artifact(tmp_pa
     assert "name: My-Cool-App-debug-apk" in contents
 
 
+def test_scaffold_github_actions_workflow_includes_install_launch_smoke_test(tmp_path):
+    out_dir = build_dir(tmp_path)
+    project_dir = tmp_path / "android-project"
+
+    scaffold_project(out_dir, output_dir=project_dir)
+
+    contents = (project_dir / ".github/workflows/android-build.yml").read_text()
+    assert "install-launch-smoke-test" in contents
+    assert "needs: assemble-debug" in contents
+    assert "actions/download-artifact@v4" in contents
+    assert "reactivecircus/android-emulator-runner@v2" in contents
+    assert "adb install" in contents
+    assert "am start -n com.arklight.app/com.arklight.app.MainActivity" in contents
+    assert "adb shell pidof com.arklight.app" in contents
+
+
+def test_scaffold_github_actions_workflow_smoke_test_uses_configured_package_id(tmp_path):
+    out_dir = build_dir(tmp_path)
+    project_dir = tmp_path / "android-project"
+    write_config(tmp_path, '{"package_id": "com.example.cool"}')
+
+    scaffold_project(out_dir, output_dir=project_dir)
+
+    contents = (project_dir / ".github/workflows/android-build.yml").read_text()
+    assert "am start -n com.example.cool/com.example.cool.MainActivity" in contents
+    assert "adb shell pidof com.example.cool" in contents
+
+
 # --------------------------------------------------------------------
 # Config-driven identity
 # --------------------------------------------------------------------

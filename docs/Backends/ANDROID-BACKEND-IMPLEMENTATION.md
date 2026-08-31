@@ -1,6 +1,6 @@
 # Android Backend Implementation: Staged Order
 
-Status: **Stages 0, 1, and 2a done**, Stages 2b-4 not started. This file
+Status: **Stages 0, 1, 2a, and 3a done**, Stages 2b/3b/4 not started. This file
 does not restate the design already written in `docs/DESIGN-NOTES.md`
 ("v0.0438: Android backend -- androidx.webkit.WebViewAssetLoader
 packaging") -- it exists only to turn that section's prose "Staging"
@@ -47,7 +47,8 @@ pointers, it does not renumber or reorder anything from that section.
 | 1 | `arklight android scaffold <build-dir> -o <project-dir>` | Templating only: generate the Kotlin/Gradle/manifest project shell from Stage 0's runtime pieces, in **Application mode** (one bundle baked in at build time, no Viewer chrome), copy `<build-dir>` into `app/src/main/assets/`, wire `MainActivity` to Stage 0's shared `WebViewAssetLoader` setup pointed at those assets. Reads app identity from `arklight.config.py`'s `"android"` section (`app_name`/`package_id`/`version_name`/`version_code`/`icon`/`splash`/`orientation`/`edge_to_edge` -- see `DESIGN-NOTES.md`'s "App identity metadata" subsection for the full key list and defaults). | None -- genuinely zero-dependency, per `DESIGN-NOTES.md`'s "The toolchain is unavoidable" correction (templating source files needs nothing; *building* them is what needs a JDK, which is Stage 2's problem, not this one's) | Stage 0 | **Done** -- `arklight.cli.android.scaffold_project`, wired up as `arklight android scaffold`; see `tests/test_android.py` |
 | 2a | GitHub Actions CI build | `arklight android scaffold`'s output additionally includes `.github/workflows/android-build.yml`, generated alongside every other project file. Pushing (or opening a PR against) the scaffolded project builds a debug APK on GitHub-hosted runners and attaches it as a workflow artifact -- no JDK/Android SDK required on the *user's own* machine, since the runner image and `actions/setup-java` + `gradle/actions/setup-gradle` provide both. Uses `gradle` directly rather than `./gradlew`, since this scaffold doesn't template the wrapper's binary jar. | None on the user's machine -- the JDK/Android SDK/Gradle live entirely on GitHub's runner | Stage 1 | **Done** -- `arklight.backend.android.runtime._github_ci_workflow_yml`; see `tests/test_android.py` |
 | 2b | `arklight android build <build-dir> -o <project-dir>` | Runs Stage 1, then shells out to the generated project's Gradle (locally, on the *user's own* machine) via `subprocess`; catches a missing-JDK `FileNotFoundError`/`OSError` specifically and prints the actionable message `DESIGN-NOTES.md`'s "Graceful failure when no JDK is present" subsection specifies, rather than a raw traceback. | JDK + Android SDK + network (Gradle/AGP/AndroidX resolution) -- on the *user's* machine, not ARKlight's own install | Stage 1 | Not started |
-| 3 | `arklight android build --install` | Stage 2b, then `adb install` onto a connected device/emulator if `adb` is on `PATH`; same graceful-`FileNotFoundError` handling if not. | Stage 2b's toolchain + `adb` + a connected device/emulator | Stage 2b | Not started |
+| 3a | Install + launch smoke test (CI) | The same `.github/workflows/android-build.yml` Stage 2a added also downloads its debug APK into a second job, boots a throwaway hardware-accelerated emulator on the runner itself (`reactivecircus/android-emulator-runner`, after a udev-rule step that enables the KVM GitHub-hosted Linux runners already have but don't enable by default), `adb install`s the APK, `adb shell am start`s `.MainActivity`, and fails the job if the process isn't still running a few seconds later (crash-on-launch detection, via `adb shell pidof` + a `logcat -d "*:E"` dump on failure). | None on the user's machine -- the emulator, `adb`, and Android SDK all live on GitHub's runner, same as Stage 2a | Stage 2a | **Done** -- second job (`install-launch-smoke-test`) in `arklight.backend.android.runtime._github_ci_workflow_yml`'s generated workflow; see `tests/test_android.py` |
+| 3b | `arklight android build --install` | Stage 2b, then `adb install` onto a connected device/emulator if `adb` is on `PATH`; same graceful-`FileNotFoundError` handling if not. | Stage 2b's toolchain + `adb` + a connected device/emulator | Stage 2b | Not started |
 | 4 | `arklight android build --release` | Stage 2b targeting `assembleRelease` instead of `assembleDebug`; signing config (keystore path/passwords) passed through to Gradle as the user's own concern -- ARKlight does not manage keystores or credentials on the user's behalf (see `DESIGN-NOTES.md`'s "Explicitly out of scope" list). | Stage 2b's toolchain + a signing config the user supplies | Stage 2b | Not started |
 
 **Why split Stage 2 into 2a/2b.** The original single "Stage 2" bundled
@@ -68,6 +69,23 @@ row described (shell out to a local Gradle, handle a missing JDK
 gracefully) -- nothing about it changes, it's just renumbered so
 Stages 3-4 (which depend on a *local* build existing to `adb install`
 or sign) point at the right prerequisite.
+
+**Why split Stage 3 into 3a/3b, the same way.** Same reasoning applied
+one rung up: the original single "Stage 3" (`adb install` onto
+*something*) doesn't actually need the device or the toolchain to be
+the user's own -- it needs *a* device/emulator and *a* built APK. A
+GitHub-hosted runner can supply both of those itself once Stage 2a has
+already produced the APK, so 3a lands as a second job in the same
+workflow file rather than waiting on Stage 2b/3b's local-machine work.
+This buys real regression coverage Stage 2a alone can't: a project
+that compiles cleanly can still crash on first launch (a manifest
+mistake, an asset the `WebViewAssetLoader` can't find, etc.), and 3a
+catches exactly that class of bug automatically, on every push/PR, in
+addition to the raw "does it compile" signal 2a already gives. Stage
+3b keeps the original Stage 3 scope untouched (install onto a device
+the user has actually connected, via their own local `adb`) and now
+depends on Stage 2b instead of Stage 2 -- same renumbering-only
+treatment 2b got, nothing about its behavior changes.
 
 Each rung is independently useful and additive, same "`arklight pack`
 runs after `build`, never touching the compiler internals" shape

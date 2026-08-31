@@ -29,7 +29,7 @@ table, see [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md).
 | v0.048   | CSS `@media` queries + `<head>`/`<header>` extension (Stage A of 2: `meta`/`links` DONE; Stage B of 2: `responsive_style` + `@media` compilation DONE) | DONE |
 | v0.054   | JS backend capability expansion (reactive core parity with Vue 3) -- renumbered from v0.044 now that v0.048 has shipped | PLANNED |
 | v0.060   | User-defined, reusable components -- renumbered from v0.100     | PLANNED |
-| v0.080   | Android backend (`arklight android` -- `androidx.webkit.WebViewAssetLoader` packaging, evolving the existing `ARKlight-Viewer-for-Android-Devices` app into the runtime) -- renumbered from v0.100; Stages 0/1/2a of the staged CLI ladder done, 2b-4 not started | IN PROGRESS |
+| v0.080   | Android backend (`arklight android` -- `androidx.webkit.WebViewAssetLoader` packaging, evolving the existing `ARKlight-Viewer-for-Android-Devices` app into the runtime) -- renumbered from v0.100; Stages 0/1/2a/3a of the staged CLI ladder done, 2b/3b/4 not started | IN PROGRESS |
 | v0.100   | Desktop backend (`arklight desktop` packaging) -- renumbered from v0.080 | PLANNED |
 | v1.0     | Stable compiler                                              | PLANNED |
 
@@ -358,6 +358,15 @@ need the local-machine toolchain the original single stage assumed
 every rung of the ladder needed, so splitting it off let that half
 ship immediately instead of waiting on 2b's `subprocess`/JDK-detection
 work.
+
+**Stage 3a (CI install + launch smoke test) shipped too**, same split
+applied one rung up: the same workflow file gained a second job that
+downloads 2a's APK, boots a throwaway emulator on the runner, and
+fails if the app crashes on launch -- real regression coverage beyond
+"does it compile," still with zero local toolchain. 3b (`adb install`
+onto a device the user has actually connected) keeps the original
+Stage 3 scope, now depending on 2b instead, and stays not-yet-started.
+Rationale in the same doc's "Why split Stage 3 into 3a/3b" note.
 
 ## Reactive-core vdom staging -- Stage 1: vdom core integration (DONE)
 

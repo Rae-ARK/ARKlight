@@ -1163,7 +1163,15 @@ wants a device-ready build in one command can ask for that instead:
    grows to support this -- the toolchain lives entirely in the
    generated project, same way a `node_modules` folder would live in
    a project ARKlight itself has nothing to do with.
-3. **`arklight android build --install <build-dir>`** -- stage 2b,
+3a. **Install + launch smoke test, no local toolchain at all** -- the
+   same workflow file 2a added runs a second job that downloads that
+   APK, boots a throwaway emulator on the runner itself, installs and
+   launches the app, and fails if the process isn't still alive a few
+   seconds later. Depends on 2a's APK, not 2b's local one -- same
+   "runs entirely on GitHub's runner" property 2a has. See
+   `docs/Backends/ANDROID-BACKEND-IMPLEMENTATION.md`'s "Why split
+   Stage 3 into 3a/3b" note.
+3b. **`arklight android build --install <build-dir>`** -- stage 2b,
    then `adb install` onto a connected device/emulator if `adb` is
    found on `PATH` (same graceful-`FileNotFoundError` handling if
    not).

@@ -123,7 +123,7 @@ def project_files(
         "app/src/main/res/values-night/colors.xml": _COLORS_NIGHT_XML,
         "app/src/main/res/values/themes.xml": _themes_xml(has_splash),
         "app/src/main/res/values-night/themes.xml": _themes_night_xml(has_splash),
-        ".github/workflows/android-build.yml": _github_ci_workflow_yml(app_name),
+        ".github/workflows/android-build.yml": _github_ci_workflow_yml(app_name, package_id),
         "README.md": _readme_md(app_name, package_id),
     }
 
@@ -278,27 +278,41 @@ dependencies {{
 
 
 # ---------------------------------------------------------------------------
-# CI (Stage 2a of ANDROID-BACKEND-IMPLEMENTATION.md)
+# CI (Stages 2a and 3a of ANDROID-BACKEND-IMPLEMENTATION.md)
 # ---------------------------------------------------------------------------
 
 
-def _github_ci_workflow_yml(app_name: str) -> str:
+def _github_ci_workflow_yml(app_name: str, package_id: str) -> str:
     """
-    A GitHub Actions workflow that builds a debug APK on every push/
-    pull request, entirely on GitHub-hosted runners -- so a scaffolded
-    project gets automated build verification without either a JDK or
-    an Android SDK ever needing to exist on the *user's own* machine.
-    This is Stage 2a of the design doc's CLI ladder: the original
-    single "Stage 2" (`arklight android build`, shelling out to a
-    *local* `./gradlew`) is split into this -- CI build verification,
-    zero local toolchain, ships as part of `arklight android scaffold`
-    itself -- and Stage 2b, the not-yet-implemented local build
-    command, which stays exactly what the design doc already
-    described. Landing 2a first mirrors the doc's own "someone who
-    only wants the generated project ... to commit to their own CI"
-    use case from `DESIGN-NOTES.md`'s "A staged CLI ladder" section --
-    this just means the CI config for that case ships out of the box
-    instead of being hand-written per project.
+    A GitHub Actions workflow with two jobs, entirely on GitHub-hosted
+    runners -- so a scaffolded project gets automated build *and*
+    install/launch verification without a JDK, Android SDK, or a
+    physical/local emulator ever needing to exist on the *user's own*
+    machine:
+
+    - **`assemble-debug`** (Stage 2a) -- builds a debug APK on every
+      push/PR. See that function-level docstring's prior version for
+      the original 2a-only rationale; unchanged here.
+    - **`install-launch-smoke-test`** (Stage 3a, this addition) --
+      downloads that APK, boots a throwaway emulator on the runner
+      itself (`reactivecircus/android-emulator-runner`, the standard
+      way to get a hardware-accelerated AVD on a GitHub-hosted Linux
+      runner -- KVM is available there, just not enabled by default,
+      hence the udev-rule step ahead of it), installs the APK, starts
+      `.MainActivity`, and fails the job if the process isn't still
+      alive a few seconds later. This is the CI-only counterpart to
+      the original single "Stage 3" (`arklight android build
+      --install`, `adb install` onto a *locally* connected device/
+      emulator) -- same "does this thing actually install and open
+      without immediately crashing" question, just answered on a
+      runner-hosted throwaway device instead of the user's own, and
+      depending on Stage 2a's APK rather than Stage 2b's not-yet-built
+      local one. Renamed 3a/3b for the same reason Stage 2 was split
+      in two: see ANDROID-BACKEND-IMPLEMENTATION.md's "Why split
+      Stage 2 into 2a/2b" note, and its follow-up note for Stage 3.
+      Stage 3b (installing onto a device the user has actually
+      connected, over their own `adb`) stays exactly the original
+      Stage 3 scope, and remains not yet implemented.
 
     Uses `gradle` directly (not `./gradlew`) since this scaffold does
     not template the wrapper's binary jar -- `gradle/actions/setup-
@@ -306,8 +320,11 @@ def _github_ci_workflow_yml(app_name: str) -> str:
     wrapper is needed either locally or here. Relies on the Android
     SDK GitHub's own `ubuntu-latest` runner image ships preinstalled
     (see https://github.com/actions/runner-images) rather than adding
-    a third-party `setup-android` action -- one fewer dependency for a
-    file meant to work unmodified the moment it's generated.
+    a third-party `setup-android` action for the first job -- one
+    fewer dependency for a file meant to work unmodified the moment
+    it's generated. The second job's emulator comes from
+    `reactivecircus/android-emulator-runner`, which manages its own
+    system-image install, so nothing extra is needed there either.
     """
     # Used only in the uploaded artifact's display name -- purely
     # cosmetic, so it's slugified defensively rather than validated
@@ -316,9 +333,12 @@ def _github_ci_workflow_yml(app_name: str) -> str:
     return f'''\
 name: Android build
 
-# Builds a debug APK on GitHub-hosted runners on every push/PR -- see
-# ANDROID-BACKEND-IMPLEMENTATION.md, Stage 2a. Requires no JDK/Android
-# SDK on your own machine; both are provided by the runner image.
+# Builds a debug APK on GitHub-hosted runners on every push/PR, then
+# installs and launches it on a throwaway emulator on the same runner
+# to confirm it doesn't crash immediately -- see
+# ANDROID-BACKEND-IMPLEMENTATION.md, Stages 2a and 3a. Requires no
+# JDK, Android SDK, or emulator/device on your own machine for either
+# job; all of it lives on the runner.
 on:
   push:
     branches: [main]
@@ -353,7 +373,46 @@ jobs:
           name: {slug}-debug-apk
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+
+  install-launch-smoke-test:
+    name: Install + launch on an emulator
+    needs: assemble-debug
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Download APK
+        uses: actions/download-artifact@v4
+        with:
+          name: {slug}-debug-apk
+          path: apk
+
+      - name: Enable KVM (hardware-accelerated emulator)
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Install and launch on an emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: {_TARGET_SDK}
+          arch: x86_64
+          force-avd-creation: false
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: |
+            APK="$(find apk -name '*.apk' | head -n 1)"
+            adb install -r "$APK"
+            adb shell am start -n {package_id}/{package_id}.MainActivity
+            sleep 5
+            if ! adb shell pidof {package_id}; then
+              echo "::error::App process not found a few seconds after launch -- it likely crashed on startup. See logcat below."
+              adb logcat -d "*:E"
+              exit 1
+            fi
+            echo "App launched and is still running -- smoke test passed."
 '''
+
 
 
 # ---------------------------------------------------------------------------
@@ -1192,12 +1251,14 @@ not yet implemented as of this scaffold's version.)
 
 ## Building without a local JDK
 
-This project includes `.github/workflows/android-build.yml` (Stage 2a
-of the design doc above) -- push it to GitHub, or open a pull request
-against it, and a debug APK builds automatically on GitHub's own
-runners and is attached to the workflow run as a downloadable
-artifact. Nothing to configure; no JDK/Android SDK needed on your own
-machine for this path.
+This project includes `.github/workflows/android-build.yml` (Stages
+2a and 3a of the design doc above) -- push it to GitHub, or open a
+pull request against it, and it: builds a debug APK on GitHub's own
+runners, attaches it to the workflow run as a downloadable artifact,
+then installs and launches it on a throwaway emulator on that same
+runner to confirm it doesn't crash immediately on startup. Nothing to
+configure; no JDK, Android SDK, or emulator/device needed on your own
+machine for either check.
 
 ## What's here
 
@@ -1215,11 +1276,11 @@ machine for this path.
   https://github.com/Rae-ARK/ARKlight-Viewer-for-Android-Devices)
   (Apache-2.0). Unused by the default unpacked-tree setup above; kept
   in case you want to swap in a sealed `.ark` bundle by hand later.
-- `.github/workflows/android-build.yml` -- builds a debug APK on
-  GitHub-hosted runners on every push/PR (see "Building without a
-  local JDK" above). Edit or delete it freely; it's a normal,
-  hand-editable workflow file, not something ARKlight regenerates in
-  place.
+- `.github/workflows/android-build.yml` -- builds a debug APK and
+  smoke-tests it (install + launch) on GitHub-hosted runners on every
+  push/PR (see "Building without a local JDK" above). Edit or delete
+  it freely; it's a normal, hand-editable workflow file, not something
+  ARKlight regenerates in place.
 
 ## Custom launcher icon
 

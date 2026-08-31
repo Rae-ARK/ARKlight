@@ -5,6 +5,45 @@ follows [Keep a Changelog](https://keepachangelog.com/); versions
 follow the milestone scheme from ARCHITECTURE.md rather than strict
 SemVer.
 
+## [Unreleased] -- Android backend, Stage 3a (CI install + launch smoke test)
+
+**What:** the GitHub Actions workflow Stage 2a added
+(`.github/workflows/android-build.yml`) now has a second job,
+`install-launch-smoke-test`, which downloads the debug APK the first
+job built, boots a throwaway hardware-accelerated emulator on the
+runner itself, `adb install`s the APK, launches `.MainActivity`, and
+fails the job if the app's process isn't still alive a few seconds
+later -- catching crash-on-launch regressions (a manifest mistake, a
+missing asset the `WebViewAssetLoader` can't find, etc.) that a clean
+compile alone wouldn't. No local device/emulator or Android SDK
+needed on the user's own machine. This splits the design doc's
+original single "Stage 3" (`arklight android build --install`, `adb
+install` onto a *locally* connected device/emulator) into 3a (this
+entry -- CI-only install/launch verification, depends on Stage 2a) and
+3b (the original Stage 3 scope, depends on Stage 2b, not yet
+implemented) -- see `docs/Backends/ANDROID-BACKEND-IMPLEMENTATION.md`'s
+"Why split Stage 3 into 3a/3b" note for the full reasoning.
+
+**Implementation:** `arklight/backend/android/runtime.py` --
+`_github_ci_workflow_yml` now takes `package_id` as well as `app_name`
+(needed to name `.MainActivity`'s component for `adb shell am start
+-n`) and emits the second job: `actions/download-artifact` for the
+APK built by `assemble-debug`, a KVM-enabling udev-rule step (the
+standard way to get hardware acceleration on a GitHub-hosted Linux
+runner), then `reactivecircus/android-emulator-runner` running an
+inline script that installs, launches, and `adb shell pidof`-checks
+the app, dumping `adb logcat -d "*:E"` on failure before exiting
+non-zero. `arklight/cli/android.py`'s docstring and
+`arklight/cli/main.py`'s `android scaffold` help text/post-scaffold
+output were updated to describe the 3a/3b split alongside the existing
+2a/2b one.
+
+**Tests (`tests/test_android.py`):** the smoke-test job's presence and
+wiring (`needs: assemble-debug`, `download-artifact`,
+`android-emulator-runner`, the install/launch/pidof commands), and
+that the launched component name and `pidof` check both use the
+configured (or default) `package_id` rather than a hardcoded one.
+
 ## [Unreleased] -- Android backend, Stage 2a (GitHub Actions CI build)
 
 **What:** `arklight android scaffold`'s generated project now includes
