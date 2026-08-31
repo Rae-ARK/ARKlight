@@ -5,6 +5,48 @@ follows [Keep a Changelog](https://keepachangelog.com/); versions
 follow the milestone scheme from ARCHITECTURE.md rather than strict
 SemVer.
 
+## [Unreleased] -- `Site.raw_postprocess(...)`: user-facing raw output escape hatch
+
+**What:** a new experimental API, `Site.raw_postprocess(fn)`, gated
+through the same `arklight/experimental.py` registry as
+`site.media_query(...)` and `site.import_style(...)` (see
+`docs/EXPERIMENTAL-APIS.md`). `fn` is a plain
+`(output_files: dict[str, str]) -> dict[str, str]` callable, registered
+directly (`site.raw_postprocess(my_fn)`) or as a bare decorator
+(`@site.raw_postprocess`). It's the user-facing equivalent of
+`Backend.postprocess()` (`arklight/backend/base.py`) -- same shape,
+same "runs over the *combined* output of every backend, in order,
+after every render()" contract -- except authored on `Site` instead of
+a `Backend` subclass, for one-off transformations that don't warrant a
+whole backend.
+
+**Why gated as experimental:** unlike every other entry in the
+registry (all CSS/PWA-scoped), this one is arbitrary user code with
+unchecked write access to *every* output file the build produces --
+nothing about its return value is validated, normalized, or checked
+the way the rest of the pipeline's output is. Registering one prints
+the standard inline `[EXPERIMENTAL FEATURE ACTIVE]` banner and
+end-of-build summary block, both spelling out that this can "give you
+a million different ways to shoot yourself in the foot" and to use it
+wisely / proceed with caution.
+
+**Implementation:** `Site.raw_postprocess` (`arklight/api.py`) appends
+to `site.raw_postprocessors` and emits an `ExperimentalUsage` at
+registration time. `build_website_ir` (`arklight/ir/build.py`) threads
+`raw_postprocessors` through to `WebsiteIR` as a straight passthrough.
+`arklight.compiler.pipeline.build` runs them last, right after the
+existing `backend.postprocess(...)` loop -- each function's output
+replaces `output_files` wholesale; a non-`dict` return, or an
+exception raised inside `fn`, surfaces as a normal `CompileError` with
+the offending function's position, the same way a backend failure
+already does.
+
+**Tests (`tests/test_experimental_apis.py`):** registration + usage
+recording, decorator form, non-callable rejection, IR threading, the
+inline banner, actually running (single and multiple, in order) over a
+real build's output files, and both failure modes (exception raised,
+non-dict return).
+
 ## [Unreleased] -- `head_meta.py` favicon/og_image root-relative path bugfix
 
 **Bug:** a root-relative `favicon`/`og_image` value (leading `/`, e.g.

@@ -224,6 +224,11 @@ def compile_site_file(
         # since app-shell navigation is a whole-site authoring
         # decision the site file itself makes, not a per-build override.
         app_shell=site.app_shell,
+        # EXPERIMENTAL (docs/EXPERIMENTAL-APIS.md): straight passthrough,
+        # same shape as the CSS addendum fields above -- `build()` below
+        # is what actually runs these, after every backend's own
+        # render()+postprocess() pass.
+        raw_postprocessors=site.raw_postprocessors,
     )
 
 
@@ -278,6 +283,30 @@ def build(
             output_files = backend.postprocess(output_files)
         except Exception as exc:  # noqa: BLE001 -- surface backend errors clearly
             raise CompileError(f"Backend {backend.name!r} failed to postprocess: {exc}") from exc
+
+    # EXPERIMENTAL (docs/EXPERIMENTAL-APIS.md): `site.raw_postprocess(...)`
+    # functions get the exact same second pass every `Backend.postprocess()`
+    # just got above, run last and in registration order, over the fully
+    # combined output of every backend. Each already recorded its own
+    # `ExperimentalUsage` at *registration* time (see `Site.raw_postprocess`),
+    # printed by the inline-banner loop in `compile_site_file` above -- this
+    # is just where the function itself actually runs. A no-op loop (as
+    # before) for sites that never called `site.raw_postprocess(...)`.
+    for i, raw_fn in enumerate(ir.raw_postprocessors, start=1):
+        log(f"Running raw postprocess function {i}/{len(ir.raw_postprocessors)}...")
+        try:
+            result = raw_fn(output_files)
+        except Exception as exc:  # noqa: BLE001 -- surface user code errors clearly
+            raise CompileError(
+                f"site.raw_postprocess(...) function #{i} raised an error: {exc}"
+            ) from exc
+        if not isinstance(result, dict):
+            raise CompileError(
+                f"site.raw_postprocess(...) function #{i} must return a "
+                f"dict[str, str] of {{relative_path: contents}}, got "
+                f"{type(result).__name__!r}."
+            )
+        output_files = result
 
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)

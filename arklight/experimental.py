@@ -94,6 +94,35 @@ FEATURES: dict[str, ExperimentalFeature] = {
             "isn't reachable via Page(links=[...]), not the default path."
         ),
     ),
+    "raw-postprocess": ExperimentalFeature(
+        id="raw-postprocess",
+        inline_note="Runs your own code directly over the final output files, completely unchecked by ARKlight.",
+        detail_lines=[
+            "This is an advanced experimental feature. It hands your",
+            "function the *entire* dict of generated output files --",
+            "every path, every byte -- after every backend has already",
+            "rendered and postprocessed them, and whatever your function",
+            "returns is written to disk exactly as-is.",
+            "Nothing about it is validated, normalized, or checked against",
+            "ARKlight's layout model, HTML/CSS/JS correctness, or anything",
+            "else the rest of the pipeline guarantees -- it is the single",
+            "widest surface exposed to user code in the whole project.",
+            "Used carelessly, it can give you a million different ways to",
+            "shoot yourself in the foot: a typo can silently corrupt every",
+            "page, strip a <script> tag, or ship broken CSS with no error",
+            "at build time. Use it wisely, and proceed with caution.",
+        ],
+        legacy_note=(
+            "Not a legacy API in the historical sense -- a raw, unchecked "
+            "escape hatch for the rare transformation that genuinely can't "
+            "be expressed any other way (e.g. a one-off script-based build "
+            "step). If the transformation is reusable or depends on what "
+            "another backend produced, prefer a real Backend subclass "
+            "overriding postprocess() (see arklight.backend.base.Backend) "
+            "instead -- it gets the same second pass with none of the "
+            "unchecked-arbitrary-code risk."
+        ),
+    ),
 }
 
 

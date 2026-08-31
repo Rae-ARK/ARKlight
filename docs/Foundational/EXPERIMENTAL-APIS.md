@@ -31,6 +31,21 @@ experimental API.** That currently means:
   Model until it resolves. Prefer `Page(links=[{"rel": "stylesheet",
   "href": ...}])` where possible; reach for `import_style` only when a
   stylesheet truly isn't reachable that way.
+- `raw-postprocess` -- `Site.raw_postprocess(fn)`, the widest escape
+  hatch in the project: `fn` is handed the *entire* combined
+  `{relative_path: contents}` output dict, after every backend's own
+  `render()`/`postprocess()` pass (see
+  `arklight.backend.base.Backend.postprocess`), and whatever it
+  returns is written to disk verbatim -- nothing about it is
+  validated, normalized, or checked the way every other generated
+  file is. It's the user-facing equivalent of a `Backend.postprocess()`
+  override, offered directly on `Site` for one-off transformations
+  that don't warrant a whole `Backend` subclass. Flagged loudly (both
+  the inline banner and the end-of-build summary spell out the "million
+  different ways to shoot yourself in the foot" warning) because unlike
+  every other experimental feature above, this one isn't scoped to CSS
+  at all -- it's arbitrary user code with unchecked write access to
+  every output file the build produces.
 
 This list grows as new escape hatches are added. **There is no
 "experimental by convention" bucket** -- if a feature isn't in

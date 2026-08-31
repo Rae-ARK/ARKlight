@@ -9,7 +9,7 @@ import pytest
 
 from arklight import Site, Page, Heading
 from arklight.backend.css.custom_styles import render_media_queries
-from arklight.compiler.pipeline import compile_site_file, build
+from arklight.compiler.pipeline import compile_site_file, build, CompileError
 from arklight import experimental
 
 
@@ -272,3 +272,178 @@ def test_enable_pwa_install_button_removed_when_flag_dropped(tmp_path):
     assert result.experimental_usages == []
     html = (out_dir / "index.html").read_text(encoding="utf-8")
     assert "ark-pwa-install" not in html
+
+
+# --- raw-postprocess (Site.raw_postprocess) ------------------------------
+
+
+def test_raw_postprocess_registers_and_records_experimental_usage():
+    site = Site(name="Test")
+
+    def add_banner(files):
+        files["banner.txt"] = "hi"
+        return files
+
+    site.raw_postprocess(add_banner)
+
+    assert site.raw_postprocessors == [add_banner]
+    assert len(site.experimental_usages) == 1
+    assert site.experimental_usages[0].feature_id == "raw-postprocess"
+
+
+def test_raw_postprocess_rejects_non_callable():
+    site = Site(name="Test")
+    with pytest.raises(TypeError):
+        site.raw_postprocess("not callable")
+    assert site.raw_postprocessors == []
+    assert site.experimental_usages == []
+
+
+def test_raw_postprocess_works_as_bare_decorator():
+    site = Site(name="Test")
+
+    @site.raw_postprocess
+    def strip_comments(files):
+        return {k: v for k, v in files.items() if not k.endswith(".tmp")}
+
+    # decorating doesn't shadow the name
+    assert callable(strip_comments)
+    assert site.raw_postprocessors == [strip_comments]
+
+
+def test_compile_site_file_threads_raw_postprocessors_into_ir(tmp_path):
+    site_file = tmp_path / "site.py"
+    site_file.write_text(
+        "from arklight import Site, Page, Heading\n"
+        "site = Site(name='Test')\n"
+        "@site.raw_postprocess\n"
+        "def noop(files):\n"
+        "    return files\n"
+        "@site.page('/')\n"
+        "def home():\n"
+        "    return Page(Heading('Hi'))\n"
+    )
+    ir = compile_site_file(site_file)
+    assert len(ir.raw_postprocessors) == 1
+    assert len(ir.experimental_usages) == 1
+    assert ir.experimental_usages[0].feature_id == "raw-postprocess"
+
+
+def test_compile_site_file_no_raw_postprocess_is_empty(tmp_path):
+    site_file = tmp_path / "site.py"
+    site_file.write_text(
+        "from arklight import Site, Page, Heading\n"
+        "site = Site(name='Test')\n"
+        "@site.page('/')\n"
+        "def home():\n"
+        "    return Page(Heading('Hi'))\n"
+    )
+    ir = compile_site_file(site_file)
+    assert ir.raw_postprocessors == []
+
+
+def test_build_emits_inline_banner_for_raw_postprocess(tmp_path):
+    site_file = tmp_path / "site.py"
+    site_file.write_text(
+        "from arklight import Site, Page, Heading\n"
+        "site = Site(name='Test')\n"
+        "@site.raw_postprocess\n"
+        "def noop(files):\n"
+        "    return files\n"
+        "@site.page('/')\n"
+        "def home():\n"
+        "    return Page(Heading('Hi'))\n"
+    )
+    messages: list[str] = []
+    build(site_file, tmp_path / "ARK", on_stage=messages.append)
+    banners = [m for m in messages if m.startswith("\u26a0")]
+    assert len(banners) == 1
+    assert "raw-postprocess" in banners[0]
+
+
+def test_build_runs_raw_postprocess_over_combined_output(tmp_path):
+    site_file = tmp_path / "site.py"
+    site_file.write_text(
+        "from arklight import Site, Page, Heading\n"
+        "site = Site(name='Test')\n"
+        "@site.raw_postprocess\n"
+        "def add_file(files):\n"
+        "    files['robots.txt'] = 'User-agent: *\\nDisallow:'\n"
+        "    return files\n"
+        "@site.page('/')\n"
+        "def home():\n"
+        "    return Page(Heading('Hi'))\n"
+    )
+    out_dir = tmp_path / "ARK"
+    result = build(site_file, out_dir)
+    assert "robots.txt" in result.output_files
+    assert (out_dir / "robots.txt").read_text(encoding="utf-8") == "User-agent: *\nDisallow:"
+
+
+def test_build_runs_multiple_raw_postprocessors_in_order(tmp_path):
+    site_file = tmp_path / "site.py"
+    site_file.write_text(
+        "from arklight import Site, Page, Heading\n"
+        "site = Site(name='Test')\n"
+        "@site.raw_postprocess\n"
+        "def first(files):\n"
+        "    files['order.txt'] = 'first'\n"
+        "    return files\n"
+        "@site.raw_postprocess\n"
+        "def second(files):\n"
+        "    files['order.txt'] += ',second'\n"
+        "    return files\n"
+        "@site.page('/')\n"
+        "def home():\n"
+        "    return Page(Heading('Hi'))\n"
+    )
+    out_dir = tmp_path / "ARK"
+    build(site_file, out_dir)
+    assert (out_dir / "order.txt").read_text(encoding="utf-8") == "first,second"
+
+
+def test_build_raw_postprocess_error_raises_compile_error(tmp_path):
+    site_file = tmp_path / "site.py"
+    site_file.write_text(
+        "from arklight import Site, Page, Heading\n"
+        "site = Site(name='Test')\n"
+        "@site.raw_postprocess\n"
+        "def boom(files):\n"
+        "    raise RuntimeError('kaboom')\n"
+        "@site.page('/')\n"
+        "def home():\n"
+        "    return Page(Heading('Hi'))\n"
+    )
+    with pytest.raises(CompileError, match="kaboom"):
+        build(site_file, tmp_path / "ARK")
+
+
+def test_build_raw_postprocess_bad_return_type_raises_compile_error(tmp_path):
+    site_file = tmp_path / "site.py"
+    site_file.write_text(
+        "from arklight import Site, Page, Heading\n"
+        "site = Site(name='Test')\n"
+        "@site.raw_postprocess\n"
+        "def bad(files):\n"
+        "    return 'not a dict'\n"
+        "@site.page('/')\n"
+        "def home():\n"
+        "    return Page(Heading('Hi'))\n"
+    )
+    with pytest.raises(CompileError, match="must return a dict"):
+        build(site_file, tmp_path / "ARK")
+
+
+def test_raw_postprocess_summary_mentions_shoot_yourself_in_the_foot(capsys):
+    usage = experimental.emit("raw-postprocess")
+    experimental.print_summary([usage])
+    out = capsys.readouterr().out
+    assert "shoot yourself in the foot" in out
+    assert "Feature : raw-postprocess" in out
+
+
+def test_raw_postprocess_inline_banner_says_experimental_feature_active():
+    usage = experimental.emit("raw-postprocess")
+    banner = experimental.format_inline_banner(usage)
+    assert "[EXPERIMENTAL FEATURE ACTIVE]" in banner
+    assert "raw-postprocess" in banner

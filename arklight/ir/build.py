@@ -122,6 +122,14 @@ class WebsiteIR:
     # `arklight/backend/js/render.py`'s `needs_htmx`). Defaults to
     # `False`, unchanged output for every existing caller.
     app_shell: bool = False
+    # EXPERIMENTAL (docs/EXPERIMENTAL-APIS.md): `(output_files: dict[str,
+    # str]) -> dict[str, str]` callables registered via
+    # `site.raw_postprocess(...)`, in call order -- straight passthrough,
+    # same shape as `style_imports` etc. above. `arklight.compiler.
+    # pipeline.build` runs these last, after every backend's own
+    # render()+postprocess() pass, over the combined output dict. Empty
+    # for sites that never call `site.raw_postprocess(...)`.
+    raw_postprocessors: list = field(default_factory=list)
 
 
 @dataclass
@@ -227,6 +235,7 @@ def build_website_ir(
     page_rules: list | None = None,
     style_imports: list | None = None,
     app_shell: bool = False,
+    raw_postprocessors: list | None = None,
 ) -> WebsiteIR:
     """
     Build the Website IR from a normalized + validated ARK AST.
@@ -260,6 +269,13 @@ def build_website_ir(
     `app_shell` (htmx-4, see docs/Backends/REFACTOR-INDEX.md row 9) is
     `Site(app_shell=...)`'s straight passthrough, same shape as
     `lang`. Defaults to `False`, unchanged output for existing callers.
+
+    `raw_postprocessors` is `Site.raw_postprocess(...)`'s straight
+    passthrough (docs/EXPERIMENTAL-APIS.md) -- a list of
+    `(output_files) -> output_files` callables `arklight.compiler.
+    pipeline.build` runs, in order, after every backend's own
+    render()+postprocess() pass. Defaults to `None` (empty list), so
+    existing callers are unaffected.
     """
     collector = _ResponsiveStyleCollector()
     ir_pages = []
@@ -291,4 +307,5 @@ def build_website_ir(
         page_rules=list(page_rules) if page_rules else [],
         style_imports=list(style_imports) if style_imports else [],
         app_shell=app_shell,
+        raw_postprocessors=list(raw_postprocessors) if raw_postprocessors else [],
     )

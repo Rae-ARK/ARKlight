@@ -536,6 +536,14 @@ class Site:
         # "[EXPERIMENTAL FEATURE ACTIVE]" banner and, deduplicated, the
         # end-of-build summary block.
         self.experimental_usages: list = []
+        # EXPERIMENTAL (docs/EXPERIMENTAL-APIS.md): user-supplied
+        # `(output_files: dict[str, str]) -> dict[str, str]` callables
+        # registered via `site.raw_postprocess(...)`, run in
+        # registration order over the *combined* output of every
+        # backend's own render()+postprocess() pass -- see
+        # `arklight.compiler.pipeline.build`. Empty for sites that
+        # never call `site.raw_postprocess(...)`.
+        self.raw_postprocessors: list[Callable[[dict[str, str]], dict[str, str]]] = []
         # CSS backend refactor: `max_width`/`bg` override two of the
         # `:root`-declared `--ark-*` custom properties that `CSSBackend`
         # used to bake in as constants. Both are read by `body`'s *own*
@@ -1297,6 +1305,53 @@ class Site:
             )
         self.style_imports.append(url.strip())
         self.experimental_usages.append(experimental.emit("css-import"))
+
+    def raw_postprocess(
+        self, fn: Callable[[dict[str, str]], dict[str, str]]
+    ) -> Callable[[dict[str, str]], dict[str, str]]:
+        """
+        \u26a0\ufe0f EXPERIMENTAL -- ADVANCED, UNCHECKED ESCAPE HATCH (see
+        `docs/EXPERIMENTAL-APIS.md`). Register a raw postprocessing
+        function that runs directly over the site's *final* output
+        files -- the same combined `{relative_path: contents}` dict
+        every `Backend.postprocess()` gets (see
+        `arklight.backend.base.Backend.postprocess`), except this one
+        is authored by you, not a backend, and runs last: after every
+        backend's own render() + postprocess() pass, in the order
+        `site.raw_postprocess(...)` was called. Whatever `fn` returns
+        replaces the output dict entirely and is written to disk
+        as-is -- add, remove, or rewrite any file, in any way.
+
+        This is an advanced experimental feature. It is recommended to
+        use it wisely: because nothing about `fn`'s output is
+        validated, normalized, or checked against ARKlight's layout
+        model the way every other generated file is, it hands you a
+        million different ways to shoot yourself in the foot -- a
+        stray string replace can silently corrupt every page in the
+        site with no error at build time. Proceed with caution. Every
+        call is flagged: an `[EXPERIMENTAL FEATURE ACTIVE]` banner
+        prints the moment the build detects it, and a summary block
+        prints again at the end of the build.
+
+        Can be used directly (`site.raw_postprocess(my_fn)`) or as a
+        bare decorator (`@site.raw_postprocess`) -- either way `fn` is
+        returned unchanged, so decorating doesn't shadow the name.
+
+        Prefer a real `Backend` subclass overriding `postprocess()`
+        instead whenever the transformation is reusable across
+        projects or depends on what another backend already produced
+        -- it gets the exact same second pass with none of the
+        unchecked-arbitrary-code risk. Reach for this only for a
+        genuine one-off that can't be expressed that way.
+        """
+        if not callable(fn):
+            raise TypeError(
+                f"site.raw_postprocess(fn) needs a callable taking and "
+                f"returning a dict[str, str], got {fn!r}."
+            )
+        self.raw_postprocessors.append(fn)
+        self.experimental_usages.append(experimental.emit("raw-postprocess"))
+        return fn
 
     def page(self, route: str) -> Callable[[Callable[[], ARKNode]], Callable[[], ARKNode]]:
         if not route.startswith("/"):
