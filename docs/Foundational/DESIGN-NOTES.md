@@ -855,17 +855,119 @@ implementation not started" discipline every other PLANNING section
 in this file follows. Placed here, right after Stage 8 above rather
 than near `v0.044`, because the real dependency this milestone has is
 on Stage 8's persistence work, not on anything in `v0.044` proper --
-see "Why this sits after Stage 8, not after v0.044" below.
+see "Why this sits after Stage 8, not after v0.044" below. Per the
+current roadmap table (`docs/ARCHITECTURE.md`), this milestone is
+`v0.080`; the Desktop backend is `v0.100` -- see that file's
+"Renumbered" note for why the two swapped order.
+
+### Updated direction: promote the existing Viewer repo, don't start from zero
+
+An external, standalone project already exists --
+`ARKlight-Viewer-for-Android-Devices` -- and it is much closer to this
+milestone's end state than the "generate everything from a template"
+plan below originally assumed. It is already an Android `.ark`-bundle
+viewer built on AndroidX `WebView`, works offline, handles multi-page
+bundles, and already separates the bundle/sealing concerns into their
+own files (`ArkBundle.kt`, `ArkSeal.kt`) rather than mixing them into
+the activity. It is Apache-2.0 licensed, which gives a clean basis for
+folding its code into ARKlight proper (subject to preserving the
+required license/notice text) rather than treating it as a separate
+product to keep in sync by hand.
+
+The plan this section now describes is **evolve that repo into the
+Android backend's runtime**, not write a second Android project from
+scratch:
+
+```text
+ARKlight Android Runtime
+│
+├── Viewer mode                    (what the repo already does today)
+│   ├── bundle picker
+│   ├── navigation UI
+│   ├── open arbitrary .ark files
+│   └── debugging/exploration
+│
+└── Application mode               (what this milestone adds)
+    ├── one fixed compiled bundle, baked in at build time
+    ├── no viewer chrome (no bundle picker, no nav UI)
+    ├── WebView fills the window
+    └── app-level metadata (icon, splash, name, package ID, ...)
+```
+
+Both modes share the same underlying runtime (asset loading, bundle
+unpacking, seal verification, `WebView` configuration). "Viewer mode"
+stays a genuinely useful standalone app for opening any `.ark` file on
+a device -- it's what ships today. "Application mode" is the new,
+thin, single-purpose shell that `arklight android build` generates:
+same runtime, but the bundle is fixed at build time and every piece of
+UI that exists only because "this used to be a viewer" is stripped
+out. The rule of thumb carried over from this decision: if a visible
+element exists solely because the app used to be a browser for
+arbitrary bundles, it doesn't belong in application mode; if Android
+itself requires or benefits from it (icons, splash, status-bar
+handling), it stays in the runtime both modes share.
+
+This also reframes what the *compiler* needs to hand the Android
+backend. Rather than the backend needing to render Android UI itself,
+its job narrows to: take an `arklight build` output directory (or a
+packed `.ark`), drop it into the runtime's `assets/` folder as either
+a `site.ark` or an unpacked `index.html` + `pages/` + `assets/` tree,
+and configure the thin native shell (manifest, icon, splash, package
+ID) around it. The heavy lifting -- unpacking, seal verification,
+serving assets under a real origin -- is exactly what the promoted
+Viewer runtime already does.
+
+### App identity metadata this milestone now needs to accept
+
+Once the output is a single-purpose app rather than a generic viewer,
+it needs application-level metadata the Viewer never had to ask for.
+Proposed home for this is an `arklight.toml` (or equivalent) file
+alongside the site source, kept out of the Python `Site(...)` call
+since none of it is application logic:
+
+- App name, package/application ID, version name/code.
+- Icon -- adaptive icon (foreground/background layers), not a single
+  flat PNG, plus an optional monochrome variant for themed launchers.
+- Splash screen (image only -- see "explicitly out of scope" below).
+- Orientation and edge-to-edge vs. conventional system-bar handling,
+  both configurable per app rather than hard-coded one way, since the
+  right choice genuinely differs between something like a portfolio
+  site and a utility app.
+
+### Explicitly out of scope, including one thing ruled out on purpose
+
+Everything the original "explicitly out of scope" list below already
+excludes still applies. One more is added by this update: **splash-
+screen audio.** A splash *screen* is a reasonable, common ask; a
+splash screen that plays sound is not something this backend should
+default to, since it ties app startup to audio-permission/lifecycle
+concerns most sites have no reason to need. If a specific app wants
+startup audio, that's an application-level feature the site author
+wires up themselves, not a platform default this backend ships.
+
+Also explicitly deferred, not ruled out -- a generalized, capability-
+based JS-to-native bridge (`ark.fs`, `ark.db`, `ark.clipboard`,
+`ark.notify`, ...) that would let the *same* ARKlight JS-facing API
+be backed differently per platform (IndexedDB/OPFS on web, Android
+storage/SQLite here, native OS APIs on desktop), with a site
+declaring only the capabilities it actually needs so the shipped
+runtime doesn't carry unused native surface. That is a substantially
+larger design (security review, a versioned platform ABI, an
+implementation per backend) with no concrete forcing use case yet --
+worth a future PLANNING section of its own once the Desktop backend
+gives a second real data point for what such a bridge would need to
+support, not something to speculatively scope into this milestone.
 
 ### What this is, in one line
 
 A new `arklight android` CLI backend that packages an existing
 `arklight build` output directory into a minimal native Android
-project shell (Kotlin + Gradle), so the same static site that already
-runs standalone in a browser or as a `.ark` polyglot can also be
-built into an installable, Play-Store-shippable APK -- without
-ARKlight ever executing JavaScript, running a JVM, or becoming a
-general-purpose native-app framework.
+project shell (Kotlin + Gradle, evolved from the existing Viewer
+runtime described above), so the same static site that already runs
+standalone in a browser or as a `.ark` polyglot can also be built into
+an installable, Play-Store-shippable APK -- without ARKlight ever
+executing JavaScript, running a JVM, or becoming a general-purpose
+native-app framework.
 
 ### Why this needs to exist at all: the `file://` problem
 
@@ -1084,12 +1186,26 @@ plain browser HTTP a page is served from.
 
 ### Staging
 
-Land as four independently-shippable sub-stages matching the CLI
-ladder above (`scaffold` -> `build` -> `--install` -> `--release`),
-each individually useful on its own and gated behind the maintainer
-choosing to proceed past design -- consistent with every other
-PLANNING section in this file, nothing here is scheduled to a version
-number yet.
+Land as five independently-shippable sub-stages, each individually
+useful on its own and gated behind the maintainer choosing to proceed
+past design -- consistent with every other PLANNING section in this
+file, nothing here is scheduled to a version number yet:
+
+0. **Promote the Viewer repo into `arklight`'s Android runtime.**
+   Split the existing `ARKlight-Viewer-for-Android-Devices` code into
+   a shared runtime (bundle/seal handling, `WebView` + asset-loader
+   configuration) and a thin Viewer-mode shell that keeps today's
+   bundle-picker/navigation UI on top of it. This is the prerequisite
+   the four CLI stages below build on -- it's what turns "an
+   independent Android app that happens to read `.ark` files" into
+   "the Android backend's runtime, with a Viewer-mode app as one
+   consumer of it."
+1. **`arklight android scaffold`** -- templating only, no toolchain
+   required, per the CLI ladder above.
+2. **`arklight android build`** -- adds the Gradle build step.
+3. **`arklight android build --install`** -- adds `adb install`.
+4. **`arklight android build --release`** -- adds release signing
+   pass-through.
 
 ## v0.044: JS backend capability expansion -- reactive core parity with Vue 3 (PLANNING)
 

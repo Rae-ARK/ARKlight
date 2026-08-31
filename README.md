@@ -25,7 +25,7 @@ def home():
 ```
 
 ```
-arklight build site.py -o ARK
+arklight build site.py
 ```
 
 produces `ARK/index.html` -- plain, dependency-free HTML.
@@ -753,12 +753,17 @@ canonical copy rather than duplicated here, in `PROGRESS.md`, and in
 `CHANGELOG.md`. Short version: v0.001 through v0.048 (CSS `@media` +
 `<head>`/`<header>` extension, both stages) are done; v0.054 (JS
 backend capability expansion, renumbered from v0.044) is queued next;
-v0.060 (user-defined components), v0.080 (Desktop backend), and v0.100
-(Android backend) are planned further out. Those three numbers were
-reassigned when v0.048 shipped. A KaiOS backend was briefly given its
-own numbered slot (`v0.120`) in that same reshuffle -- design is
-complete, but it's since been pulled back out to unscheduled future
-work, the same "designed, no roadmap commitment" tier
+v0.060 (user-defined components), v0.080 (Android backend), and v0.100
+(Desktop backend) are planned further out. Those three numbers were
+reassigned when v0.048 shipped, and the Desktop/Android slots were
+swapped a second time afterward -- the Android backend moves ahead of
+Desktop because it can build on an existing external project
+(`ARKlight-Viewer-for-Android-Devices`) as its runtime instead of
+starting from scratch, while the Desktop backend's design is still
+pending. A KaiOS backend was briefly given its own numbered slot
+(`v0.120`) in the first reshuffle -- design is complete, but it's
+since been pulled back out to unscheduled future work, the same
+"designed, no roadmap commitment" tier
 `docs/Far Future Concern/WINDOWS-PHONE-BACKEND.md`'s Windows Phone/UWP
 backend already sits at. See `docs/ARCHITECTURE.md` for the full
 renumbering-and-amendment history.

@@ -85,8 +85,11 @@ Future:
   codegen backend like Vue/Svelte: wraps an existing `build-dir` into
   a native Android project via `androidx.webkit.WebViewAssetLoader`,
   same "reads already-built output, never touches the
-  parser/ir/backend internals" shape as `arklight.packer`. See
-  `docs/DESIGN-NOTES.md` ("v0.0438: Android backend"), PLANNING.)
+  parser/ir/backend internals" shape as `arklight.packer`. Evolves the
+  existing `ARKlight-Viewer-for-Android-Devices` app into this
+  backend's runtime rather than generating an Android project from
+  scratch. See `docs/DESIGN-NOTES.md` ("v0.0438: Android backend"),
+  PLANNING.)
 
 ## Public API
 
@@ -150,8 +153,8 @@ here rather than keeping their own copies. Status: DONE / PLANNED.
 | v0.054 | JS backend capability expansion -- computed/derived state, watch effects, two-way input binding, per-item list rendering, conditional show/hide, event modifiers, reactive class binding, all via closed registries (no arbitrary JS/eval) -- design complete in `docs/DESIGN-NOTES.md`, implementation not started | PLANNED |
 | vdom-staging | Reactive-core vdom staging, Stage 1 of 8 -- vendored snabbdom bare core (`init`/`h`/`vnode`/`htmlDomApi`) swapped into `State`'s re-render pass (Stage 1, DONE); reactive class binding via direct `classList.toggle` (Stage 2, DONE); event modifiers/computed state/two-way binding/watch effects/conditional show-hide/list rendering (Stages 3-7, feeding `v0.054`), then `localStorage` persistence (Stage 8) -- see `docs/DESIGN-NOTES.md` ("Reactive-core vdom staging") | IN PROGRESS |
 | v0.060 | User-defined, reusable components | PLANNED |
-| v0.080 | Desktop backend -- `arklight desktop` packages a `build-dir` into a cross-platform desktop app (Tauri-based or similar); design pending | PLANNED |
-| v0.100 | Android backend -- `arklight android` packages a `build-dir` into a native Android project via `androidx.webkit.WebViewAssetLoader` (staged `scaffold` -> `build` -> `--install` -> `--release` CLI ladder); design complete in `docs/DESIGN-NOTES.md`, implementation not started | PLANNED |
+| v0.080 | Android backend -- `arklight android` packages a `build-dir` into a native Android project via `androidx.webkit.WebViewAssetLoader`, evolving the existing `ARKlight-Viewer-for-Android-Devices` app into the backend's runtime (staged `scaffold` -> `build` -> `--install` -> `--release` CLI ladder); design complete in `docs/DESIGN-NOTES.md`, implementation not started | PLANNED |
+| v0.100 | Desktop backend -- `arklight desktop` packages a `build-dir` into a cross-platform desktop app (Tauri-based or similar); design pending | PLANNED |
 | v1.0 | Stable compiler | PLANNED |
 
 **Renumbered.** v0.048 (CSS `@media` + `<head>` extension) is now
@@ -165,12 +168,23 @@ expansion moved `v0.044` -> `v0.054`; user-defined components moved
 `v0.100` -> `v0.060`; the Desktop backend moved `v0.060` -> `v0.080`;
 the Android backend moved `v0.080` -> `v0.100`; and the KaiOS
 backend -- previously designed but unnumbered -- was given `v0.120`.
-None of this reordering changed scope or design, only sequencing:
-v0.054 (JS backend expansion) is queued next; v0.060 (user-defined
-components), v0.080 (Desktop), and v0.100 (Android) are designed
-(Desktop excepted -- design pending) but implementation is deferred.
-Alternate backends (Vue, Svelte) remain moved to unscheduled future
-work, pending further development of the IR and state/event
+None of this reordering changed scope or design, only sequencing.
+
+**Re-renumbered again.** The Desktop and Android backend slots have
+since swapped a second time: Android is now `v0.080` and Desktop is
+now `v0.100`. Reason: an existing external project,
+`ARKlight-Viewer-for-Android-Devices`, is already most of the Android
+backend's runtime (AndroidX `WebView`, offline `.ark`-bundle handling,
+bundle/seal logic already split into its own files) -- see
+`docs/DESIGN-NOTES.md` ("v0.0438: Android backend")'s "Updated
+direction" note. The Android backend has a head start the Desktop
+backend doesn't (Desktop's design is still pending, not complete), so
+it moves ahead in sequence. Scope is unchanged for both; only order
+moved. v0.054 (JS backend expansion) is still queued next; v0.060
+(user-defined components), v0.080 (Android), and v0.100 (Desktop) are
+designed (Desktop excepted -- design pending) but implementation is
+deferred. Alternate backends (Vue, Svelte) remain moved to unscheduled
+future work, pending further development of the IR and state/event
 semantics.
 
 **Un-scheduled (amendment): KaiOS.** `v0.120` above was retired, not

@@ -29,8 +29,8 @@ table, see [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md).
 | v0.048   | CSS `@media` queries + `<head>`/`<header>` extension (Stage A of 2: `meta`/`links` DONE; Stage B of 2: `responsive_style` + `@media` compilation DONE) | DONE |
 | v0.054   | JS backend capability expansion (reactive core parity with Vue 3) -- renumbered from v0.044 now that v0.048 has shipped | PLANNED |
 | v0.060   | User-defined, reusable components -- renumbered from v0.100     | PLANNED |
-| v0.080   | Desktop backend (`arklight desktop` packaging) -- renumbered from v0.060 | PLANNED |
-| v0.100   | Android backend (`arklight android` -- `androidx.webkit.WebViewAssetLoader` packaging) -- renumbered from v0.080 | PLANNED |
+| v0.080   | Android backend (`arklight android` -- `androidx.webkit.WebViewAssetLoader` packaging, evolving the existing `ARKlight-Viewer-for-Android-Devices` app into the runtime) -- renumbered from v0.100 | PLANNED |
+| v0.100   | Desktop backend (`arklight desktop` packaging) -- renumbered from v0.080 | PLANNED |
 | v1.0     | Stable compiler                                              | PLANNED |
 
 ### Planned, not yet scheduled to a version
