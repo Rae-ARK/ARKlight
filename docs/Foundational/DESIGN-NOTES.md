@@ -921,9 +921,34 @@ Viewer runtime already does.
 
 Once the output is a single-purpose app rather than a generic viewer,
 it needs application-level metadata the Viewer never had to ask for.
-Proposed home for this is an `arklight.toml` (or equivalent) file
-alongside the site source, kept out of the Python `Site(...)` call
-since none of it is application logic:
+Rather than inventing a new config file for this, it belongs in the
+`CONFIG` dict `arklight.config.py` (`arklight.config`) already loads
+from next to the site's entry file -- the same mechanism
+`live_streaming` already uses for its `host`/`port`/`poll_interval`
+settings, kept out of the Python `Site(...)` call since none of this
+is application logic either:
+
+    # arklight.config.py
+    CONFIG = {
+        "android": {
+            "app_name": "ARKfolio",
+            "package_id": "com.example.arkfolio",
+            "version_name": "1.0.0",
+            "version_code": 1,
+            "icon": "assets/icon.png",
+            "splash": "assets/splash.png",
+            "orientation": "portrait",
+            "edge_to_edge": False,
+        },
+    }
+
+This milestone adds `"android"` to `arklight.config._KNOWN_SECTIONS`
+and reads it the same way `arklight.cli.live_streaming` reads
+`"live_streaming"` -- via `arklight.config.section(config, "android",
+defaults)`, so every key above has a built-in default and a project
+with no `arklight.config.py` at all (or one that doesn't set an
+`"android"` section) still gets a buildable, if generically named and
+iconed, app. Concretely, the metadata this section owns:
 
 - App name, package/application ID, version name/code.
 - Icon -- adaptive icon (foreground/background layers), not a single
@@ -933,6 +958,13 @@ since none of it is application logic:
   both configurable per app rather than hard-coded one way, since the
   right choice genuinely differs between something like a portfolio
   site and a utility app.
+
+This also gives the eventual Desktop backend (`v0.100`) a precedent to
+follow rather than a second config surface to invent: a `"desktop"`
+section in the same `CONFIG` dict, read the same way, for whatever
+app-identity metadata that backend turns out to need (window
+title/size, icon, ...) -- one config file per project, one section per
+backend, not a config file per platform.
 
 ### Explicitly out of scope, including one thing ruled out on purpose
 
