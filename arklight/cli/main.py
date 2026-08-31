@@ -450,9 +450,13 @@ def _cmd_android_scaffold(args: argparse.Namespace) -> int:
         f"({len(result.written_paths)} file(s))"
     )
     print()
-    print("Next steps (needs a JDK -- see the generated project's own README.md):")
+    print("Includes a GitHub Actions workflow (.github/workflows/android-build.yml)")
+    print("that builds a debug APK on push/PR -- no local JDK needed for that path.")
+    print()
+    print("To build locally instead (needs a JDK -- see the generated project's own")
+    print("README.md):")
     print(f"  cd {result.project_dir}")
-    print("  ./gradlew assembleDebug")
+    print("  gradle assembleDebug")
 
     return 0
 
@@ -761,8 +765,10 @@ def main(argv: list[str] | None = None) -> int:
         "scaffold",
         help="Generate an Android Studio / Gradle project (Application mode) from a "
         "build directory. Templating only -- no JDK/Android SDK required (Stage 1 "
-        "of the design doc's CLI ladder; `arklight android build`, which actually "
-        "compiles the result, is Stage 2 and not yet implemented).",
+        "of the design doc's CLI ladder). Includes a GitHub Actions workflow that "
+        "builds a debug APK in CI with no local toolchain (Stage 2a); `arklight "
+        "android build`, which compiles the result on this machine, is Stage 2b "
+        "and not yet implemented.",
     )
     android_scaffold_parser.add_argument(
         "build_dir", help="An `arklight build` output directory (e.g. ARK)."

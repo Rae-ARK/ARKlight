@@ -29,7 +29,7 @@ table, see [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md).
 | v0.048   | CSS `@media` queries + `<head>`/`<header>` extension (Stage A of 2: `meta`/`links` DONE; Stage B of 2: `responsive_style` + `@media` compilation DONE) | DONE |
 | v0.054   | JS backend capability expansion (reactive core parity with Vue 3) -- renumbered from v0.044 now that v0.048 has shipped | PLANNED |
 | v0.060   | User-defined, reusable components -- renumbered from v0.100     | PLANNED |
-| v0.080   | Android backend (`arklight android` -- `androidx.webkit.WebViewAssetLoader` packaging, evolving the existing `ARKlight-Viewer-for-Android-Devices` app into the runtime) -- renumbered from v0.100 | PLANNED |
+| v0.080   | Android backend (`arklight android` -- `androidx.webkit.WebViewAssetLoader` packaging, evolving the existing `ARKlight-Viewer-for-Android-Devices` app into the runtime) -- renumbered from v0.100; Stages 0/1/2a of the staged CLI ladder done, 2b-4 not started | IN PROGRESS |
 | v0.100   | Desktop backend (`arklight desktop` packaging) -- renumbered from v0.080 | PLANNED |
 | v1.0     | Stable compiler                                              | PLANNED |
 
@@ -339,6 +339,25 @@ Key decisions, in brief (full reasoning in `docs/DESIGN-NOTES.md`):
 - Explicitly out of scope for now: iOS/`WKWebView` (different
   toolchain, own future design), any native-plugin/JS-bridge layer
   beyond asset serving, and Play Store signing/publishing automation.
+
+**Stage 0 (Viewer-repo promotion) and Stage 1 (`arklight android
+scaffold`) since shipped** -- see `CHANGELOG.md` for both. Stage 1's
+scaffold reads app identity from `arklight.config.py`'s `"android"`
+section and produces a buildable, if generically branded, project
+even with no config at all.
+
+**Stage 2a (GitHub Actions CI build) also shipped**, splitting the
+design doc's original single "Stage 2" in two: 2a ships a GitHub
+Actions workflow as part of every scaffolded project, building a
+debug APK on GitHub-hosted runners with no local JDK/Android SDK
+required; 2b (shelling out to a *local* Gradle install) keeps the
+original Stage 2 scope and stays not-yet-implemented. Rationale in
+`docs/Backends/ANDROID-BACKEND-IMPLEMENTATION.md`'s "Why split Stage 2
+into 2a/2b" note -- in short, CI build verification doesn't actually
+need the local-machine toolchain the original single stage assumed
+every rung of the ladder needed, so splitting it off let that half
+ship immediately instead of waiting on 2b's `subprocess`/JDK-detection
+work.
 
 ## Reactive-core vdom staging -- Stage 1: vdom core integration (DONE)
 

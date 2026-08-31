@@ -1143,20 +1143,31 @@ wants a device-ready build in one command can ask for that instead:
    registers a `WebViewAssetLoader` pointed at the build output copied
    into `app/src/main/assets/`, and stops there. This is the
    genuinely zero-dependency stage described above.
-2. **`arklight android build <build-dir> -o <project-dir>`** -- runs
-   stage 1, then shells out to the generated project's `./gradlew
-   assembleDebug` via `subprocess`, per the JDK-detection handling
-   above. Produces a debug APK. First run needs JDK + Android SDK +
-   network (for Gradle/AGP/AndroidX resolution); nothing about
-   ARKlight's own install grows to support this -- the toolchain
-   lives entirely in the generated project, same way a `node_modules`
-   folder would live in a project ARKlight itself has nothing to do
-   with.
-3. **`arklight android build --install <build-dir>`** -- stage 2,
+2a. **CI build verification, no local toolchain at all** -- stage 1's
+   scaffold also writes a GitHub Actions workflow
+   (`.github/workflows/android-build.yml`) into the generated project,
+   which builds a debug APK on GitHub-hosted runners (JDK + Android
+   SDK already provisioned there) on every push/PR. This is the
+   "someone who only wants the generated project ... to commit to
+   their own CI" case named above, just delivered as a ready-made
+   workflow file instead of left for that person to write themselves.
+   Genuinely zero-dependency on the user's own machine, same as stage
+   1 -- see `docs/Backends/ANDROID-BACKEND-IMPLEMENTATION.md`'s
+   "Why split Stage 2 into 2a/2b" note.
+2b. **`arklight android build <build-dir> -o <project-dir>`** -- runs
+   stage 1, then shells out to the generated project's Gradle
+   *locally* via `subprocess`, per the JDK-detection handling above.
+   Produces a debug APK. First run needs JDK + Android SDK + network
+   (for Gradle/AGP/AndroidX resolution) -- on the *user's own*
+   machine this time, unlike 2a; nothing about ARKlight's own install
+   grows to support this -- the toolchain lives entirely in the
+   generated project, same way a `node_modules` folder would live in
+   a project ARKlight itself has nothing to do with.
+3. **`arklight android build --install <build-dir>`** -- stage 2b,
    then `adb install` onto a connected device/emulator if `adb` is
    found on `PATH` (same graceful-`FileNotFoundError` handling if
    not).
-4. **`arklight android build --release`** -- stage 2 targeting
+4. **`arklight android build --release`** -- stage 2b targeting
    `assembleRelease` instead of `assembleDebug`; signing
    configuration (keystore path/passwords) is the user's own concern,
    passed through to Gradle rather than ARKlight inventing its own

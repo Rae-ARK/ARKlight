@@ -1,6 +1,6 @@
 # Android Backend Implementation: Staged Order
 
-Status: **Stage 0 in progress, Stage 1 done**, Stages 2-4 not started. This file
+Status: **Stages 0, 1, and 2a done**, Stages 2b-4 not started. This file
 does not restate the design already written in `docs/DESIGN-NOTES.md`
 ("v0.0438: Android backend -- androidx.webkit.WebViewAssetLoader
 packaging") -- it exists only to turn that section's prose "Staging"
@@ -45,9 +45,29 @@ pointers, it does not renumber or reorder anything from that section.
 |---|---|---|---|---|---|
 | 0 | Promote the Viewer repo | Split `MainActivity.kt` into a shared runtime piece (`WebViewAssetLoader` setup, the `/entry/` + `/site/` path handlers, origin handling) and a thin Viewer-mode-only shell (bundle picker, menu, passphrase dialog) on top of it, per the file-by-file table above. `ArkBundle.kt`/`ArkSeal.kt`/`MemoryGuard.kt` carry over unchanged. Lands inside `arklight`'s own tree as the packaging backend's template/runtime source (exact module path TBD by whoever implements the split -- candidate: `arklight/backend/android/runtime/`), not as a fork of the Viewer repo -- the Viewer repo stays the standalone app; this backend vendors/templates from the shared pieces it factors out. | None -- pure refactor of existing Kotlin | none | **Done** |
 | 1 | `arklight android scaffold <build-dir> -o <project-dir>` | Templating only: generate the Kotlin/Gradle/manifest project shell from Stage 0's runtime pieces, in **Application mode** (one bundle baked in at build time, no Viewer chrome), copy `<build-dir>` into `app/src/main/assets/`, wire `MainActivity` to Stage 0's shared `WebViewAssetLoader` setup pointed at those assets. Reads app identity from `arklight.config.py`'s `"android"` section (`app_name`/`package_id`/`version_name`/`version_code`/`icon`/`splash`/`orientation`/`edge_to_edge` -- see `DESIGN-NOTES.md`'s "App identity metadata" subsection for the full key list and defaults). | None -- genuinely zero-dependency, per `DESIGN-NOTES.md`'s "The toolchain is unavoidable" correction (templating source files needs nothing; *building* them is what needs a JDK, which is Stage 2's problem, not this one's) | Stage 0 | **Done** -- `arklight.cli.android.scaffold_project`, wired up as `arklight android scaffold`; see `tests/test_android.py` |
-| 2 | `arklight android build <build-dir> -o <project-dir>` | Runs Stage 1, then shells out to the generated project's `./gradlew assembleDebug` via `subprocess`; catches a missing-JDK `FileNotFoundError`/`OSError` specifically and prints the actionable message `DESIGN-NOTES.md`'s "Graceful failure when no JDK is present" subsection specifies, rather than a raw traceback. | JDK + Android SDK + network (Gradle/AGP/AndroidX resolution) -- on the *user's* machine, not ARKlight's own install | Stage 1 | Not started |
-| 3 | `arklight android build --install` | Stage 2, then `adb install` onto a connected device/emulator if `adb` is on `PATH`; same graceful-`FileNotFoundError` handling if not. | Stage 2's toolchain + `adb` + a connected device/emulator | Stage 2 | Not started |
-| 4 | `arklight android build --release` | Stage 2 targeting `assembleRelease` instead of `assembleDebug`; signing config (keystore path/passwords) passed through to Gradle as the user's own concern -- ARKlight does not manage keystores or credentials on the user's behalf (see `DESIGN-NOTES.md`'s "Explicitly out of scope" list). | Stage 2's toolchain + a signing config the user supplies | Stage 2 | Not started |
+| 2a | GitHub Actions CI build | `arklight android scaffold`'s output additionally includes `.github/workflows/android-build.yml`, generated alongside every other project file. Pushing (or opening a PR against) the scaffolded project builds a debug APK on GitHub-hosted runners and attaches it as a workflow artifact -- no JDK/Android SDK required on the *user's own* machine, since the runner image and `actions/setup-java` + `gradle/actions/setup-gradle` provide both. Uses `gradle` directly rather than `./gradlew`, since this scaffold doesn't template the wrapper's binary jar. | None on the user's machine -- the JDK/Android SDK/Gradle live entirely on GitHub's runner | Stage 1 | **Done** -- `arklight.backend.android.runtime._github_ci_workflow_yml`; see `tests/test_android.py` |
+| 2b | `arklight android build <build-dir> -o <project-dir>` | Runs Stage 1, then shells out to the generated project's Gradle (locally, on the *user's own* machine) via `subprocess`; catches a missing-JDK `FileNotFoundError`/`OSError` specifically and prints the actionable message `DESIGN-NOTES.md`'s "Graceful failure when no JDK is present" subsection specifies, rather than a raw traceback. | JDK + Android SDK + network (Gradle/AGP/AndroidX resolution) -- on the *user's* machine, not ARKlight's own install | Stage 1 | Not started |
+| 3 | `arklight android build --install` | Stage 2b, then `adb install` onto a connected device/emulator if `adb` is on `PATH`; same graceful-`FileNotFoundError` handling if not. | Stage 2b's toolchain + `adb` + a connected device/emulator | Stage 2b | Not started |
+| 4 | `arklight android build --release` | Stage 2b targeting `assembleRelease` instead of `assembleDebug`; signing config (keystore path/passwords) passed through to Gradle as the user's own concern -- ARKlight does not manage keystores or credentials on the user's behalf (see `DESIGN-NOTES.md`'s "Explicitly out of scope" list). | Stage 2b's toolchain + a signing config the user supplies | Stage 2b | Not started |
+
+**Why split Stage 2 into 2a/2b.** The original single "Stage 2" bundled
+two independent concerns under one rung: *verifying the scaffolded
+project actually builds* and *producing a build artifact on the
+user's own machine*. Only the second one genuinely needs a local JDK
++ Android SDK -- the first can run entirely on GitHub-hosted runners,
+which already carry both. Landing that half first (2a) means every
+scaffolded project gets automated build verification -- and a
+downloadable debug APK -- from the moment it's generated, without
+waiting on Stage 2b's local-`subprocess`/JDK-detection work. This also
+directly delivers the "someone who only wants the generated project
+... to commit to their own CI" case `DESIGN-NOTES.md`'s "A staged CLI
+ladder" subsection already named as a reason to keep the ladder
+staged, rather than leaving that person to hand-write their own
+workflow file. Stage 2b keeps the exact scope the original "Stage 2"
+row described (shell out to a local Gradle, handle a missing JDK
+gracefully) -- nothing about it changes, it's just renumbered so
+Stages 3-4 (which depend on a *local* build existing to `adb install`
+or sign) point at the right prerequisite.
 
 Each rung is independently useful and additive, same "`arklight pack`
 runs after `build`, never touching the compiler internals" shape

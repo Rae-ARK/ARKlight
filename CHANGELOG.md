@@ -5,6 +5,45 @@ follows [Keep a Changelog](https://keepachangelog.com/); versions
 follow the milestone scheme from ARCHITECTURE.md rather than strict
 SemVer.
 
+## [Unreleased] -- Android backend, Stage 2a (GitHub Actions CI build)
+
+**What:** `arklight android scaffold`'s generated project now includes
+`.github/workflows/android-build.yml` -- push the scaffolded project
+to GitHub, or open a PR against it, and a debug APK builds on
+GitHub-hosted runners and is attached to the workflow run as a
+downloadable artifact. No JDK/Android SDK needed on the user's own
+machine for this path; both are already present on the runner image.
+This splits the design doc's original single "Stage 2" into 2a (this
+entry -- CI-only build verification, zero local toolchain) and 2b
+(shelling out to a *local* Gradle install, not yet implemented) -- see
+`docs/Backends/ANDROID-BACKEND-IMPLEMENTATION.md`'s "Why split Stage 2
+into 2a/2b" note for the full reasoning.
+
+**Implementation:** `arklight/backend/android/runtime.py` --
+`_github_ci_workflow_yml(app_name)`, wired into `project_files()`
+alongside every other generated file, no new CLI flag or subcommand.
+Uses `actions/checkout` + `actions/setup-java` (JDK 17, Temurin) +
+`gradle/actions/setup-gradle` (installs a pinned Gradle version
+explicitly, since this scaffold doesn't template `gradlew`'s wrapper
+jar) + `gradle assembleDebug` + `actions/upload-artifact`. Relies on
+the Android SDK GitHub's own `ubuntu-latest` runner image ships
+preinstalled rather than adding a third-party `setup-android` action.
+The uploaded artifact is named from a defensively slugified
+`app_name`, not validated the way `package_id` is elsewhere in this
+module. `README.md`'s template gained a "Building without a local
+JDK" section pointing at the new workflow; `arklight/cli/android.py`'s
+docstring and `arklight/cli/main.py`'s `android scaffold` help text
+and post-scaffold console output were updated to describe the 2a/2b
+split (the latter also now suggests `gradle assembleDebug` instead of
+`./gradlew assembleDebug` for local builds, since no wrapper is
+generated).
+
+**Tests (`tests/test_android.py`):** the workflow file's presence and
+contents (checkout/setup-java/setup-gradle/assembleDebug/
+upload-artifact actions, JDK version, and confirming no `gradlew`
+reference anywhere in it), and app-name slugification for the
+uploaded artifact's display name.
+
 ## [Unreleased] -- Android backend, Stage 1 of 4 (`arklight android scaffold`)
 
 **What:** `arklight android scaffold <build-dir> -o <project-dir>` --

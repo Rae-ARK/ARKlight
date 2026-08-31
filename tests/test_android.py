@@ -105,6 +105,43 @@ def test_scaffold_no_icon_no_splash_omits_custom_drawables(tmp_path):
 
 
 # --------------------------------------------------------------------
+# CI (Stage 2a: GitHub Actions workflow)
+# --------------------------------------------------------------------
+
+
+def test_scaffold_generates_github_actions_workflow(tmp_path):
+    out_dir = build_dir(tmp_path)
+    project_dir = tmp_path / "android-project"
+
+    scaffold_project(out_dir, output_dir=project_dir)
+
+    workflow = project_dir / ".github/workflows/android-build.yml"
+    assert workflow.exists()
+    contents = workflow.read_text()
+    assert "actions/checkout@v4" in contents
+    assert "actions/setup-java@v4" in contents
+    assert 'java-version: "17"' in contents
+    assert "gradle/actions/setup-gradle@v4" in contents
+    assert "gradle assembleDebug" in contents
+    assert "actions/upload-artifact@v4" in contents
+    # No `./gradlew` -- this scaffold doesn't template the wrapper's
+    # binary jar, so CI (like a local build) has to use a `gradle`
+    # installed by the setup-gradle action instead.
+    assert "gradlew" not in contents
+
+
+def test_scaffold_github_actions_workflow_slugifies_app_name_for_artifact(tmp_path):
+    out_dir = build_dir(tmp_path)
+    project_dir = tmp_path / "android-project"
+    write_config(tmp_path, '{"app_name": "My Cool App!"}')
+
+    scaffold_project(out_dir, output_dir=project_dir)
+
+    contents = (project_dir / ".github/workflows/android-build.yml").read_text()
+    assert "name: My-Cool-App-debug-apk" in contents
+
+
+# --------------------------------------------------------------------
 # Config-driven identity
 # --------------------------------------------------------------------
 

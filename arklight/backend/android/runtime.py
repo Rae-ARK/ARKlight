@@ -34,6 +34,7 @@ table marks as carried over unchanged.
 
 from __future__ import annotations
 
+import re
 from xml.sax.saxutils import escape as xml_escape
 
 # AGP/Kotlin/AndroidX versions -- kept identical to the Viewer repo's
@@ -46,6 +47,17 @@ _KOTLIN_VERSION = "1.9.24"
 _COMPILE_SDK = 34
 _MIN_SDK = 24
 _TARGET_SDK = 34
+
+# Gradle version the CI workflow below installs explicitly. The
+# scaffolded project has no `gradlew` wrapper (nothing here templates
+# the wrapper's binary jar), so CI can't rely on wrapper-version
+# auto-detection the way a wrapper-carrying project would -- it has to
+# name a version. Pinned to the oldest Gradle release that supports
+# AGP 8.5.2 (Gradle's own compatibility matrix requires >= 8.7 for
+# that AGP line), same "match the toolchain the vendored runtime
+# pieces were already built against" reasoning `_AGP_VERSION`/
+# `_KOTLIN_VERSION` above already follow.
+_GRADLE_VERSION = "8.9"
 
 # The stable https origin androidx.webkit's WebViewAssetLoader serves
 # local content under -- see docs/Foundational/DESIGN-NOTES.md's "Why
@@ -111,6 +123,7 @@ def project_files(
         "app/src/main/res/values-night/colors.xml": _COLORS_NIGHT_XML,
         "app/src/main/res/values/themes.xml": _themes_xml(has_splash),
         "app/src/main/res/values-night/themes.xml": _themes_night_xml(has_splash),
+        ".github/workflows/android-build.yml": _github_ci_workflow_yml(app_name),
         "README.md": _readme_md(app_name, package_id),
     }
 
@@ -261,6 +274,85 @@ dependencies {{
     // Android backend", "Why this needs to exist at all").
     implementation("androidx.webkit:webkit:1.11.0")
 {splash_dep}}}
+'''
+
+
+# ---------------------------------------------------------------------------
+# CI (Stage 2a of ANDROID-BACKEND-IMPLEMENTATION.md)
+# ---------------------------------------------------------------------------
+
+
+def _github_ci_workflow_yml(app_name: str) -> str:
+    """
+    A GitHub Actions workflow that builds a debug APK on every push/
+    pull request, entirely on GitHub-hosted runners -- so a scaffolded
+    project gets automated build verification without either a JDK or
+    an Android SDK ever needing to exist on the *user's own* machine.
+    This is Stage 2a of the design doc's CLI ladder: the original
+    single "Stage 2" (`arklight android build`, shelling out to a
+    *local* `./gradlew`) is split into this -- CI build verification,
+    zero local toolchain, ships as part of `arklight android scaffold`
+    itself -- and Stage 2b, the not-yet-implemented local build
+    command, which stays exactly what the design doc already
+    described. Landing 2a first mirrors the doc's own "someone who
+    only wants the generated project ... to commit to their own CI"
+    use case from `DESIGN-NOTES.md`'s "A staged CLI ladder" section --
+    this just means the CI config for that case ships out of the box
+    instead of being hand-written per project.
+
+    Uses `gradle` directly (not `./gradlew`) since this scaffold does
+    not template the wrapper's binary jar -- `gradle/actions/setup-
+    gradle` installs the pinned `_GRADLE_VERSION` itself, so no
+    wrapper is needed either locally or here. Relies on the Android
+    SDK GitHub's own `ubuntu-latest` runner image ships preinstalled
+    (see https://github.com/actions/runner-images) rather than adding
+    a third-party `setup-android` action -- one fewer dependency for a
+    file meant to work unmodified the moment it's generated.
+    """
+    # Used only in the uploaded artifact's display name -- purely
+    # cosmetic, so it's slugified defensively rather than validated
+    # the way `package_id`/`app_name` are elsewhere in this module.
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "-", app_name).strip("-") or "arklight-app"
+    return f'''\
+name: Android build
+
+# Builds a debug APK on GitHub-hosted runners on every push/PR -- see
+# ANDROID-BACKEND-IMPLEMENTATION.md, Stage 2a. Requires no JDK/Android
+# SDK on your own machine; both are provided by the runner image.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  assemble-debug:
+    name: Assemble debug APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the project
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "{_GRADLE_VERSION}"
+
+      - name: Assemble debug APK
+        run: gradle assembleDebug --no-daemon
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: {slug}-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
 '''
 
 
@@ -1094,9 +1186,18 @@ Android Studio, or build it from the command line once you have a JDK:
 ./gradlew assembleDebug
 ```
 
-(`arklight android build` -- Stage 2 of the design doc above -- runs
+(`arklight android build` -- Stage 2b of the design doc above -- runs
 that same command for you and handles a missing-JDK error gracefully;
 not yet implemented as of this scaffold's version.)
+
+## Building without a local JDK
+
+This project includes `.github/workflows/android-build.yml` (Stage 2a
+of the design doc above) -- push it to GitHub, or open a pull request
+against it, and a debug APK builds automatically on GitHub's own
+runners and is attached to the workflow run as a downloadable
+artifact. Nothing to configure; no JDK/Android SDK needed on your own
+machine for this path.
 
 ## What's here
 
@@ -1114,6 +1215,11 @@ not yet implemented as of this scaffold's version.)
   https://github.com/Rae-ARK/ARKlight-Viewer-for-Android-Devices)
   (Apache-2.0). Unused by the default unpacked-tree setup above; kept
   in case you want to swap in a sealed `.ark` bundle by hand later.
+- `.github/workflows/android-build.yml` -- builds a debug APK on
+  GitHub-hosted runners on every push/PR (see "Building without a
+  local JDK" above). Edit or delete it freely; it's a normal,
+  hand-editable workflow file, not something ARKlight regenerates in
+  place.
 
 ## Custom launcher icon
 
