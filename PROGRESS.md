@@ -29,7 +29,7 @@ table, see [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md).
 | v0.048   | CSS `@media` queries + `<head>`/`<header>` extension (Stage A of 2: `meta`/`links` DONE; Stage B of 2: `responsive_style` + `@media` compilation DONE) | DONE |
 | v0.054   | JS backend capability expansion (reactive core parity with Vue 3) -- renumbered from v0.044 now that v0.048 has shipped | PLANNED |
 | v0.060   | User-defined, reusable components -- renumbered from v0.100     | PLANNED |
-| v0.080   | Android backend (`arklight android` -- `androidx.webkit.WebViewAssetLoader` packaging, evolving the existing `ARKlight-Viewer-for-Android-Devices` app into the runtime) -- renumbered from v0.100; Stages 0/1/2a/3a of the staged CLI ladder done, 2b/3b/4 not started | IN PROGRESS |
+| v0.080   | Android backend (`arklight android` -- `androidx.webkit.WebViewAssetLoader` packaging, evolving the existing `ARKlight-Viewer-for-Android-Devices` app into the runtime) -- renumbered from v0.100; Stages 0-4 of the staged CLI ladder done (CI build/smoke-test/release-build), Stages 5/6/7 (the local-toolchain counterparts) not started | IN PROGRESS |
 | v0.100   | Desktop backend (`arklight desktop` packaging) -- renumbered from v0.080 | PLANNED |
 | v1.0     | Stable compiler                                              | PLANNED |
 
@@ -367,6 +367,23 @@ fails if the app crashes on launch -- real regression coverage beyond
 onto a device the user has actually connected) keeps the original
 Stage 3 scope, now depending on 2b instead, and stays not-yet-started.
 Rationale in the same doc's "Why split Stage 3 into 3a/3b" note.
+
+**Stage 4 (CI release build) shipped, and the whole ladder's
+letter-suffixed numbering was retired.** The same workflow file gained
+a third, independent job, `assemble-release`, building a release APK
+via `gradle assembleRelease` on GitHub-hosted runners -- optionally
+signed from `RELEASE_KEYSTORE_BASE64`/`RELEASE_KEYSTORE_PASSWORD`/
+`RELEASE_KEY_ALIAS`/`RELEASE_KEY_PASSWORD` repo secrets if configured,
+unsigned otherwise, same "gracefully degrade, don't fail" shape the
+JDK-detection handling already established elsewhere in this ladder.
+With all three CI-only stages (build, smoke test, release build) now
+shipped well ahead of any of their local-machine counterparts, the
+`2a`/`2b`/`3a`/`3b`/`4a`/`4b` naming this section describes above was
+retired in favor of plain sequential numbers: the CI stages above are
+now Stages 2/3/4, and the not-yet-started local counterparts (`arklight
+android build`, `--install`, `--release`) are now Stages 5/6/7. See
+`docs/Backends/ANDROID-BACKEND-IMPLEMENTATION.md`'s "Numbering" note
+and `CHANGELOG.md` for the full reasoning and implementation details.
 
 ## Reactive-core vdom staging -- Stage 1: vdom core integration (DONE)
 

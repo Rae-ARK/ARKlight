@@ -5,6 +5,67 @@ follows [Keep a Changelog](https://keepachangelog.com/); versions
 follow the milestone scheme from ARCHITECTURE.md rather than strict
 SemVer.
 
+## [Unreleased] -- Android backend, Stage 4 (CI release build) + stage renumbering
+
+**What:** the GitHub Actions workflow Stage 2 added
+(`.github/workflows/android-build.yml`) now has a third job,
+`assemble-release`, which builds a release APK via `gradle
+assembleRelease` on GitHub-hosted runners -- no JDK/Android SDK
+needed on the user's own machine, same as the other two jobs. Runs
+independently of `assemble-debug`/`install-launch-smoke-test` (it
+doesn't need the debug APK). Signing is opt-in: if the repo has
+`RELEASE_KEYSTORE_BASE64` (a base64-encoded keystore file),
+`RELEASE_KEYSTORE_PASSWORD`, `RELEASE_KEY_ALIAS`, and
+`RELEASE_KEY_PASSWORD` configured as GitHub Actions secrets, a step
+decodes the keystore to a workspace-local file (discarded when the
+job ends) and Gradle signs the APK with it; if those secrets aren't
+configured, the job still succeeds and uploads an unsigned release
+APK, same as running `gradle assembleRelease` locally with no signing
+env vars set.
+
+Alongside this, the whole Android backend's stage numbering is
+simplified: the `2a`/`2b`/`3a`/`3b`/`4a`/`4b` letter-suffixed pairs
+are retired in favor of plain sequential numbers 0-7 -- the three
+CI-only stages that need no local toolchain (build, smoke test,
+release build) are now Stages 2/3/4, and their local-machine
+counterparts (`arklight android build`, `--install`, `--release`,
+still not yet implemented) are now Stages 5/6/7. Nothing about any
+stage's behavior or scope changes, only the numbers naming them --
+see `docs/Backends/ANDROID-BACKEND-IMPLEMENTATION.md`'s "Numbering"
+note for the full reasoning.
+
+**Implementation:** `arklight/backend/android/runtime.py` --
+`_github_ci_workflow_yml` gains the `assemble-release` job (checkout
++ JDK 17 + Gradle setup, an optional keystore-decode step gated on
+`secrets.RELEASE_KEYSTORE_BASE64 != ''`, then `gradle assembleRelease
+--no-daemon` with the four `RELEASE_*` env vars sourced from repo
+secrets, then an artifact upload). `_app_build_gradle_kts`'s signing-
+config check changes from `releaseStorePath != null` to
+`!releaseStorePath.isNullOrBlank()`, since an unset GitHub Actions
+secret resolves to an *empty string* inside the workflow's `env:`
+block, not an absent variable -- the old null-only check would have
+tried (and failed) to open `file("")` instead of falling back to an
+unsigned build. `arklight/cli/android.py`'s module docstring and
+`arklight/cli/main.py`'s `android scaffold` help text/post-scaffold
+output were updated for the new job and the 0-7 renumbering.
+
+**Docs:** `docs/Backends/ANDROID-BACKEND-IMPLEMENTATION.md`'s staged-
+order table rewritten for the 0-7 numbering, with Stages 5/6/7 (the
+not-yet-started local-toolchain counterparts) called out explicitly as
+"to be done at a later point"; the old "Why split Stage 2 into 2a/2b"
+and "Why split Stage 3 into 3a/3b" notes are replaced by a single
+"Numbering" note up top explaining the retirement of the letter
+suffixes. `docs/Foundational/DESIGN-NOTES.md`'s "A staged CLI ladder"
+list and `docs/Foundational/ARCHITECTURE.md`'s v0.080 summary row
+updated to match.
+
+**Tests (`tests/test_android.py`):** the release job's presence and
+wiring (`gradle assembleRelease`, the release-APK output path, the
+artifact name), that it declares no `needs:` dependency on
+`assemble-debug`, that it references all four `RELEASE_*` secrets and
+the `base64 -d` decode step, and that `build.gradle.kts`'s signing
+check uses `isNullOrBlank()` rather than a bare null check.
+
 ## [Unreleased] -- Android backend, Stage 3a (CI install + launch smoke test)
 
 **What:** the GitHub Actions workflow Stage 2a added

@@ -105,7 +105,7 @@ def test_scaffold_no_icon_no_splash_omits_custom_drawables(tmp_path):
 
 
 # --------------------------------------------------------------------
-# CI (Stage 2a: GitHub Actions workflow)
+# CI (Stages 2-4: GitHub Actions workflow)
 # --------------------------------------------------------------------
 
 
@@ -167,6 +167,75 @@ def test_scaffold_github_actions_workflow_smoke_test_uses_configured_package_id(
     contents = (project_dir / ".github/workflows/android-build.yml").read_text()
     assert "am start -n com.example.cool/com.example.cool.MainActivity" in contents
     assert "adb shell pidof com.example.cool" in contents
+
+
+def test_scaffold_github_actions_workflow_includes_release_build(tmp_path):
+    out_dir = build_dir(tmp_path)
+    project_dir = tmp_path / "android-project"
+
+    scaffold_project(out_dir, output_dir=project_dir)
+
+    contents = (project_dir / ".github/workflows/android-build.yml").read_text()
+    assert "assemble-release:" in contents
+    assert "gradle assembleRelease" in contents
+    assert "app/build/outputs/apk/release/*.apk" in contents
+
+
+def test_scaffold_github_actions_workflow_release_build_is_independent_job(tmp_path):
+    # Unlike install-launch-smoke-test, the release build doesn't need
+    # the debug APK -- it should not declare a `needs:` dependency on
+    # assemble-debug.
+    out_dir = build_dir(tmp_path)
+    project_dir = tmp_path / "android-project"
+
+    scaffold_project(out_dir, output_dir=project_dir)
+
+    contents = (project_dir / ".github/workflows/android-build.yml").read_text()
+    release_job = contents.split("assemble-release:", 1)[1]
+    assert "needs:" not in release_job
+
+
+def test_scaffold_github_actions_workflow_release_build_slugifies_app_name(tmp_path):
+    out_dir = build_dir(tmp_path)
+    project_dir = tmp_path / "android-project"
+    write_config(tmp_path, '{"app_name": "My Cool App!"}')
+
+    scaffold_project(out_dir, output_dir=project_dir)
+
+    contents = (project_dir / ".github/workflows/android-build.yml").read_text()
+    assert "name: My-Cool-App-release-apk" in contents
+
+
+def test_scaffold_github_actions_workflow_release_build_uses_optional_signing_secrets(tmp_path):
+    out_dir = build_dir(tmp_path)
+    project_dir = tmp_path / "android-project"
+
+    scaffold_project(out_dir, output_dir=project_dir)
+
+    contents = (project_dir / ".github/workflows/android-build.yml").read_text()
+    # Signing is opt-in via repo secrets -- decoded to a workspace-local
+    # file, never hardcoded, and the job must still succeed (producing
+    # an unsigned APK) if these secrets aren't configured.
+    assert "secrets.RELEASE_KEYSTORE_BASE64" in contents
+    assert "secrets.RELEASE_KEYSTORE_PASSWORD" in contents
+    assert "secrets.RELEASE_KEY_ALIAS" in contents
+    assert "secrets.RELEASE_KEY_PASSWORD" in contents
+    assert "base64 -d" in contents
+
+
+def test_app_build_gradle_falls_back_to_unsigned_when_keystore_path_blank(tmp_path):
+    # RELEASE_KEYSTORE_PATH coming from an unset GitHub Actions secret
+    # resolves to an *empty string*, not an absent env var -- the
+    # signing-config check has to treat that the same as "no signing
+    # configured" rather than trying (and failing) to open `file("")`.
+    out_dir = build_dir(tmp_path)
+    project_dir = tmp_path / "android-project"
+
+    scaffold_project(out_dir, output_dir=project_dir)
+
+    contents = (project_dir / "app/build.gradle.kts").read_text()
+    assert "releaseStorePath.isNullOrBlank()" in contents
+    assert "releaseStorePath != null" not in contents
 
 
 # --------------------------------------------------------------------

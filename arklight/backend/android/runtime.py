@@ -221,12 +221,19 @@ android {{
     // Signing config (keystore path/passwords) is the project owner's
     // own concern, passed through via env vars -- ARKlight does not
     // manage keystores/credentials on anyone's behalf (see
-    // docs/Backends/ANDROID-BACKEND-IMPLEMENTATION.md, Stage 4).
+    // docs/Backends/ANDROID-BACKEND-IMPLEMENTATION.md, Stage 7).
     // Locally, with these unset, `./gradlew assembleRelease` still
     // works, it just produces an unsigned APK you'd sign yourself.
+    // `isNullOrBlank()` (not just a null check) matters here because
+    // Stage 4's CI job sets this from a GitHub Actions secret via an
+    // `env:` block -- when that secret isn't configured, the
+    // expression evaluating it resolves to an *empty string*, not an
+    // unset var, so a plain `!= null` check would still (wrongly) try
+    // `file("")` and fail the build instead of falling back to
+    // unsigned, same as the local no-env-vars-at-all case does.
     val releaseStorePath = System.getenv("RELEASE_KEYSTORE_PATH")
     signingConfigs {{
-        if (releaseStorePath != null) {{
+        if (!releaseStorePath.isNullOrBlank()) {{
             create("release") {{
                 storeFile = file(releaseStorePath)
                 storePassword = System.getenv("RELEASE_KEYSTORE_PASSWORD")
@@ -243,7 +250,7 @@ android {{
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            if (releaseStorePath != null) {{
+            if (!releaseStorePath.isNullOrBlank()) {{
                 signingConfig = signingConfigs.getByName("release")
             }}
         }}
@@ -278,41 +285,48 @@ dependencies {{
 
 
 # ---------------------------------------------------------------------------
-# CI (Stages 2a and 3a of ANDROID-BACKEND-IMPLEMENTATION.md)
+# CI (Stages 2, 3, and 4 of ANDROID-BACKEND-IMPLEMENTATION.md)
 # ---------------------------------------------------------------------------
 
 
 def _github_ci_workflow_yml(app_name: str, package_id: str) -> str:
     """
-    A GitHub Actions workflow with two jobs, entirely on GitHub-hosted
-    runners -- so a scaffolded project gets automated build *and*
-    install/launch verification without a JDK, Android SDK, or a
-    physical/local emulator ever needing to exist on the *user's own*
-    machine:
+    A GitHub Actions workflow with three jobs, entirely on GitHub-hosted
+    runners -- so a scaffolded project gets automated debug build,
+    install/launch verification, and a release build, without a JDK,
+    Android SDK, or a physical/local emulator ever needing to exist on
+    the *user's own* machine:
 
-    - **`assemble-debug`** (Stage 2a) -- builds a debug APK on every
-      push/PR. See that function-level docstring's prior version for
-      the original 2a-only rationale; unchanged here.
-    - **`install-launch-smoke-test`** (Stage 3a, this addition) --
-      downloads that APK, boots a throwaway emulator on the runner
-      itself (`reactivecircus/android-emulator-runner`, the standard
-      way to get a hardware-accelerated AVD on a GitHub-hosted Linux
-      runner -- KVM is available there, just not enabled by default,
-      hence the udev-rule step ahead of it), installs the APK, starts
+    - **`assemble-debug`** (Stage 2) -- builds a debug APK on every
+      push/PR.
+    - **`install-launch-smoke-test`** (Stage 3) -- downloads that APK,
+      boots a throwaway emulator on the runner itself
+      (`reactivecircus/android-emulator-runner`, the standard way to
+      get a hardware-accelerated AVD on a GitHub-hosted Linux runner --
+      KVM is available there, just not enabled by default, hence the
+      udev-rule step ahead of it), installs the APK, starts
       `.MainActivity`, and fails the job if the process isn't still
-      alive a few seconds later. This is the CI-only counterpart to
-      the original single "Stage 3" (`arklight android build
-      --install`, `adb install` onto a *locally* connected device/
-      emulator) -- same "does this thing actually install and open
-      without immediately crashing" question, just answered on a
-      runner-hosted throwaway device instead of the user's own, and
-      depending on Stage 2a's APK rather than Stage 2b's not-yet-built
-      local one. Renamed 3a/3b for the same reason Stage 2 was split
-      in two: see ANDROID-BACKEND-IMPLEMENTATION.md's "Why split
-      Stage 2 into 2a/2b" note, and its follow-up note for Stage 3.
-      Stage 3b (installing onto a device the user has actually
-      connected, over their own `adb`) stays exactly the original
-      Stage 3 scope, and remains not yet implemented.
+      alive a few seconds later. Depends on Stage 2's APK, not a local
+      one -- same "does this thing actually install and open without
+      immediately crashing" question Stage 6 (the local-`adb install`
+      equivalent) asks, just answered on a runner-hosted throwaway
+      device instead.
+    - **`assemble-release`** (Stage 4, this addition) -- builds a
+      release APK the same way `assemble-debug` builds a debug one,
+      independent of the other two jobs. Signing is optional and
+      entirely the project owner's concern: if the repo has
+      `RELEASE_KEYSTORE_BASE64`/`RELEASE_KEYSTORE_PASSWORD`/
+      `RELEASE_KEY_ALIAS`/`RELEASE_KEY_PASSWORD` configured as GitHub
+      Actions secrets, the keystore is decoded from the first secret
+      and Gradle signs the APK with it; if not, the job still succeeds
+      and uploads an unsigned release APK, same as running
+      `gradle assembleRelease` locally with no signing env vars set.
+      ARKlight never sees or stores the keystore itself -- the decode
+      step writes it to a workspace-local file that GitHub's runner
+      discards when the job ends. This is the CI-only counterpart to
+      Stage 7 (`arklight android build --release`, which does the same
+      `assembleRelease` shell-out on the user's own machine); nothing
+      about Stage 7's scope changes because Stage 4 exists.
 
     Uses `gradle` directly (not `./gradlew`) since this scaffold does
     not template the wrapper's binary jar -- `gradle/actions/setup-
@@ -320,25 +334,27 @@ def _github_ci_workflow_yml(app_name: str, package_id: str) -> str:
     wrapper is needed either locally or here. Relies on the Android
     SDK GitHub's own `ubuntu-latest` runner image ships preinstalled
     (see https://github.com/actions/runner-images) rather than adding
-    a third-party `setup-android` action for the first job -- one
-    fewer dependency for a file meant to work unmodified the moment
-    it's generated. The second job's emulator comes from
+    a third-party `setup-android` action for the debug/release build
+    jobs -- one fewer dependency for a file meant to work unmodified
+    the moment it's generated. The smoke-test job's emulator comes from
     `reactivecircus/android-emulator-runner`, which manages its own
     system-image install, so nothing extra is needed there either.
     """
-    # Used only in the uploaded artifact's display name -- purely
+    # Used only in the uploaded artifacts' display names -- purely
     # cosmetic, so it's slugified defensively rather than validated
     # the way `package_id`/`app_name` are elsewhere in this module.
     slug = re.sub(r"[^A-Za-z0-9._-]+", "-", app_name).strip("-") or "arklight-app"
     return f'''\
 name: Android build
 
-# Builds a debug APK on GitHub-hosted runners on every push/PR, then
+# Builds a debug APK on GitHub-hosted runners on every push/PR,
 # installs and launches it on a throwaway emulator on the same runner
-# to confirm it doesn't crash immediately -- see
-# ANDROID-BACKEND-IMPLEMENTATION.md, Stages 2a and 3a. Requires no
-# JDK, Android SDK, or emulator/device on your own machine for either
-# job; all of it lives on the runner.
+# to confirm it doesn't crash immediately, and separately builds a
+# release APK (signed if RELEASE_KEYSTORE_BASE64 and friends are
+# configured as repo secrets, unsigned otherwise) -- see
+# ANDROID-BACKEND-IMPLEMENTATION.md, Stages 2, 3, and 4. Requires no
+# JDK, Android SDK, or emulator/device on your own machine for any of
+# the three jobs; all of it lives on the runner.
 on:
   push:
     branches: [main]
@@ -411,6 +427,46 @@ jobs:
               exit 1
             fi
             echo "App launched and is still running -- smoke test passed."
+
+  assemble-release:
+    name: Assemble release APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the project
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "{_GRADLE_VERSION}"
+
+      # Optional -- only runs if the repo has a RELEASE_KEYSTORE_BASE64
+      # secret configured. Writes the decoded keystore to a
+      # workspace-local file that never leaves this job's runner.
+      - name: Decode release keystore (optional)
+        if: ${{{{ secrets.RELEASE_KEYSTORE_BASE64 != '' }}}}
+        run: echo "${{{{ secrets.RELEASE_KEYSTORE_BASE64 }}}}" | base64 -d > release.keystore
+
+      - name: Assemble release APK
+        env:
+          RELEASE_KEYSTORE_PATH: ${{{{ secrets.RELEASE_KEYSTORE_BASE64 != '' && 'release.keystore' || '' }}}}
+          RELEASE_KEYSTORE_PASSWORD: ${{{{ secrets.RELEASE_KEYSTORE_PASSWORD }}}}
+          RELEASE_KEY_ALIAS: ${{{{ secrets.RELEASE_KEY_ALIAS }}}}
+          RELEASE_KEY_PASSWORD: ${{{{ secrets.RELEASE_KEY_PASSWORD }}}}
+        run: gradle assembleRelease --no-daemon
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: {slug}-release-apk
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
 '''
 
 
@@ -1245,20 +1301,30 @@ Android Studio, or build it from the command line once you have a JDK:
 ./gradlew assembleDebug
 ```
 
-(`arklight android build` -- Stage 2b of the design doc above -- runs
+(`arklight android build` -- Stage 5 of the design doc above -- runs
 that same command for you and handles a missing-JDK error gracefully;
 not yet implemented as of this scaffold's version.)
 
 ## Building without a local JDK
 
 This project includes `.github/workflows/android-build.yml` (Stages
-2a and 3a of the design doc above) -- push it to GitHub, or open a
+2, 3, and 4 of the design doc above) -- push it to GitHub, or open a
 pull request against it, and it: builds a debug APK on GitHub's own
-runners, attaches it to the workflow run as a downloadable artifact,
-then installs and launches it on a throwaway emulator on that same
-runner to confirm it doesn't crash immediately on startup. Nothing to
-configure; no JDK, Android SDK, or emulator/device needed on your own
-machine for either check.
+runners and attaches it to the workflow run as a downloadable
+artifact, installs and launches that APK on a throwaway emulator on
+that same runner to confirm it doesn't crash immediately on startup,
+and separately builds a release APK (also attached as a downloadable
+artifact). Nothing to configure for the debug build or the smoke test;
+no JDK, Android SDK, or emulator/device needed on your own machine for
+either.
+
+The release build is unsigned unless you add
+`RELEASE_KEYSTORE_BASE64` (your keystore file, base64-encoded),
+`RELEASE_KEYSTORE_PASSWORD`, `RELEASE_KEY_ALIAS`, and
+`RELEASE_KEY_PASSWORD` as secrets in this repo's Settings -> Secrets
+and variables -> Actions -- if you do, the workflow decodes and uses
+them to sign the APK; if not, the job still succeeds and gives you an
+unsigned APK you can sign yourself later.
 
 ## What's here
 
@@ -1276,11 +1342,12 @@ machine for either check.
   https://github.com/Rae-ARK/ARKlight-Viewer-for-Android-Devices)
   (Apache-2.0). Unused by the default unpacked-tree setup above; kept
   in case you want to swap in a sealed `.ark` bundle by hand later.
-- `.github/workflows/android-build.yml` -- builds a debug APK and
-  smoke-tests it (install + launch) on GitHub-hosted runners on every
-  push/PR (see "Building without a local JDK" above). Edit or delete
-  it freely; it's a normal, hand-editable workflow file, not something
-  ARKlight regenerates in place.
+- `.github/workflows/android-build.yml` -- builds a debug APK,
+  smoke-tests it (install + launch), and builds a release APK, all on
+  GitHub-hosted runners on every push/PR (see "Building without a
+  local JDK" above). Edit or delete it freely; it's a normal,
+  hand-editable workflow file, not something ARKlight regenerates in
+  place.
 
 ## Custom launcher icon
 

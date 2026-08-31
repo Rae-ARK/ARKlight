@@ -1143,7 +1143,7 @@ wants a device-ready build in one command can ask for that instead:
    registers a `WebViewAssetLoader` pointed at the build output copied
    into `app/src/main/assets/`, and stops there. This is the
    genuinely zero-dependency stage described above.
-2a. **CI build verification, no local toolchain at all** -- stage 1's
+2. **CI build verification, no local toolchain at all** -- stage 1's
    scaffold also writes a GitHub Actions workflow
    (`.github/workflows/android-build.yml`) into the generated project,
    which builds a debug APK on GitHub-hosted runners (JDK + Android
@@ -1151,36 +1151,53 @@ wants a device-ready build in one command can ask for that instead:
    "someone who only wants the generated project ... to commit to
    their own CI" case named above, just delivered as a ready-made
    workflow file instead of left for that person to write themselves.
-   Genuinely zero-dependency on the user's own machine, same as stage
-   1 -- see `docs/Backends/ANDROID-BACKEND-IMPLEMENTATION.md`'s
-   "Why split Stage 2 into 2a/2b" note.
-2b. **`arklight android build <build-dir> -o <project-dir>`** -- runs
+   Genuinely zero-dependency on the user's own machine, same as
+   stage 1.
+3. **Install + launch smoke test, no local toolchain at all** -- the
+   same workflow file stage 2 added runs a second job that downloads
+   that APK, boots a throwaway emulator on the runner itself, installs
+   and launches the app, and fails if the process isn't still alive a
+   few seconds later. Depends on stage 2's APK, not a locally-built
+   one -- same "runs entirely on GitHub's runner" property stage 2
+   has.
+4. **Release build, no local toolchain at all** -- the same workflow
+   file's third job builds a release APK via `gradle assembleRelease`,
+   independently of the other two jobs. Signing is opt-in via GitHub
+   Actions secrets (a base64-encoded keystore plus its passwords/
+   alias); if they're not configured, the job still succeeds and
+   uploads an unsigned release APK. Genuinely zero-dependency on the
+   user's own machine, same as stages 2 and 3.
+5. **`arklight android build <build-dir> -o <project-dir>`** -- runs
    stage 1, then shells out to the generated project's Gradle
    *locally* via `subprocess`, per the JDK-detection handling above.
    Produces a debug APK. First run needs JDK + Android SDK + network
    (for Gradle/AGP/AndroidX resolution) -- on the *user's own*
-   machine this time, unlike 2a; nothing about ARKlight's own install
-   grows to support this -- the toolchain lives entirely in the
-   generated project, same way a `node_modules` folder would live in
-   a project ARKlight itself has nothing to do with.
-3a. **Install + launch smoke test, no local toolchain at all** -- the
-   same workflow file 2a added runs a second job that downloads that
-   APK, boots a throwaway emulator on the runner itself, installs and
-   launches the app, and fails if the process isn't still alive a few
-   seconds later. Depends on 2a's APK, not 2b's local one -- same
-   "runs entirely on GitHub's runner" property 2a has. See
-   `docs/Backends/ANDROID-BACKEND-IMPLEMENTATION.md`'s "Why split
-   Stage 3 into 3a/3b" note.
-3b. **`arklight android build --install <build-dir>`** -- stage 2b,
+   machine this time, unlike stage 2; nothing about ARKlight's own
+   install grows to support this -- the toolchain lives entirely in
+   the generated project, same way a `node_modules` folder would live
+   in a project ARKlight itself has nothing to do with. The local
+   counterpart to stage 2.
+6. **`arklight android build --install <build-dir>`** -- stage 5,
    then `adb install` onto a connected device/emulator if `adb` is
    found on `PATH` (same graceful-`FileNotFoundError` handling if
-   not).
-4. **`arklight android build --release`** -- stage 2b targeting
+   not). The local counterpart to stage 3.
+7. **`arklight android build --release`** -- stage 5 targeting
    `assembleRelease` instead of `assembleDebug`; signing
    configuration (keystore path/passwords) is the user's own concern,
    passed through to Gradle rather than ARKlight inventing its own
    credential-handling story -- explicitly out of scope for this
-   milestone to manage on the user's behalf.
+   milestone to manage on the user's behalf. The local counterpart to
+   stage 4.
+
+Stages 2-4 (CI-only, no local toolchain) and stages 5-7 (their local-
+machine counterparts) were originally proposed as three `a`/`b` pairs
+sharing one number each (`2a`/`2b`, `3a`/`3b`, `4a`/`4b`) since each
+pair does the equivalent thing on two different machines. That
+numbering is retired now that all three CI halves have shipped well
+ahead of their local counterparts -- see
+`docs/Backends/ANDROID-BACKEND-IMPLEMENTATION.md`'s "Numbering" note
+for the full reasoning; this list uses the same plain 0-7 numbering
+that doc's table does.
 
 Each rung is additive and independently useful, mirroring the
 `.ark` bundle's own "`--plain` vs. sealed" and "`arklight pack` runs
@@ -1225,10 +1242,11 @@ plain browser HTTP a page is served from.
   no concrete forcing use case identified yet; noted here as a
   candidate for a future, separate design rather than speculatively
   scoped now.
-- **Play Store signing/publishing automation.** Stage 4 above passes
-  signing config through to Gradle; it does not manage keystores,
-  Play Console API integration, or release-track promotion on the
-  user's behalf.
+- **Play Store signing/publishing automation.** Stages 4 and 7 above
+  pass signing config through to Gradle (as GitHub Actions secrets and
+  local env vars respectively); neither manages keystores, Play
+  Console API integration, or release-track promotion on the user's
+  behalf.
 - **Any change to the HTML/CSS/JS backends themselves.** This is a
   packaging backend, not a template/codegen backend like the future
   `v0.100` Vue/Svelte target -- it consumes an existing `build-dir`
