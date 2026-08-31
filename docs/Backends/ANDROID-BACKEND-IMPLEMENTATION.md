@@ -1,6 +1,6 @@
 # Android Backend Implementation: Staged Order
 
-Status: **Stage 0 in progress**, Stages 1-4 not started. This file
+Status: **Stage 0 in progress, Stage 1 done**, Stages 2-4 not started. This file
 does not restate the design already written in `docs/DESIGN-NOTES.md`
 ("v0.0438: Android backend -- androidx.webkit.WebViewAssetLoader
 packaging") -- it exists only to turn that section's prose "Staging"
@@ -44,7 +44,7 @@ pointers, it does not renumber or reorder anything from that section.
 | # | Stage | What | Toolchain required | Depends on | Status |
 |---|---|---|---|---|---|
 | 0 | Promote the Viewer repo | Split `MainActivity.kt` into a shared runtime piece (`WebViewAssetLoader` setup, the `/entry/` + `/site/` path handlers, origin handling) and a thin Viewer-mode-only shell (bundle picker, menu, passphrase dialog) on top of it, per the file-by-file table above. `ArkBundle.kt`/`ArkSeal.kt`/`MemoryGuard.kt` carry over unchanged. Lands inside `arklight`'s own tree as the packaging backend's template/runtime source (exact module path TBD by whoever implements the split -- candidate: `arklight/backend/android/runtime/`), not as a fork of the Viewer repo -- the Viewer repo stays the standalone app; this backend vendors/templates from the shared pieces it factors out. | None -- pure refactor of existing Kotlin | none | **In progress** |
-| 1 | `arklight android scaffold <build-dir> -o <project-dir>` | Templating only: generate the Kotlin/Gradle/manifest project shell from Stage 0's runtime pieces, in **Application mode** (one bundle baked in at build time, no Viewer chrome), copy `<build-dir>` into `app/src/main/assets/`, wire `MainActivity` to Stage 0's shared `WebViewAssetLoader` setup pointed at those assets. Reads app identity from `arklight.config.py`'s `"android"` section (`app_name`/`package_id`/`version_name`/`version_code`/`icon`/`splash`/`orientation`/`edge_to_edge` -- see `DESIGN-NOTES.md`'s "App identity metadata" subsection for the full key list and defaults). | None -- genuinely zero-dependency, per `DESIGN-NOTES.md`'s "The toolchain is unavoidable" correction (templating source files needs nothing; *building* them is what needs a JDK, which is Stage 2's problem, not this one's) | Stage 0 | Not started |
+| 1 | `arklight android scaffold <build-dir> -o <project-dir>` | Templating only: generate the Kotlin/Gradle/manifest project shell from Stage 0's runtime pieces, in **Application mode** (one bundle baked in at build time, no Viewer chrome), copy `<build-dir>` into `app/src/main/assets/`, wire `MainActivity` to Stage 0's shared `WebViewAssetLoader` setup pointed at those assets. Reads app identity from `arklight.config.py`'s `"android"` section (`app_name`/`package_id`/`version_name`/`version_code`/`icon`/`splash`/`orientation`/`edge_to_edge` -- see `DESIGN-NOTES.md`'s "App identity metadata" subsection for the full key list and defaults). | None -- genuinely zero-dependency, per `DESIGN-NOTES.md`'s "The toolchain is unavoidable" correction (templating source files needs nothing; *building* them is what needs a JDK, which is Stage 2's problem, not this one's) | Stage 0 | **Done** -- `arklight.cli.android.scaffold_project`, wired up as `arklight android scaffold`; see `tests/test_android.py` |
 | 2 | `arklight android build <build-dir> -o <project-dir>` | Runs Stage 1, then shells out to the generated project's `./gradlew assembleDebug` via `subprocess`; catches a missing-JDK `FileNotFoundError`/`OSError` specifically and prints the actionable message `DESIGN-NOTES.md`'s "Graceful failure when no JDK is present" subsection specifies, rather than a raw traceback. | JDK + Android SDK + network (Gradle/AGP/AndroidX resolution) -- on the *user's* machine, not ARKlight's own install | Stage 1 | Not started |
 | 3 | `arklight android build --install` | Stage 2, then `adb install` onto a connected device/emulator if `adb` is on `PATH`; same graceful-`FileNotFoundError` handling if not. | Stage 2's toolchain + `adb` + a connected device/emulator | Stage 2 | Not started |
 | 4 | `arklight android build --release` | Stage 2 targeting `assembleRelease` instead of `assembleDebug`; signing config (keystore path/passwords) passed through to Gradle as the user's own concern -- ARKlight does not manage keystores or credentials on the user's behalf (see `DESIGN-NOTES.md`'s "Explicitly out of scope" list). | Stage 2's toolchain + a signing config the user supplies | Stage 2 | Not started |
@@ -55,6 +55,40 @@ runs after `build`, never touching the compiler internals" shape
 existing `build-dir` and never imports the parser/ir/HTML/CSS/JS
 backend internals it's packaging, per `DESIGN-NOTES.md`'s "A staged
 CLI ladder" subsection.
+
+## Stage 1 implementation notes
+
+Decisions made while landing `arklight.cli.android` that weren't
+already pinned down by `DESIGN-NOTES.md` or the table above:
+
+- **Where `arklight.config.py` is looked up from.** `arklight android
+  scaffold <build-dir> -o <project-dir>` only takes a build directory,
+  not a site entry file, so there's no `site.py` path to derive a
+  config directory from the way `arklight live-streaming --subscribe
+  site.py` does. This lands on `<build-dir>`'s **parent** directory --
+  the conventional layout every scaffolded template already uses
+  (`arklight.config.py` next to `site.py`, build output one level
+  under both, e.g. `ARK/`) -- rather than adding a new flag for it.
+- **`icon`/`splash` paths are relative to the build directory root**,
+  not the project source directory -- the same convention `arklight
+  pwa --icon SRC:...` already established, and it lines up naturally
+  with `arklight build` having already copied a project's `assets/`
+  into the build output by the time `scaffold` runs.
+- **`orientation` value mapping**: `"portrait"`/`"landscape"` pass
+  through unchanged, `"unspecified"` passes through unchanged,
+  `"sensor"` resolves to the manifest's `"fullSensor"` (all 4
+  rotations including upside-down) rather than the narrower `sensor`
+  attribute value, since "let it rotate freely" is what a config
+  author means by `"sensor"` in practice for a full-window WebView app.
+- **Icon/splash file type**: restricted to `.png`/`.jpg`/`.jpeg`/
+  `.webp` and rejected otherwise with a clear error, rather than
+  accepting anything `res/drawable/` can technically hold -- avoids
+  silently producing a resource file name Gradle's resource compiler
+  would reject.
+- **`-o`/`--output` is required** (unlike `arklight new`, which
+  defaults to the current directory) -- a scaffolded Android project
+  sitting anonymously in an already-multi-purpose project directory
+  is more likely to be a mistake than a plain site scaffold is.
 
 ## Open questions for Stage 0
 

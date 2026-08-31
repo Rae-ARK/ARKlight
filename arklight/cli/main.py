@@ -6,6 +6,7 @@ ARKlight CLI.
     arklight pack ARK -o site.ark
     arklight unpack site.ark -o ARK
     arklight pwa ARK --name "My Site" --icon assets/icon-192.png:192x192
+    arklight android scaffold ARK -o android-project
     arklight search Picture
 
 Beginner-friendly by design: a handful of subcommands, sensible
@@ -27,7 +28,8 @@ import webbrowser
 from pathlib import Path
 
 from arklight import __version__, experimental
-from arklight.cli import live_streaming
+from arklight.cli import android, live_streaming
+from arklight.cli.android import AndroidError
 from arklight.cli.license_gate import ensure_license_accepted
 from arklight.cli.scaffold import ScaffoldError, new_project
 from arklight.cli.search import record_acceptance, resolve_exact, search_component
@@ -435,6 +437,26 @@ def _cmd_pwa(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_android_scaffold(args: argparse.Namespace) -> int:
+    try:
+        result = android.scaffold_project(args.build_dir, output_dir=args.output)
+    except AndroidError as exc:
+        print(f"ARKlight android scaffold failed: {exc}", file=sys.stderr)
+        return 1
+
+    print(
+        f"ARKlight v{__version__} scaffolded an Android project for "
+        f"{result.app_name!r} ({result.package_id}) -> {result.project_dir}/ "
+        f"({len(result.written_paths)} file(s))"
+    )
+    print()
+    print("Next steps (needs a JDK -- see the generated project's own README.md):")
+    print(f"  cd {result.project_dir}")
+    print("  ./gradlew assembleDebug")
+
+    return 0
+
+
 def _cmd_new(args: argparse.Namespace) -> int:
     # `--explain-architecture` is informational and doesn't require a
     # project name -- `arklight new --explain-architecture` alone just
@@ -727,6 +749,32 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     pwa_parser.set_defaults(func=_cmd_pwa)
+
+    android_parser = subparsers.add_parser(
+        "android",
+        help="Package an `arklight build` output directory as a native Android app "
+        "(see docs/Backends/ANDROID-BACKEND-IMPLEMENTATION.md).",
+    )
+    android_subparsers = android_parser.add_subparsers(dest="android_command", required=True)
+
+    android_scaffold_parser = android_subparsers.add_parser(
+        "scaffold",
+        help="Generate an Android Studio / Gradle project (Application mode) from a "
+        "build directory. Templating only -- no JDK/Android SDK required (Stage 1 "
+        "of the design doc's CLI ladder; `arklight android build`, which actually "
+        "compiles the result, is Stage 2 and not yet implemented).",
+    )
+    android_scaffold_parser.add_argument(
+        "build_dir", help="An `arklight build` output directory (e.g. ARK)."
+    )
+    android_scaffold_parser.add_argument(
+        "-o",
+        "--output",
+        required=True,
+        help="Directory to create the Android Studio / Gradle project in. Must not "
+        "already exist, or must be empty.",
+    )
+    android_scaffold_parser.set_defaults(func=_cmd_android_scaffold)
 
     new_parser = subparsers.add_parser(
         "new", help="Scaffold a new ARKlight project from a built-in template."

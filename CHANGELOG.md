@@ -5,6 +5,50 @@ follows [Keep a Changelog](https://keepachangelog.com/); versions
 follow the milestone scheme from ARCHITECTURE.md rather than strict
 SemVer.
 
+## [Unreleased] -- Android backend, Stage 1 of 4 (`arklight android scaffold`)
+
+**What:** `arklight android scaffold <build-dir> -o <project-dir>` --
+the first CLI-facing rung of the staged Android backend (see
+`docs/Backends/ANDROID-BACKEND-IMPLEMENTATION.md`). Templating only,
+no JDK/Android SDK/Gradle required: turns an existing `arklight build`
+output directory into an Application-mode Android Studio / Gradle
+project (a `WebView` + `androidx.webkit.WebViewAssetLoader` shell with
+the site baked into `app/src/main/assets/` at generation time, no
+Viewer chrome). App identity -- name, package ID, version, launcher
+icon, splash image, orientation, edge-to-edge -- comes from
+`arklight.config.py`'s `"android"` section, read the same way
+`arklight live-streaming` already reads its own `"live_streaming"`
+section, with a built-in default for every key so a project with no
+config at all still scaffolds a buildable, generically-branded app.
+
+**Implementation:** `arklight/cli/android.py` (new) -- `AndroidError`,
+`ScaffoldResult`, and `scaffold_project()`, mirroring the
+`arklight.cli.scaffold`/`arklight.pwa` split of "template builders
+never touch disk, the CLI module owns filesystem writes and config
+resolution." Consumes `arklight.backend.android.runtime.project_files`
+(landed in the prior Stage-0 commit) for the actual Kotlin/Gradle/XML
+file contents. Validates `package_id` (dotted Java-style identifier),
+`version_code` (a real `int`, not a `bool`), `orientation` (mapped to
+its manifest value -- `"sensor"` -> `"fullSensor"`), and any configured
+`icon`/`splash` (must resolve to a real file inside the build
+directory, with a `.png`/`.jpg`/`.jpeg`/`.webp` extension), each with
+an actionable `AndroidError` rather than a raw traceback. Wired into
+`arklight/cli/main.py` as a nested `android scaffold` subcommand
+(`arklight android` alone -- with no further subcommand -- errors via
+argparse, leaving room for `arklight android build`, Stage 2, to land
+as a sibling subcommand later without changing this one's shape).
+
+**Tests (`tests/test_android.py`):** default-config scaffolding
+(every generated file present, portrait orientation), build-dir ->
+`assets/` copying, config-driven identity (app name, package ID,
+version, orientation mapping, edge-to-edge), custom icon/splash
+copying (plus their downstream manifest/theme/Gradle wiring), every
+validation error path (missing/malformed build dir, non-empty output
+dir, path-traversal/missing/wrong-extension icon or splash, invalid
+package ID, non-int/bool version code, unknown orientation, malformed
+config file), and the CLI wiring (success/failure exit codes and
+messages, missing subcommand, required `-o`).
+
 ## [Unreleased] -- `Site.raw_postprocess(...)`: user-facing raw output escape hatch
 
 **What:** a new experimental API, `Site.raw_postprocess(fn)`, gated
