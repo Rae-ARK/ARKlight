@@ -697,12 +697,64 @@ See [`docs/DESIGN-NOTES.md`](./docs/DESIGN-NOTES.md) ("v0.036: ARK
 Bundle spec v1" and "v0.037: sealed bundles") for the full byte layout,
 packing algorithm, cipher construction, and known caveats.
 
+## Configuration (`arklight.config.py`)
+
+Optional, project-level settings that don't belong on the `Site(...)`
+call because they're about how you work with a project locally, not
+part of the compiled site itself -- currently just the
+`live-streaming` dev server's bind address, with more sections planned
+(see `docs/Foundational/DESIGN-NOTES.md`).
+
+Create a file named `arklight.config.py` next to your site's entry
+file (same directory as `site.py`), containing a single top-level
+`CONFIG` dict:
+
+```python
+# arklight.config.py
+CONFIG = {
+    "live_streaming": {
+        "host": "127.0.0.1",
+        "port": 8347,
+    },
+}
+```
+
+- **Entirely optional.** No `arklight.config.py` in the entry file's
+  directory -> every section falls back to its built-in default,
+  exactly as if the file were `{}`.
+- **Not searched up the directory tree.** A project's config lives
+  directly next to its `site.py`, not somewhere an ancestor directory
+  has to be searched for -- keeps "which config applies" unambiguous.
+- **Loaded the same way a site file is** -- a plain `exec` of the
+  file's source in its own namespace. A project's config file is
+  exactly as trusted as its site file already is; this introduces no
+  new trust boundary.
+- **Fails loudly if present but broken.** A syntax error, a missing
+  `CONFIG`, or a `CONFIG` that isn't a dict raises a clear error at
+  load time rather than silently falling back to defaults -- a typo'd
+  setting should never look like it's taking effect when it isn't.
+- **Forward-compatible by section.** Each top-level key in `CONFIG`
+  (`"live_streaming"` today) is owned by whichever part of ARKlight
+  reads it; a section this version of ARKlight doesn't know about yet
+  is preserved as-is rather than rejected, so a config file written
+  against a newer ARKlight still loads on an older one.
+
+See `arklight/config.py` for the loader itself, and
+`docs/Foundational/DESIGN-NOTES.md` for how this same mechanism is
+planned to grow (an `"android"` section for the Android backend's
+app-identity metadata -- icon, splash, package ID, orientation -- and
+a `"desktop"` section for the Desktop backend, each read the same way
+`"live_streaming"` is today).
+
 ## Repository layout
 
 ```
 arklight-framework/
   arklight/
     api.py            Public component functions + Site class
+    config.py          `arklight.config.py` project-config loader
+                        (optional, per-project settings file --
+                        see "Configuration" above)
     ast/               ARK AST node type (ARKNode)
     parser/            Python Source -> Python AST -> (loaded) ARK AST
     ir/                Normalization, Validation, Website IR

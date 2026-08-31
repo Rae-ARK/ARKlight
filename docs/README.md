@@ -34,7 +34,7 @@ built the way it is.
 | File | Covers |
 | --- | --- |
 | [`ARCHITECTURE.md`](Foundational/ARCHITECTURE.md) | High-level system design: how source is parsed, compiled to IR, and rendered by a backend. |
-| [`CONFIGURABILITY.md`](Foundational/CONFIGURABILITY.md) | Configuration surface — what can be tuned per-project via `config.py` and friends. |
+| [`CONFIGURABILITY.md`](Foundational/CONFIGURABILITY.md) | The "reachability rule" — which fixed internal values should grow into a per-site kwarg/CLI flag vs. stay a constant. (For the `arklight.config.py` project-settings file itself, see the README's "Configuration" section.) |
 | [`DEPLOYMENT-CLI.md`](Foundational/DEPLOYMENT-CLI.md) | The `arklight` CLI: build/deploy workflows and commands. |
 | [`DESIGN-NOTES.md`](Foundational/DESIGN-NOTES.md) | Rationale and trade-offs behind key design decisions. |
 | [`EXPERIMENTAL-APIS.md`](Foundational/EXPERIMENTAL-APIS.md) | APIs that are unstable or opt-in (`experimental.py`), and their stability guarantees. |

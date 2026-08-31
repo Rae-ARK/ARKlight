@@ -127,6 +127,7 @@ arklight-framework/
     backend/
       html/
     cli/
+    config.py         `arklight.config.py` project-config loader
   examples/
   tests/
   docs/

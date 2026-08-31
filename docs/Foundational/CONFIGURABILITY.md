@@ -1,5 +1,14 @@
 # Configurability: the reachability rule
 
+**Not to be confused with `arklight.config.py`** -- the optional
+project-level settings file (`live-streaming` host/port today, more
+sections planned), documented in the main
+[`README.md`](../../README.md#configuration-arklightconfigpy) and
+implemented in `arklight/config.py`. This doc is about a different
+kind of configurability: which fixed values inside the compiler
+*should* grow into a `Site(...)`/`Page(...)` kwarg (or CLI flag) with
+a default, and which should stay an internal constant.
+
 ARKlight's internals hold a lot of fixed values -- default colors,
 spacing, tag maps, attribute allow-lists, an iteration count. A few of
 these have grown a real override path (a `Site(...)`/`Page(...)` kwarg,
