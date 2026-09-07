@@ -1049,7 +1049,7 @@ def _strings_xml(app_name: str) -> str:
 _COLORS_XML = """\
 <resources>
     <!-- Brand marks: used only in the launcher icon drawables, not as
-         theme color roles -- the icon should look the same regardless
+         theme color roles; the icon should look the same regardless
          of light/dark/dynamic theme. Vendored from
          ARKlight-Viewer-for-Android-Devices's default branding;
          replace freely once you have your own launcher icon (see
@@ -1057,7 +1057,7 @@ _COLORS_XML = """\
     <color name="brand_gradient_start">#5FE0B5</color>
     <color name="brand_gradient_end">#3D6EFF</color>
 
-    <!-- Fallback (non-dynamic) Material 3 color roles -- used on
+    <!-- Fallback (non-dynamic) Material 3 color roles; used on
          devices below Android 12, or when the system hasn't handed
          out a wallpaper-derived palette. -->
     <color name="md_theme_primary">#146356</color>
@@ -1114,7 +1114,7 @@ def _themes_xml(has_splash: bool) -> str:
       everywhere else it falls back to the branded roles below.
 
       NoActionBar because Application mode's WebView fills the entire
-      window (see MainActivity.kt) -- there is no toolbar/chrome.
+      window (see MainActivity.kt); there is no toolbar/chrome.
     -->
     <style name="Theme.ArkApp" parent="Theme.Material3.DayNight.NoActionBar">
         <item name="colorPrimary">@color/md_theme_primary</item>
@@ -1245,7 +1245,7 @@ _IC_LAUNCHER_FOREGROUND_XML = """\
 
 _IC_LAUNCHER_MONOCHROME_XML = """\
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Single-tone mark for Android 13+ themed icons -- the system
+<!-- Single-tone mark for Android 13+ themed icons; the system
      recolors this to match the user's wallpaper/theme, so it must be
      flat, not gradient. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
