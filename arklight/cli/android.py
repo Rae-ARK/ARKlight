@@ -27,18 +27,18 @@ launches it on a throwaway emulator on that same runner to confirm it
 doesn't crash immediately on startup (Stage 3). Both are CI-only
 build/install verification, no local toolchain required, folded into
 this same command rather than a separate subcommand since they cost
-nothing to generate. There's no release-build job (an earlier revision
-had one, Stage 4) -- an unsigned release APK isn't installable and a
-signed one needs a keystore this tool has no business generating or
-holding, so that's left as a manual step; see the generated project's
-own README.md. `arklight android build` (Stage 5 -- shells out to a
-*local* `./gradlew assembleDebug`, requires a JDK on this machine),
-`arklight android build --install` (Stage 6 -- `adb install` onto a
-device/emulator the user has actually connected), and `arklight
-android build --release` (Stage 7 -- the same local shell-out
-targeting `assembleRelease`) are separate, not-yet-implemented
-commands; this module only produces the project shell, it never
-invokes Gradle or `adb` itself.
+nothing to generate. The release-build job (Stage 4) is opt-in --
+`arklight android scaffold --release` -- since it's a no-op without a
+keystore this tool has no business generating or holding; the flag
+just wires the generated workflow to read one from repo secrets at
+build time instead, see `runtime._github_ci_workflow_yml`. `arklight
+android build` (Stage 5 -- shells out to a *local* `./gradlew
+assembleDebug`, requires a JDK on this machine), `arklight android
+build --install` (Stage 6 -- `adb install` onto a device/emulator the
+user has actually connected), and `arklight android build --release`
+(Stage 7 -- the same local shell-out targeting `assembleRelease`) are
+separate, not-yet-implemented commands; this module only produces the
+project shell, it never invokes Gradle or `adb` itself.
 
 `.github/workflows/` is only discovered by GitHub Actions at a git
 repository's *root*. This command has no reliable way to know whether
@@ -242,6 +242,7 @@ def scaffold_project(
     *,
     output_dir: str | Path,
     debug_keystore: str | Path | None = None,
+    include_release_job: bool = False,
 ) -> ScaffoldResult:
     """
     Scaffold an Application-mode Android Studio / Gradle project at
@@ -259,6 +260,16 @@ def scaffold_project(
     fresh CI runner) auto-generates its *own* debug key, so a debug APK
     built on one won't share a signature with one built on another and
     `adb install -r`/reinstalling over an existing test install fails.
+
+    `include_release_job`, if True, adds a signed release-build job
+    (`assemble-release`) to the generated GitHub Actions workflow --
+    off by default, opted into explicitly via `arklight android
+    scaffold --release`, since it's a no-op (a job that fails until
+    the `RELEASE_KEYSTORE_BASE64`/`RELEASE_KEYSTORE_PASSWORD`/
+    `RELEASE_KEY_ALIAS`/`RELEASE_KEY_PASSWORD` repo secrets it expects
+    are configured) for anyone who hasn't set that up yet. See
+    `runtime._github_ci_workflow_yml`'s docstring for what the job
+    does.
 
     Raises AndroidError for a missing/malformed build directory, a
     non-empty `output_dir`, an invalid/malformed `"android"` config
@@ -335,6 +346,7 @@ def scaffold_project(
         has_custom_icon=icon_path is not None,
         has_splash=splash_path is not None,
         has_debug_keystore=debug_keystore_path is not None,
+        include_release_job=include_release_job,
     )
 
     written: list[Path] = []

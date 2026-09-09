@@ -89,6 +89,7 @@ def project_files(
     has_custom_icon: bool,
     has_splash: bool,
     has_debug_keystore: bool = False,
+    include_release_job: bool = False,
 ) -> dict[str, str]:
     """
     Return `{relative_path: contents}` for every *generated text* file
@@ -109,6 +110,15 @@ def project_files(
     `orientation` is already resolved to its Android manifest value
     (e.g. `"fullSensor"`, not the config file's `"sensor"`) -- see
     `arklight.cli.android._ORIENTATIONS`.
+
+    `include_release_job` controls whether the generated GitHub
+    Actions workflow gets a signed release-build job -- see
+    `_github_ci_workflow_yml`'s own docstring. Off by default, opted
+    into explicitly via `arklight android scaffold --release`, since
+    it's a no-op (and a confusing red CI job) without the
+    `RELEASE_KEYSTORE_BASE64`/`RELEASE_KEYSTORE_PASSWORD`/
+    `RELEASE_KEY_ALIAS`/`RELEASE_KEY_PASSWORD` repo secrets already
+    configured.
     """
     package_path = _package_path(package_id)
     java_dir = f"app/src/main/java/{package_path}"
@@ -132,7 +142,9 @@ def project_files(
         "app/src/main/res/values-night/colors.xml": _COLORS_NIGHT_XML,
         "app/src/main/res/values/themes.xml": _themes_xml(has_splash),
         "app/src/main/res/values-night/themes.xml": _themes_night_xml(has_splash),
-        ".github/workflows/android-build.yml": _github_ci_workflow_yml(app_name, package_id),
+        ".github/workflows/android-build.yml": _github_ci_workflow_yml(
+            app_name, package_id, include_release_job=include_release_job
+        ),
         "README.md": _readme_md(app_name, package_id, has_debug_keystore),
     }
 
@@ -332,13 +344,14 @@ dependencies {{
 # ---------------------------------------------------------------------------
 
 
-def _github_ci_workflow_yml(app_name: str, package_id: str) -> str:
+def _github_ci_workflow_yml(
+    app_name: str, package_id: str, *, include_release_job: bool = False
+) -> str:
     """
-    A GitHub Actions workflow with two jobs, entirely on GitHub-hosted
-    runners -- so a scaffolded project gets automated debug build and
-    install/launch verification without a JDK, Android SDK, or a
-    physical/local emulator ever needing to exist on the *user's own*
-    machine:
+    A GitHub Actions workflow, entirely on GitHub-hosted runners -- so
+    a scaffolded project gets automated debug build and install/launch
+    verification without a JDK, Android SDK, or a physical/local
+    emulator ever needing to exist on the *user's own* machine:
 
     - **`assemble-debug`** (Stage 2) -- builds a debug APK on every
       push/PR.
@@ -355,17 +368,26 @@ def _github_ci_workflow_yml(app_name: str, package_id: str) -> str:
       equivalent) asks, just answered on a runner-hosted throwaway
       device instead.
 
-    Deliberately does *not* include a release-build job (an earlier
-    revision of this scaffold, Stage 4, did). An unsigned release APK
-    isn't installable on a stock device and a signed one needs a
-    keystore + `RELEASE_KEYSTORE_BASE64`/`RELEASE_KEYSTORE_PASSWORD`/
-    `RELEASE_KEY_ALIAS`/`RELEASE_KEY_PASSWORD` repo secrets this
-    scaffold has no way to provision -- shipping the job pre-wired just
-    means it silently produces an unsigned artifact (or the user has to
-    go set up signing before it's useful either way). Left as a manual
-    step instead: see the generated README's "Building a release APK"
-    section for the `gradle assembleRelease` command and what signing
-    needs, once you're ready to set that up yourself.
+    - **`assemble-release`** (Stage 4) -- opt-in, off by default; only
+      generated when `include_release_job` is True (wired up to
+      `arklight android scaffold --release`). An unsigned release APK
+      isn't installable on a stock device, so shipping this job
+      pre-wired unconditionally just means it silently produces an
+      unsigned artifact for anyone who hasn't set up signing -- hence
+      requiring the explicit flag rather than including it always.
+      When included, it decodes the `RELEASE_KEYSTORE_BASE64` repo
+      secret to a file on the runner and passes it plus
+      `RELEASE_KEYSTORE_PASSWORD`/`RELEASE_KEY_ALIAS`/
+      `RELEASE_KEY_PASSWORD` through as the same env vars
+      `_app_build_gradle_kts`'s `signingConfigs` block already reads
+      (`RELEASE_KEYSTORE_PATH` and friends) -- see that function's own
+      "Signing configs" comment. Skipped on `pull_request` triggers
+      (`if: github.event_name != 'pull_request'`) since a fork PR
+      shouldn't be handed a path to a job that expects signing
+      secrets, even though such secrets aren't exposed to fork PRs in
+      the first place. See the generated README's "Building a release
+      APK" section for the equivalent local `gradle assembleRelease`
+      command and what the secrets need to contain.
 
     Uses `gradle` directly (not `./gradlew`) since this scaffold does
     not template the wrapper's binary jar -- `gradle/actions/setup-
@@ -383,6 +405,70 @@ def _github_ci_workflow_yml(app_name: str, package_id: str) -> str:
     # cosmetic, so it's slugified defensively rather than validated
     # the way `package_id`/`app_name` are elsewhere in this module.
     slug = re.sub(r"[^A-Za-z0-9._-]+", "-", app_name).strip("-") or "arklight-app"
+    release_job = (
+        f'''
+
+  assemble-release:
+    name: Assemble signed release APK
+    runs-on: ubuntu-latest
+    # Fork PRs don't get repo secrets anyway; skipped explicitly here
+    # rather than relying on that so the job's absence from a PR run
+    # is obvious in the Actions UI instead of showing up as a
+    # mysterious signing failure.
+    if: ${{{{ github.event_name != 'pull_request' }}}}
+    steps:
+      - name: Check out the project
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "{_GRADLE_VERSION}"
+
+      - name: Decode release keystore
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{{{ secrets.RELEASE_KEYSTORE_BASE64 }}}}
+        run: |
+          if [ -z "$RELEASE_KEYSTORE_BASE64" ]; then
+            echo "::error::RELEASE_KEYSTORE_BASE64 repo secret is not set -- see this project's README (\\"Building a release APK\\") for how to generate and add it."
+            exit 1
+          fi
+          echo "$RELEASE_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release.keystore"
+
+      - name: Assemble release APK
+        env:
+          RELEASE_KEYSTORE_PATH: ${{{{ runner.temp }}}}/release.keystore
+          RELEASE_KEYSTORE_PASSWORD: ${{{{ secrets.RELEASE_KEYSTORE_PASSWORD }}}}
+          RELEASE_KEY_ALIAS: ${{{{ secrets.RELEASE_KEY_ALIAS }}}}
+          RELEASE_KEY_PASSWORD: ${{{{ secrets.RELEASE_KEY_PASSWORD }}}}
+        run: gradle assembleRelease --no-daemon
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: {slug}-release-apk
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+'''
+        if include_release_job
+        else ""
+    )
+    release_note = (
+        "Also includes an opt-in signed release-build job (assemble-release), "
+        "generated because --release was passed to `arklight android scaffold`. "
+        "It reads its signing key from repo secrets -- see this project's README."
+        if include_release_job
+        else "No release-build job here -- see this project's README (\"Building "
+        "a release APK\") for that, since it needs a keystore only you should "
+        "hold, or re-run `arklight android scaffold --release` once you've set "
+        "up signing."
+    )
     return f'''\
 name: Android build
 
@@ -391,9 +477,7 @@ name: Android build
 # to confirm it doesn't crash immediately -- see
 # ANDROID-BACKEND-IMPLEMENTATION.md, Stages 2 and 3. Requires no JDK,
 # Android SDK, or emulator/device on your own machine for either job;
-# all of it lives on the runner. No release-build job here -- see this
-# project's README ("Building a release APK") for that, since it needs
-# a keystore only you should hold.
+# all of it lives on the runner. {release_note}
 on:
   push:
     branches: [main]
@@ -466,7 +550,7 @@ jobs:
               exit 1
             fi
             echo "App launched and is still running -- smoke test passed."
-'''
+{release_job}'''
 
 
 

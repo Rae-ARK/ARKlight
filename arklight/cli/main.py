@@ -440,7 +440,10 @@ def _cmd_pwa(args: argparse.Namespace) -> int:
 def _cmd_android_scaffold(args: argparse.Namespace) -> int:
     try:
         result = android.scaffold_project(
-            args.build_dir, output_dir=args.output, debug_keystore=args.debug_keystore
+            args.build_dir,
+            output_dir=args.output,
+            debug_keystore=args.debug_keystore,
+            include_release_job=args.release,
         )
     except AndroidError as exc:
         print(f"ARKlight android scaffold failed: {exc}", file=sys.stderr)
@@ -455,10 +458,18 @@ def _cmd_android_scaffold(args: argparse.Namespace) -> int:
     print("Includes a GitHub Actions workflow (.github/workflows/android-build.yml)")
     print("that builds a debug APK and smoke-tests it (install + launch on an")
     print("emulator) on push/PR -- no local JDK/Android SDK/emulator needed for")
-    print("that. No release-build job is included: an unsigned release APK isn't")
-    print("installable and a signed one needs a keystore only you should hold, so")
-    print("that step is left for you to wire up by hand -- see the generated")
-    print("README.md's \"Building a release APK\" section when you're ready for it.")
+    print("that.")
+    if args.release:
+        print("Also includes a signed release-build job (--release was passed) --")
+        print("it reads its signing key from the RELEASE_KEYSTORE_BASE64,")
+        print("RELEASE_KEYSTORE_PASSWORD, RELEASE_KEY_ALIAS, and RELEASE_KEY_PASSWORD")
+        print("repo secrets, which you still need to set yourself -- see the")
+        print("generated README.md's \"Building a release APK\" section.")
+    else:
+        print("No release-build job is included: an unsigned release APK isn't")
+        print("installable and a signed one needs a keystore only you should hold, so")
+        print("that step is left out unless you pass --release -- see the generated")
+        print("README.md's \"Building a release APK\" section when you're ready for it.")
     print()
     if result.has_debug_keystore:
         print("Debug builds are signed with your pinned app/debug.keystore, so an")
@@ -827,6 +838,16 @@ def main(argv: list[str] | None = None) -> int:
         "runner included) auto-generates its own debug key, so debug APKs from "
         "different builds won't share a signature and can't be installed as "
         "updates over each other on the same test device.",
+    )
+    android_scaffold_parser.add_argument(
+        "--release",
+        action="store_true",
+        help="Also generate a signed release-build job (assemble-release) in the "
+        "GitHub Actions workflow. Off by default -- explicit opt-in, since the job "
+        "is a no-op until you configure the RELEASE_KEYSTORE_BASE64, "
+        "RELEASE_KEYSTORE_PASSWORD, RELEASE_KEY_ALIAS, and RELEASE_KEY_PASSWORD "
+        "repo secrets it reads its signing key from (see the generated README.md's "
+        "\"Building a release APK\" section) and is skipped on pull_request runs.",
     )
     android_scaffold_parser.set_defaults(func=_cmd_android_scaffold)
 
