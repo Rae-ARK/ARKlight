@@ -91,7 +91,10 @@ def _stateful_ir():
 
 
 def test_state_module_exports_create_and_init_state():
-    assert "function createState(initial)" in CREATE_STATE_JS
+    # `vdom-4` (docs/Backends/REFACTOR-INDEX.md row 12) adds a second,
+    # optional `computed` parameter to `createState` -- see
+    # tests/test_vdom_4.py for dedicated coverage of that stage.
+    assert "function createState(initial, computed)" in CREATE_STATE_JS
     assert "function initState()" in INIT_STATE_JS
 
 
@@ -122,9 +125,12 @@ def test_state_core_reassembles_reactive_pieces_in_original_order():
     # minus the click interceptor too (wireActions() / later
     # wireActionInterceptor() / later wireClickInterceptor() -- see
     # tests/test_htmx_3.py and tests/test_htmx_5.py), which is no
-    # longer part of this bundle at all.
+    # longer part of this bundle at all. `createState`'s signature
+    # gained a second, optional `computed` parameter at `vdom-4`
+    # (docs/Backends/REFACTOR-INDEX.md row 12) -- see
+    # tests/test_vdom_4.py.
     names = [
-        "function createState(initial)",
+        "function createState(initial, computed)",
         "function renderBindings(store)",
         "function renderClassBindings(store)",
         "function initState()",

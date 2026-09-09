@@ -23,21 +23,61 @@ the swapped content. `initState()` below checks for that marker first
 and falls back to the `<body>` attribute (the non-app_shell shape,
 unchanged), so the same function handles both without needing to know
 `app_shell` was set.
+
+`vdom-4` (docs/Backends/REFACTOR-INDEX.md row 12): `createState` gains
+a second, optional `computed` argument -- the same dependency-ordered
+`(name, spec)` pairs `IRPage.computed` carries (see
+`arklight/ir/build.py`), JSON-round-tripped as plain 2-element arrays
+(`[["total", {"kind": "multiply", "names": [...], "args": {...}}],
+...]`). A new `recomputeAll()` closure walks that list in order --
+already a valid recompute order because `arklight.ir.build`'s
+`_topological_order_computed` sorted it once at build time, so the
+client never re-derives that ordering itself -- looking each entry's
+`kind` up in the `derivations` object (`arklight/backend/js/
+derivations/`, assembled into scope by `arklight/backend/js/
+render.py`'s `_derivations_object_js`, the same "only ship what's
+used" pattern `actions`/`behaviors` already follow) and writing the
+result straight into `state` under that `Computed(...)`'s own `name`
+-- so a `Computed(...)` value is readable through the exact same
+`store.get(key)` every `Bind(...)`/`renderBindings` call already uses,
+with no separate lookup path for computed vs. plain state.
+`recomputeAll()` runs once at construction (so a value is already
+present before the first render) and again at the end of every `set`/
+`reset`, *before* that call's subscriber notification -- so a
+subscriber (`renderBindings`/`renderClassBindings`) always sees
+already-fresh computed values, never a stale one from before the
+triggering mutation. `computed` defaults to an empty array on a page
+with no `Computed(...)` declarations, in which case `recomputeAll()`
+is a no-op and `derivations` (whose declaration is itself gated on
+`has_computed` in `_build_runtime_js`) is never dereferenced.
+`initState()` below reads the sibling `data-ark-computed` attribute
+the same way it already reads `data-ark-state`, and passes it through.
 """
 
 from __future__ import annotations
 
-CREATE_STATE_JS = """  function createState(initial) {
+CREATE_STATE_JS = """  function createState(initial, computed) {
     var state = Object.assign({}, initial);
     var listeners = [];
+    function recomputeAll() {
+      (computed || []).forEach(function (entry) {
+        var name = entry[0];
+        var spec = entry[1];
+        var derive = derivations[spec.kind];
+        if (derive) { state[name] = derive(state, spec.names, spec.args); }
+      });
+    }
+    recomputeAll();
     return {
       get: function (key) { return state[key]; },
       set: function (key, value) {
         state[key] = value;
+        recomputeAll();
         listeners.forEach(function (fn) { fn(); });
       },
       reset: function (key) {
         state[key] = initial[key];
+        recomputeAll();
         listeners.forEach(function (fn) { fn(); });
       },
       subscribe: function (fn) { listeners.push(fn); }
@@ -52,8 +92,12 @@ INIT_STATE_JS = """  function initState() {
       ? marker.getAttribute("data-ark-state")
       : document.body.getAttribute("data-ark-state");
     if (!raw) return null;
+    var rawComputed = marker
+      ? marker.getAttribute("data-ark-computed")
+      : document.body.getAttribute("data-ark-computed");
     try {
-      var store = createState(JSON.parse(raw));
+      var computed = rawComputed ? JSON.parse(rawComputed) : [];
+      var store = createState(JSON.parse(raw), computed);
       store.subscribe(function () { renderBindings(store); renderClassBindings(store); });
       return store;
     } catch (err) {

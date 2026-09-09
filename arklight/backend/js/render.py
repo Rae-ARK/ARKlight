@@ -235,6 +235,21 @@ handful of other vendored-HTMX code paths (`hx-vals`/`hx-vars`,
 bracket-syntax `hx-trigger` filters) that construct a function from a
 string -- paths ARKlight's compiler never emits into, but which this
 line stops relying on "never emits" alone to guarantee.
+
+`vdom-4` (see `docs/Backends/REFACTOR-INDEX.md` row 12) adds
+computed/derived state: `Computed(name, deps=(...), derive=Derive.*(...))`
+(`arklight.api`). A page that declares at least one `Computed(...)`
+gets one more closed-vocabulary object alongside `actions`/
+`behaviors` -- `derivations` (`arklight/backend/js/derivations/`,
+only the `Derive.*` kinds that page's IR actually uses, same "only
+ship what's used" discipline) -- and `createState`
+(`runtime/state.py`) is extended to recompute every `Computed(...)`
+value, in the dependency order `arklight.ir.build` already sorted at
+build time, after every `set`/`reset` and once more at construction.
+No new dispatch mechanism and no new markup pass: a `Computed(...)`
+value lives in the exact same state object a `State(...)` value does,
+so `Bind(...)`/`bind_class=` read it through the unmodified
+`renderBindings`/`renderClassBindings` passes.
 """
 
 from __future__ import annotations
@@ -243,6 +258,7 @@ from arklight.ast.nodes import ActionRef
 from arklight.backend.base import Backend
 from arklight.backend.js.actions import ACTION_FRAGMENTS
 from arklight.backend.js.behaviors import BEHAVIOR_FRAGMENTS
+from arklight.backend.js.derivations import DERIVATION_FRAGMENTS
 from arklight.backend.js.htmx import HTMX_JS
 from arklight.backend.js.runtime import CLICK_INTERCEPTOR_JS as _CLICK_INTERCEPTOR_JS
 from arklight.backend.js.runtime import NAV_HIGHLIGHT_JS as _NAV_HIGHLIGHT_JS
@@ -271,15 +287,22 @@ def _walk(node: IRNode):
             yield from _walk(child)
 
 
-def _collect_usage(ir: WebsiteIR) -> tuple[set[str], set[str], bool]:
+def _collect_usage(ir: WebsiteIR) -> tuple[set[str], set[str], bool, set[str], bool]:
     """
     Inspect the site's IR for what the runtime actually needs to ship:
     which named behaviors are referenced, which actions are referenced,
-    and whether any page declares state at all.
+    whether any page declares state at all, which derivation kinds are
+    referenced by a `Computed(...)` (`vdom-4`, docs/Backends/
+    REFACTOR-INDEX.md row 12), and whether any page declares a
+    `Computed(...)` at all.
     """
     used_behaviors: set[str] = set()
     used_actions: set[str] = set()
     has_state = any(page.state for page in ir.pages)
+    used_derivations: set[str] = {
+        spec["kind"] for page in ir.pages for _name, spec in page.computed
+    }
+    has_computed = any(page.computed for page in ir.pages)
 
     for page in ir.pages:
         for node in _walk(page.root):
@@ -289,7 +312,7 @@ def _collect_usage(ir: WebsiteIR) -> tuple[set[str], set[str], bool]:
             elif isinstance(on_click, ActionRef):
                 used_actions.add(on_click.action)
 
-    return used_behaviors, used_actions, has_state
+    return used_behaviors, used_actions, has_state, used_derivations, has_computed
 
 
 def _behaviors_object_js(used_behaviors: set[str]) -> str:
@@ -342,8 +365,29 @@ def _actions_object_js(used_actions: set[str]) -> str:
     return "  var actions = {\n" + entries + "\n  };\n"
 
 
+def _derivations_object_js(used_derivations: set[str]) -> str:
+    # vdom-4 (docs/Backends/REFACTOR-INDEX.md row 12): mirrors
+    # `_actions_object_js`/`_behaviors_object_js` exactly -- only the
+    # `Derive.*` kinds this site's IR actually references, assembled
+    # as a plain local `var`, read by `createState`'s `recomputeAll()`
+    # closure (`runtime/state.py`) the same way that function already
+    # reads nothing else external. Only ever called when
+    # `has_computed` is true (see `_build_runtime_js` below), which
+    # itself implies `has_state` (every `Computed(...)` dependency
+    # chain bottoms out at a real `State(...)`, enforced by
+    # Validation) -- so this always lands inside the `if has_state:`
+    # branch, alongside `STATE_CORE_JS`.
+    fragments = [
+        DERIVATION_FRAGMENTS[name] for name in sorted(used_derivations) if name in DERIVATION_FRAGMENTS
+    ]
+    if not fragments:
+        return "  var derivations = {};\n"
+    entries = ",\n".join(fragments)
+    return "  var derivations = {\n" + entries + "\n  };\n"
+
+
 def _build_runtime_js(ir: WebsiteIR) -> str:
-    used_behaviors, used_actions, has_state = _collect_usage(ir)
+    used_behaviors, used_actions, has_state, used_derivations, has_computed = _collect_usage(ir)
 
     # htmx-5 (docs/Backends/REFACTOR-INDEX.md row 10): the click
     # interceptor now dispatches both actions and behaviors, and needs
@@ -388,7 +432,10 @@ def _build_runtime_js(ir: WebsiteIR) -> str:
         "// MODIFIER_REGISTRY. No other JavaScript runs on this site.",
         "// Pages with state also carry a vendored snabbdom core",
         "// (init + h, no optional modules) -- see",
-        "// arklight/backend/js/vdom.py.",
+        "// arklight/backend/js/vdom.py. Pages with Computed(...)",
+        "// (vdom-4) also carry only the Derive.*(...) kinds that",
+        "// page's IR actually uses -- see",
+        "// arklight/backend/js/derivations/.",
     ]
 
     if needs_htmx:
@@ -420,6 +467,8 @@ def _build_runtime_js(ir: WebsiteIR) -> str:
     if has_state:
         parts.append(SNABBDOM_CORE_JS)
         parts.append("")
+        if has_computed:
+            parts.append(_derivations_object_js(used_derivations))
         parts.append(_STATE_CORE_JS)
         parts.append("")
 
