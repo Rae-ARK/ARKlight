@@ -18,7 +18,7 @@ import re
 from typing import Any, Callable
 
 from arklight import experimental
-from arklight.ast.nodes import ActionRef, ARKNode, ClassBindSpec, node
+from arklight.ast.nodes import ActionRef, ARKNode, ClassBindSpec, DerivationRef, node
 from arklight.backend.css import selectors as css_selectors
 
 # v0.042: custom CSS class names must look like a real, single CSS class
@@ -377,6 +377,104 @@ class Action:
     def remove(name: str, index: Any) -> ActionRef:
         """Removes the element at `index` from a list-valued `State(...)`."""
         return ActionRef(action="remove", state=name, args={"index": index})
+
+
+# ---------------------------------------------------------------------------
+# `vdom-4` (docs/Backends/REFACTOR-INDEX.md row 12): computed/derived state.
+#
+# `Computed`/`Derive` close the "derived/computed state" gap named in the
+# `v0.0035` addenda -- a page-scoped value derived from other `State(...)`/
+# `Computed(...)` values, recomputed automatically whenever a dependency
+# changes, without ever handing the runtime an expression string to
+# evaluate. See arklight.ir.schema.DERIVATION_REGISTRY and
+# docs/Foundational/DESIGN-NOTES.md ("Computed/derived state") for the
+# full design.
+# ---------------------------------------------------------------------------
+
+
+def Computed(name: str, *, deps: tuple[str, ...] = (), derive: "DerivationRef | None" = None) -> ARKNode:
+    """
+    Declare a page-scoped derived value: `Computed("total",
+    deps=("price", "qty"), derive=Derive.multiply("price", "qty"))`.
+
+    Must appear as a direct child of `Page(...)`, same as `State(...)`
+    -- a `Computed(...)` is a declaration, not renderable content, and
+    is compiled into the Website IR rather than reaching any backend
+    as a component. `deps` names every `State(...)`/other
+    `Computed(...)` this value depends on (Validation checks each one
+    resolves to something actually declared on the page, and rejects a
+    dependency cycle); `Bind(...)`/`bind_class=` may reference a
+    `Computed(...)`'s `name` exactly like a `State(...)`'s. Unlike
+    `State(...)`, a `Computed(...)` is never a valid `Action.*(...)`
+    target -- it has no independent value of its own to mutate, only
+    the `derive` recomputation the runtime re-runs after every state
+    change.
+    """
+    return ARKNode(
+        type="Computed",
+        props={"name": name, "deps": tuple(deps), "derive": derive},
+        children=[],
+    )
+
+
+class Derive:
+    """
+    A closed vocabulary of derivations for `Computed(..., derive=...)`.
+    Each returns a small structured `DerivationRef` -- validated
+    against `arklight.ir.schema.DERIVATION_REGISTRY` at compile time --
+    never a string of JavaScript or Python.
+
+        Computed("total", deps=("price", "qty"), derive=Derive.multiply("price", "qty"))
+        Computed("full_name", deps=("first", "last"),
+                  derive=Derive.join("first", "last", sep=" "))
+        Computed("item_count", deps=("items",), derive=Derive.count("items"))
+        Computed("greeting", deps=("name",),
+                  derive=Derive.format("Hello, {n}!", n="name"))
+        Computed("is_over_limit", deps=("count", "limit"),
+                  derive=Derive.compare("count", "limit", "gt"))
+    """
+
+    @staticmethod
+    def sum(*names: str) -> DerivationRef:
+        return DerivationRef(kind="sum", names=tuple(names))
+
+    @staticmethod
+    def multiply(*names: str) -> DerivationRef:
+        return DerivationRef(kind="multiply", names=tuple(names))
+
+    @staticmethod
+    def join(*names: str, sep: str = " ") -> DerivationRef:
+        return DerivationRef(kind="join", names=tuple(names), args={"sep": sep})
+
+    @staticmethod
+    def count(name: str) -> DerivationRef:
+        """Reads a list-valued `State(...)`/`Computed(...)`'s length."""
+        return DerivationRef(kind="count", names=(name,))
+
+    @staticmethod
+    def format(template: str, **names: str) -> DerivationRef:
+        """
+        Fixed `{name}`-style substitution over named state values only
+        -- `str.format`-shaped, never a general string-eval. Each
+        keyword maps a `{placeholder}` in `template` to the state/
+        computed name whose value fills it, e.g.
+        `Derive.format("Hello, {n}!", n="name")`.
+        """
+        return DerivationRef(
+            kind="format",
+            names=tuple(names.values()),
+            args={"template": template, "names_map": dict(names)},
+        )
+
+    @staticmethod
+    def compare(a: str, b: str, op: str) -> DerivationRef:
+        """
+        `op` is itself a closed choice (see
+        `arklight.ir.schema.COMPARE_OPS`: `"eq"`/`"ne"`/`"gt"`/`"lt"`/
+        `"gte"`/`"lte"`), never a raw operator string executed as
+        code.
+        """
+        return DerivationRef(kind="compare", names=(a, b), args={"op": op})
 
 
 BUILTIN_COMPONENTS = {
@@ -1477,5 +1575,8 @@ __all__ = [
     "Bind",
     "Action",
     "ActionRef",
+    "Computed",
+    "Derive",
+    "DerivationRef",
     "ARKNode",
 ]

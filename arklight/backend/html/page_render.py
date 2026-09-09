@@ -140,8 +140,17 @@ def _render_page(
     """
     title = page.root.props.get("title", site_name)
     lang = page.root.props.get("lang", site_lang)
+    # `vdom-4` (docs/Backends/REFACTOR-INDEX.md row 12): `Bind(...)`/
+    # `bind_class=` may reference a Computed(...) name exactly like a
+    # State(...)'s, so both build-time text-fill (_render_bind) and
+    # build-time truthiness checks (attrs.py's bind_class rendering)
+    # need to see computed's initial values too -- merged only for
+    # this read-only rendering pass, never written back into
+    # `page.state` itself (see `state_marker` below for why the two
+    # stay separate in the JSON hydration blob).
+    render_state = {**page.state, **page.computed_initial}
     body_inner = _render_children(
-        page.root.children, current_route=page.route, route_to_path=route_to_path, page_state=page.state
+        page.root.children, current_route=page.route, route_to_path=route_to_path, page_state=render_state
     )
     stylesheet_href = _relative_asset_path(
         STYLESHEET_PATH, current_route=page.route, route_to_path=route_to_path
@@ -151,14 +160,31 @@ def _render_page(
     # v0.0035: pages that declare State(...) hydrate the client-side
     # store from here -- a JSON blob of the same initial values the
     # page was rendered with, so client and server never disagree.
+    # `vdom-4`: `page.computed` (dependency-ordered `(name, spec)`
+    # pairs) rides along as its own `data-ark-computed` attribute,
+    # never folded into `data-ark-state` itself -- `data-ark-state`
+    # seeds the client store's *mutable* values, and a Computed(...)
+    # has none of its own to seed (the runtime derives it fresh on
+    # init, from `state`, via `initState()` -- see
+    # `arklight/backend/js/runtime/state.py`). A page can only ever
+    # have `page.computed` non-empty when `page.state` is too (every
+    # Computed(...) dependency chain bottoms out at a real State(...),
+    # enforced by Validation), so it's always safe to place both
+    # attributes on the same marker.
     body_attr_parts: list[str] = []
     state_marker = ""
     if page.state:
         state_json = escape(json.dumps(page.state), quote=True)
+        computed_attr = ""
+        if page.computed:
+            computed_json = escape(json.dumps(page.computed), quote=True)
+            computed_attr = f' data-ark-computed="{computed_json}"'
         if app_shell:
-            state_marker = f'<div id="ark-state" data-ark-state="{state_json}" hidden></div>\n'
+            state_marker = (
+                f'<div id="ark-state" data-ark-state="{state_json}"{computed_attr} hidden></div>\n'
+            )
         else:
-            body_attr_parts.append(f' data-ark-state="{state_json}"')
+            body_attr_parts.append(f' data-ark-state="{state_json}"{computed_attr}')
     if app_shell:
         body_attr_parts.append(' hx-boost="true"')
     body_attrs = "".join(body_attr_parts)

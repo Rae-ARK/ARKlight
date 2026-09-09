@@ -94,6 +94,40 @@ class ActionRef:
         return replace(self, modifiers=self.modifiers + (f"throttle:{ms}",))
 
 
+@dataclass(frozen=True)
+class DerivationRef:
+    """
+    A reference to a closed-vocabulary derivation -- e.g.
+    `Derive.multiply("price", "qty")`. Used as a `Computed(...)`'s
+    `derive=` value (`vdom-4`, see docs/Backends/REFACTOR-INDEX.md row
+    12 / docs/Foundational/DESIGN-NOTES.md "Computed/derived state").
+
+    Mirrors `ActionRef`'s shape and reasoning: a small structured
+    object, not a string -- validated against
+    `arklight.ir.schema.DERIVATION_REGISTRY` at compile time (unknown
+    `kind`, wrong arity, an unknown `compare` op, or a `names` entry
+    that isn't part of the owning `Computed(...)`'s declared `deps` all
+    fail the build) and never a template/expression string evaluated
+    at runtime.
+
+    - `kind`  : the closed vocabulary entry, e.g. "sum"/"multiply"/
+                "join"/"count"/"format"/"compare".
+    - `names` : the state/computed names this derivation reads, in the
+                order the runtime fragment expects them (positional
+                for `sum`/`multiply`/`join`/`format`; exactly two, in
+                `(a, b)` order, for `compare`; exactly one for
+                `count`).
+    - `args`  : closed extra keyword data the `kind` needs beyond
+                `names` -- `sep` for `join`, `template`/`names_map`
+                for `format`, `op` for `compare`. Never a raw
+                expression string.
+    """
+
+    kind: str
+    names: tuple[str, ...] = field(default_factory=tuple)
+    args: dict[str, Any] = field(default_factory=dict)
+
+
 @dataclass
 class ARKNode:
     """A single node in the ARK AST."""

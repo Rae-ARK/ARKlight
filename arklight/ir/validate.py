@@ -60,12 +60,37 @@ Checks performed:
     on is a stable `id`. A node with no `id` would compile to a
     `hx-preserve="true"` attribute htmx silently can't use, so this
     fails loudly at build time instead.
+13. `Computed(...)` (`vdom-4`, see docs/Backends/REFACTOR-INDEX.md row
+    12) may only appear as a direct child of `Page(...)`, same as
+    `State(...)`; needs a non-empty string `name`, not already used by
+    a `State(...)`/other `Computed(...)` on the same page; needs a
+    non-empty `deps` tuple, every entry of which resolves to a
+    `State(...)`/other `Computed(...)` declared on the same page; its
+    `derive` must be a `Derive.*(...)` reference
+    (`arklight.ast.nodes.DerivationRef`) whose `kind` is known
+    (`arklight.ir.schema.DERIVATION_REGISTRY`), whose `names` count
+    satisfies that kind's arity and is a subset of the declared
+    `deps`, whose `args` carry exactly that kind's closed set of extra
+    keys (`join`'s `sep`, `format`'s `template`/`names_map`,
+    `compare`'s `op`, itself checked against
+    `arklight.ir.schema.COMPARE_OPS`), and which does not, directly or
+    transitively through other `Computed(...)` deps, depend on itself.
+    `Bind(...)`/`bind_class=` may reference a `Computed(...)`'s `name`
+    exactly like a `State(...)`'s; `Action.*(...)` may not -- a
+    `Computed(...)` has no independent value of its own to mutate.
 """
 
 from __future__ import annotations
 
-from arklight.ast.nodes import ActionRef, ARKNode, ClassBindSpec
-from arklight.ir.schema import ACTION_REGISTRY, KNOWN_BEHAVIORS, MODIFIER_REGISTRY, SCHEMA
+from arklight.ast.nodes import ActionRef, ARKNode, ClassBindSpec, DerivationRef
+from arklight.ir.schema import (
+    ACTION_REGISTRY,
+    COMPARE_OPS,
+    DERIVATION_REGISTRY,
+    KNOWN_BEHAVIORS,
+    MODIFIER_REGISTRY,
+    SCHEMA,
+)
 
 
 class ValidationError(Exception):
@@ -80,7 +105,7 @@ def _validate_bind(node: ARKNode, *, path: str, page_state: frozenset[str]) -> N
         known = ", ".join(sorted(page_state)) or "(none declared)"
         raise ValidationError(
             f"Bind({name!r}) at {path} references state that isn't declared "
-            f"on this page. State declared on this page: {known}."
+            f"on this page. State/Computed declared on this page: {known}."
         )
 
 
@@ -119,19 +144,21 @@ def _validate_modifiers(action: ActionRef, *, path: str) -> None:
             )
 
 
-def _validate_action(action: ActionRef, *, path: str, page_state: frozenset[str]) -> None:
+def _validate_action(action: ActionRef, *, path: str, mutable_state: frozenset[str]) -> None:
     if action.action not in ACTION_REGISTRY:
         known = ", ".join(sorted(ACTION_REGISTRY))
         raise ValidationError(
             f"on_click at {path} uses unknown action {action.action!r}. "
             f"Known actions are: {known}."
         )
-    if action.state not in page_state:
-        known = ", ".join(sorted(page_state)) or "(none declared)"
+    if action.state not in mutable_state:
+        known = ", ".join(sorted(mutable_state)) or "(none declared)"
         raise ValidationError(
             f"on_click at {path} ({action.action!r}) targets state "
-            f"{action.state!r}, which isn't declared on this page. State "
-            f"declared on this page: {known}."
+            f"{action.state!r}, which isn't declared on this page as "
+            f"State(...) (a Computed(...) name can't be an Action.*(...) "
+            f"target -- it has no independent value of its own to mutate). "
+            f"State declared on this page: {known}."
         )
     _validate_modifiers(action, path=path)
 
@@ -293,13 +320,13 @@ def _validate_shell_persistent(node: ARKNode, *, path: str) -> None:
         )
 
 
-def _validate_behavior_props(node: ARKNode, *, path: str, page_state: frozenset[str]) -> None:
+def _validate_behavior_props(node: ARKNode, *, path: str, mutable_state: frozenset[str]) -> None:
     on_click = node.props.get("on_click")
     if on_click is None:
         return
 
     if isinstance(on_click, ActionRef):
-        _validate_action(on_click, path=path, page_state=page_state)
+        _validate_action(on_click, path=path, mutable_state=mutable_state)
         return
 
     if on_click not in KNOWN_BEHAVIORS:
@@ -329,19 +356,124 @@ def _validate_state_declaration(node: ARKNode, *, path: str, parent_is_page: boo
         raise ValidationError(f"State(...) at {path} needs a non-empty string name.")
 
 
+def _validate_derive_ref(
+    derive: DerivationRef, *, path: str, deps: tuple[str, ...]
+) -> None:
+    """
+    `vdom-4`: structural checks for a `Computed(...)`'s `derive=`
+    value, mirroring `_validate_action`'s discipline for `ActionRef`.
+    Checked once `deps` itself is known to be a non-empty tuple of
+    strings (`_validate_computed_declaration` checks that first), so
+    `deps` here is trusted shape, just not yet cross-checked against
+    the page's declared state -- that cross-check
+    (`_collect_page_reactive_names`) happens after every page's
+    `State(...)`/`Computed(...)` names are known, to allow a
+    `Computed(...)` to depend on another `Computed(...)` declared
+    later in `Page(...)`'s children.
+    """
+    if not isinstance(derive, DerivationRef):
+        raise ValidationError(
+            f"Computed(...) at {path} has derive={derive!r}, which isn't a "
+            f"Derive.*(...) reference."
+        )
+    spec = DERIVATION_REGISTRY.get(derive.kind)
+    if spec is None:
+        known = ", ".join(sorted(DERIVATION_REGISTRY))
+        raise ValidationError(
+            f"Computed(...) at {path} uses unknown derivation {derive.kind!r}. "
+            f"Known derivations are: {known}."
+        )
+    count = len(derive.names)
+    if count < spec.min_names or (spec.max_names is not None and count > spec.max_names):
+        arity = (
+            f"exactly {spec.min_names}"
+            if spec.max_names == spec.min_names
+            else f"at least {spec.min_names}"
+            if spec.max_names is None
+            else f"between {spec.min_names} and {spec.max_names}"
+        )
+        raise ValidationError(
+            f"Computed(...) at {path} uses Derive.{derive.kind}(...) with "
+            f"{count} name(s) ({derive.names!r}), but Derive.{derive.kind}(...) "
+            f"needs {arity}."
+        )
+    missing_from_deps = [name for name in derive.names if name not in deps]
+    if missing_from_deps:
+        raise ValidationError(
+            f"Computed(...) at {path} uses Derive.{derive.kind}(...) reading "
+            f"{missing_from_deps!r}, which isn't in this Computed(...)'s own "
+            f"deps={deps!r}. Every name Derive.*(...) reads must also be "
+            f"listed in deps."
+        )
+    unknown_args = set(derive.args) - set(spec.extra_args)
+    if unknown_args:
+        raise ValidationError(
+            f"Computed(...) at {path} passes unexpected argument(s) "
+            f"{sorted(unknown_args)!r} to Derive.{derive.kind}(...). Known "
+            f"arguments for Derive.{derive.kind}(...) are: {spec.extra_args!r}."
+        )
+    missing_args = [name for name in spec.extra_args if name not in derive.args]
+    if missing_args:
+        raise ValidationError(
+            f"Computed(...) at {path} is missing required argument(s) "
+            f"{missing_args!r} for Derive.{derive.kind}(...)."
+        )
+    if derive.kind == "compare":
+        op = derive.args.get("op")
+        if op not in COMPARE_OPS:
+            known = ", ".join(sorted(COMPARE_OPS))
+            raise ValidationError(
+                f"Computed(...) at {path} uses Derive.compare(...) with "
+                f"unknown op {op!r}. Known ops are: {known}."
+            )
+
+
+def _validate_computed_declaration(node: ARKNode, *, path: str, parent_is_page: bool) -> None:
+    if not parent_is_page:
+        raise ValidationError(
+            f"Computed(...) at {path} may only be declared as a direct child "
+            f"of Page(...) -- like State(...), it belongs to the page, not "
+            f"to a nested component. Move it up to the top level of "
+            f"Page(...)."
+        )
+    name = node.props.get("name")
+    if not isinstance(name, str) or not name:
+        raise ValidationError(f"Computed(...) at {path} needs a non-empty string name.")
+    deps = node.props.get("deps")
+    if not isinstance(deps, tuple) or not deps or not all(isinstance(d, str) and d for d in deps):
+        raise ValidationError(
+            f"Computed({name!r}) at {path} needs a non-empty deps=(...) tuple "
+            f"of non-empty state/computed names, got {deps!r}."
+        )
+    _validate_derive_ref(node.props.get("derive"), path=path, deps=deps)
+
+
 def validate_node(
     node: ARKNode,
     *,
     path: str = "root",
     page_state: frozenset[str] = frozenset(),
+    mutable_state: frozenset[str] = frozenset(),
     parent_is_page: bool = False,
 ) -> None:
+    """
+    `page_state` is the *bindable* set -- every `State(...)`/
+    `Computed(...)` name declared on the page -- used for `Bind(...)`/
+    `bind_class=` validation. `mutable_state` is the narrower `vdom-4`
+    restriction of that set to `State(...)` names only, used for
+    `Action.*(...)` validation: a `Computed(...)` name is readable
+    (bindable) but never a valid mutation target.
+    """
     if node.type == "Bind":
         _validate_bind(node, path=path, page_state=page_state)
         return
 
     if node.type == "State":
         _validate_state_declaration(node, path=path, parent_is_page=parent_is_page)
+        return
+
+    if node.type == "Computed":
+        _validate_computed_declaration(node, path=path, parent_is_page=parent_is_page)
         return
 
     spec = SCHEMA.get(node.type)
@@ -358,7 +490,7 @@ def validate_node(
                 f"{node.type!r} at {path} is missing required prop {prop_name!r}."
             )
 
-    _validate_behavior_props(node, path=path, page_state=page_state)
+    _validate_behavior_props(node, path=path, mutable_state=mutable_state)
     _validate_class_bind(node, path=path, page_state=page_state)
     _validate_responsive_style(node, path=path)
     _validate_shell_persistent(node, path=path)
@@ -393,6 +525,7 @@ def validate_node(
                 child,
                 path=f"{path}/{child.type}[{i}]",
                 page_state=page_state,
+                mutable_state=mutable_state,
                 parent_is_page=(node.type == "Page"),
             )
         elif not isinstance(child, str):
@@ -402,21 +535,112 @@ def validate_node(
             )
 
 
-def _collect_declared_state(page: ARKNode, route: str) -> frozenset[str]:
-    names: set[str] = set()
+def _find_computed_cycle(computed_deps: dict[str, tuple[str, ...]]) -> list[str] | None:
+    """
+    DFS cycle detection over the `Computed(...) -> Computed(...)` edges
+    of a page's dependency graph (edges to a `State(...)` name are
+    leaves -- state has no further deps to walk). Returns the cycle as
+    a list of names (first repeated last) if one exists, else `None`.
+    """
+    WHITE, GRAY, BLACK = 0, 1, 2
+    color = {name: WHITE for name in computed_deps}
+    stack: list[str] = []
+
+    def visit(name: str) -> list[str] | None:
+        color[name] = GRAY
+        stack.append(name)
+        for dep in computed_deps[name]:
+            if dep not in computed_deps:
+                continue  # a State(...) dependency -- not part of this graph
+            if color[dep] == GRAY:
+                cycle_start = stack.index(dep)
+                return stack[cycle_start:] + [dep]
+            if color[dep] == WHITE:
+                found = visit(dep)
+                if found is not None:
+                    return found
+        stack.pop()
+        color[name] = BLACK
+        return None
+
+    for name in computed_deps:
+        if color[name] == WHITE:
+            found = visit(name)
+            if found is not None:
+                return found
+    return None
+
+
+def _collect_page_reactive_names(page: ARKNode, route: str) -> tuple[frozenset[str], frozenset[str]]:
+    """
+    Walk `page`'s direct children once, gathering every `State(...)`/
+    `Computed(...)` declaration. Returns `(bindable, mutable_state)`:
+    `bindable` is every name `Bind(...)`/`bind_class=` may reference
+    (`State(...)` + `Computed(...)`); `mutable_state` is the narrower
+    `State(...)`-only set `Action.*(...)` may target (`vdom-4` --
+    see this module's docstring, point 13).
+
+    Also performs the cross-declaration checks that can only happen
+    once every name on the page is known: a `Computed(...)`'s `deps`
+    must each resolve to a `State(...)`/other `Computed(...)`
+    declared on this same page (forward references allowed -- a
+    `Computed(...)` may depend on one declared later in `Page(...)`'s
+    children), and the resulting dependency graph must not contain a
+    cycle.
+    """
+    state_names: set[str] = set()
+    computed_specs: dict[str, tuple[tuple[str, ...], ARKNode]] = {}
+
     for child in page.children:
-        if isinstance(child, ARKNode) and child.type == "State":
+        if not isinstance(child, ARKNode):
+            continue
+        if child.type == "State":
             name = child.props.get("name")
             if not isinstance(name, str) or not name:
                 raise ValidationError(
                     f"State(...) on page {route!r} needs a non-empty string name."
                 )
-            if name in names:
+            if name in state_names or name in computed_specs:
                 raise ValidationError(
                     f"State {name!r} is declared more than once on page {route!r}."
                 )
-            names.add(name)
-    return frozenset(names)
+            state_names.add(name)
+        elif child.type == "Computed":
+            name = child.props.get("name")
+            if not isinstance(name, str) or not name:
+                raise ValidationError(
+                    f"Computed(...) on page {route!r} needs a non-empty string name."
+                )
+            if name in state_names or name in computed_specs:
+                raise ValidationError(
+                    f"State/Computed {name!r} is declared more than once on "
+                    f"page {route!r}."
+                )
+            deps = child.props.get("deps")
+            if not isinstance(deps, tuple):
+                deps = ()
+            computed_specs[name] = (deps, child)
+
+    known = frozenset(state_names) | frozenset(computed_specs)
+
+    for name, (deps, child) in computed_specs.items():
+        unknown_deps = [d for d in deps if d not in known]
+        if unknown_deps:
+            raise ValidationError(
+                f"Computed({name!r}) on page {route!r} depends on "
+                f"{unknown_deps!r}, which isn't declared on this page. "
+                f"State/Computed declared on this page: "
+                f"{', '.join(sorted(known)) or '(none declared)'}."
+            )
+
+    cycle = _find_computed_cycle({name: deps for name, (deps, _child) in computed_specs.items()})
+    if cycle is not None:
+        raise ValidationError(
+            f"Computed(...) dependency cycle on page {route!r}: "
+            f"{' -> '.join(cycle)}."
+        )
+
+    return known, frozenset(state_names)
 
 
 def validate_page(route: str, page: ARKNode) -> None:
@@ -425,8 +649,14 @@ def validate_page(route: str, page: ARKNode) -> None:
             f"Page function for route {route!r} must return Page(...) as its "
             f"root node, got {page.type!r} instead."
         )
-    page_state = _collect_declared_state(page, route)
-    validate_node(page, path=f"page:{route}", page_state=page_state, parent_is_page=False)
+    page_state, mutable_state = _collect_page_reactive_names(page, route)
+    validate_node(
+        page,
+        path=f"page:{route}",
+        page_state=page_state,
+        mutable_state=mutable_state,
+        parent_is_page=False,
+    )
 
 
 def validate_ark_ast(pages: dict[str, ARKNode]) -> None:

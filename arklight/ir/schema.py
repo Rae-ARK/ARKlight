@@ -335,3 +335,48 @@ MODIFIER_REGISTRY: dict[str, ModifierSpec] = {
 }
 
 KNOWN_MODIFIERS = frozenset(MODIFIER_REGISTRY)
+
+
+# `vdom-4` (docs/Backends/REFACTOR-INDEX.md row 12; docs/Foundational/
+# DESIGN-NOTES.md "Computed/derived state"): closed-vocabulary derived
+# state, the same shape discipline as `ACTION_REGISTRY`/
+# `BEHAVIOR_REGISTRY` above -- a new `*Spec` dataclass, a new
+# `*_REGISTRY` dict, and `arklight.api.Derive.*` producing structured
+# `DerivationRef` objects (arklight.ast.nodes), never a parsed/executed
+# expression string.
+#
+#     State("price", 9.99)
+#     State("qty", 3)
+#     Computed("total", deps=("price", "qty"), derive=Derive.multiply("price", "qty"))
+#     Text(Bind("total"))
+#
+# `min_names`/`max_names` bound how many state/computed names a given
+# `kind` accepts (`None` for `max_names` means unlimited) -- e.g.
+# `count` takes exactly one, `compare` takes exactly two, `sum`/
+# `multiply`/`join`/`format` take one or more. `extra_args` documents
+# the closed set of extra keyword data (beyond `names`) a `kind`'s
+# `DerivationRef.args` dict is expected to carry, the same role
+# `ActionSpec.args` plays for actions -- `join`'s `sep`, `format`'s
+# `template`/`names_map`, `compare`'s `op`.
+@dataclass
+class DerivationSpec:
+    min_names: int = 1
+    max_names: int | None = None
+    extra_args: tuple[str, ...] = field(default_factory=tuple)
+
+
+DERIVATION_REGISTRY: dict[str, DerivationSpec] = {
+    "sum": DerivationSpec(min_names=1, max_names=None),
+    "multiply": DerivationSpec(min_names=1, max_names=None),
+    "join": DerivationSpec(min_names=1, max_names=None, extra_args=("sep",)),
+    "count": DerivationSpec(min_names=1, max_names=1),
+    "format": DerivationSpec(min_names=1, max_names=None, extra_args=("template", "names_map")),
+    "compare": DerivationSpec(min_names=2, max_names=2, extra_args=("op",)),
+}
+
+KNOWN_DERIVATIONS = frozenset(DERIVATION_REGISTRY)
+
+# `Derive.compare(a, b, op)`'s `op` is itself a closed choice, never a
+# raw operator string executed as code -- mirrors why `on_click`/
+# `action` are closed vocabularies rather than arbitrary strings.
+COMPARE_OPS = frozenset({"eq", "ne", "gt", "lt", "gte", "lte"})

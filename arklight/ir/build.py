@@ -22,8 +22,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+import re
+
 from arklight import experimental
-from arklight.ast.nodes import ARKNode
+from arklight.ast.nodes import ARKNode, DerivationRef
 
 
 @dataclass
@@ -44,6 +46,25 @@ class IRPage:
     # prop on some other node -- state belongs to the page, the same
     # way `title` does. Empty for pages that declare no state.
     state: dict[str, Any] = field(default_factory=dict)
+    # `vdom-4` (docs/Backends/REFACTOR-INDEX.md row 12): page-scoped
+    # derived state declared via `Computed(...)`, extracted the same
+    # way `state` above is. `computed` is an ordered (`name`, spec)
+    # list, one entry per `Computed(...)` on the page, in dependency
+    # order (a Computed(...) that reads another Computed(...) always
+    # comes after it) -- `arklight/backend/js/render.py` embeds this
+    # ordering directly as the client runtime's recompute pass order,
+    # so it never has to re-derive a topological sort itself. Each
+    # spec is `{"deps": [...], "kind": ..., "names": [...], "args":
+    # {...}}`, a plain-dict mirror of the `DerivationRef` that produced
+    # it (JSON-serializable, unlike the dataclass itself). `computed_
+    # initial` is this page's build-time-evaluated initial value per
+    # `Computed(...)` name -- computed once, in the same dependency
+    # order, so `Bind("total")` renders correct text even with JS
+    # disabled, the same guarantee `state`+`_render_bind` already give
+    # a plain `State(...)`. Both empty for pages that declare no
+    # `Computed(...)`.
+    computed: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
+    computed_initial: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -201,20 +222,153 @@ def _ark_node_to_ir_node(
     return IRNode(type=node.type, props=props, children=children)
 
 
-def _extract_page_state(page: ARKNode) -> tuple[dict[str, Any], list]:
+def _derivation_ref_to_spec(derive: DerivationRef) -> dict[str, Any]:
+    """Plain-dict, JSON-serializable mirror of a `DerivationRef` --
+    see `IRPage.computed`'s docstring for why this shape (rather than
+    the dataclass itself) is what gets carried into the IR."""
+    return {"kind": derive.kind, "names": list(derive.names), "args": dict(derive.args)}
+
+
+def _topological_order_computed(computed_defs: dict[str, dict[str, Any]]) -> list[str]:
     """
-    Split a validated Page node's children into (state, remaining
-    children). `State(...)` nodes are declarations, not renderable
-    content -- they must never reach the HTML backend as a child.
+    Depth-first topological sort of the `Computed(...) -> Computed(...)`
+    dependency graph (edges to a `State(...)` name are leaves -- state
+    has no further deps to walk). Validation (`arklight.ir.validate`,
+    `_find_computed_cycle`) has already rejected any cycle by the time
+    this runs, so this assumes a DAG and does not re-detect one.
+    """
+    order: list[str] = []
+    visited: set[str] = set()
+
+    def visit(name: str) -> None:
+        if name in visited:
+            return
+        visited.add(name)
+        for dep in computed_defs[name]["deps"]:
+            if dep in computed_defs:
+                visit(dep)
+        order.append(name)
+
+    for name in computed_defs:
+        visit(name)
+    return order
+
+
+def _coerce_number(value: Any) -> float:
+    """Python-side mirror of the client runtime's `Number(x) || 0`
+    coercion (see `arklight/backend/js/derivations/sum.py` /
+    `multiply.py`), so a build-time `sum`/`multiply` initial value
+    (used to pre-fill `Bind(...)` text -- see `_evaluate_derivation`)
+    agrees with what the browser recomputes on the first state change."""
+    if isinstance(value, bool):
+        return 1.0 if value else 0.0
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+_FORMAT_PLACEHOLDER_RE = re.compile(r"\{(\w+)\}")
+
+
+def _evaluate_derivation(spec: dict[str, Any], *, get: Callable[[str], Any]) -> Any:
+    """
+    Build-time evaluation of a single `Computed(...)`'s initial value,
+    mirroring `arklight/backend/js/derivations/*.py`'s runtime
+    semantics kind-for-kind so server-rendered `Bind(...)` text never
+    disagrees with what the client recomputes. `get` resolves a
+    `State(...)`/already-evaluated `Computed(...)` name to its current
+    value -- callers evaluate `Computed(...)` entries in
+    `_topological_order_computed`'s order so every dependency `get`
+    reaches here has already been computed.
+    """
+    kind = spec["kind"]
+    names: list[str] = spec["names"]
+    args: dict[str, Any] = spec["args"]
+
+    if kind == "sum":
+        return sum(_coerce_number(get(name)) for name in names)
+    if kind == "multiply":
+        total = 1.0
+        for name in names:
+            total *= _coerce_number(get(name))
+        return total
+    if kind == "join":
+        sep = args.get("sep", " ")
+        return sep.join(str(get(name)) for name in names)
+    if kind == "count":
+        value = get(names[0])
+        return len(value) if isinstance(value, (list, tuple, str, dict)) else 0
+    if kind == "format":
+        template = args["template"]
+        names_map = args.get("names_map", {})
+
+        def _replace(match: "re.Match[str]") -> str:
+            key = match.group(1)
+            state_name = names_map.get(key)
+            return str(get(state_name)) if state_name is not None else match.group(0)
+
+        return _FORMAT_PLACEHOLDER_RE.sub(_replace, template)
+    if kind == "compare":
+        a, b = get(names[0]), get(names[1])
+        op = args["op"]
+        if op == "eq":
+            return a == b
+        if op == "ne":
+            return a != b
+        if op == "gt":
+            return a > b
+        if op == "lt":
+            return a < b
+        if op == "gte":
+            return a >= b
+        if op == "lte":
+            return a <= b
+        return False  # unreachable once Validation has run
+    return None  # unreachable once Validation has run
+
+
+def _extract_page_state(
+    page: ARKNode,
+) -> tuple[dict[str, Any], list[tuple[str, dict[str, Any]]], dict[str, Any], list]:
+    """
+    Split a validated Page node's children into (state, computed,
+    computed_initial, remaining children). `State(...)`/`Computed(...)`
+    nodes are declarations, not renderable content -- they must never
+    reach the HTML backend as a child.
+
+    `computed` is returned in dependency order (see
+    `_topological_order_computed`); `computed_initial` is each
+    `Computed(...)`'s build-time-evaluated initial value, in that same
+    order, computed via `_evaluate_derivation` against `state` and
+    previously-evaluated entries.
     """
     state: dict[str, Any] = {}
+    computed_defs: dict[str, dict[str, Any]] = {}
     remaining: list = []
     for child in page.children:
         if isinstance(child, ARKNode) and child.type == "State":
             state[child.props["name"]] = child.props.get("initial")
+        elif isinstance(child, ARKNode) and child.type == "Computed":
+            spec = _derivation_ref_to_spec(child.props["derive"])
+            spec["deps"] = list(child.props.get("deps", ()))
+            computed_defs[child.props["name"]] = spec
         else:
             remaining.append(child)
-    return state, remaining
+
+    order = _topological_order_computed(computed_defs)
+    computed_initial: dict[str, Any] = {}
+
+    def _get(name: str) -> Any:
+        if name in state:
+            return state[name]
+        return computed_initial.get(name)
+
+    for name in order:
+        computed_initial[name] = _evaluate_derivation(computed_defs[name], get=_get)
+
+    computed = [(name, computed_defs[name]) for name in order]
+    return state, computed, computed_initial, remaining
 
 
 def build_website_ir(
@@ -280,13 +434,15 @@ def build_website_ir(
     collector = _ResponsiveStyleCollector()
     ir_pages = []
     for route, page in pages.items():
-        state, remaining_children = _extract_page_state(page)
+        state, computed, computed_initial, remaining_children = _extract_page_state(page)
         root_page = ARKNode(type=page.type, props=page.props, children=remaining_children)
         ir_pages.append(
             IRPage(
                 route=route,
                 root=_ark_node_to_ir_node(root_page, collector=collector, on_warning=on_warning),
                 state=state,
+                computed=computed,
+                computed_initial=computed_initial,
             )
         )
     return WebsiteIR(
