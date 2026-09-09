@@ -5,6 +5,101 @@ follows [Keep a Changelog](https://keepachangelog.com/); versions
 follow the milestone scheme from ARCHITECTURE.md rather than strict
 SemVer.
 
+## [Unreleased] -- `vdom-4`: computed/derived state (`Computed`/`Derive.*`)
+
+**Scope:** `docs/Backends/REFACTOR-INDEX.md` row 12 / `docs/DESIGN-NOTES.md`
+`v0.044` sub-system 1 ("Computed/derived state"). Closes the
+"derived/computed state" gap named back in the `v0.0035` addenda:
+`Computed(name, deps=(...), derive=Derive.*(...))`, a page-scoped
+value derived from other `State(...)`/`Computed(...)` values and
+recomputed automatically whenever a dependency changes, with the
+runtime never handed an expression string to evaluate.
+
+**API (`arklight/api.py`, `arklight/ast/nodes.py`):**
+
+- `Computed(name, *, deps=(...), derive=...)` -- a new declaration
+  node, valid only as a direct child of `Page(...)` (same as
+  `State(...)`). `Bind(...)`/`bind_class=` may reference a
+  `Computed(...)`'s `name` exactly like a `State(...)`'s;
+  `Action.*(...)` may not -- a `Computed(...)` has no independent
+  value of its own to mutate.
+- `Derive` -- a closed vocabulary producing structured `DerivationRef`
+  objects (`arklight.ast.nodes`), never a string of JavaScript or
+  Python: `Derive.sum(*names)`, `Derive.multiply(*names)`,
+  `Derive.join(*names, sep=" ")`, `Derive.count(name)`,
+  `Derive.format(template, **names)` (fixed `{name}`-style
+  substitution over named state values only), `Derive.compare(a, b,
+  op)` where `op` is itself a closed choice.
+
+**IR (`arklight/ir/schema.py`, `arklight/ir/validate.py`,
+`arklight/ir/build.py`):**
+
+- `DerivationSpec`/`DERIVATION_REGISTRY`/`COMPARE_OPS` -- mirrors
+  `ActionSpec`/`ACTION_REGISTRY`'s discipline: arity bounds
+  (`min_names`/`max_names`) and a closed set of extra keyword
+  arguments per `kind`.
+- Validation checks a `Computed(...)`'s `deps` each resolve to a
+  `State(...)`/other `Computed(...)` declared on the same page
+  (forward references allowed), that the resulting dependency graph
+  has no cycle (DFS cycle detection), and that its `derive=` value's
+  `kind`/arity/`args`/`names`-subset-of-`deps` are all well-formed.
+- `IRPage` gains `computed: list[tuple[str, dict]]` (dependency-ordered,
+  via a topological sort over the `Computed(...) -> Computed(...)`
+  edges) and `computed_initial: dict[str, Any]` (each `Computed(...)`'s
+  build-time-evaluated initial value, computed via a Python-side
+  `_evaluate_derivation` mirroring the JS runtime's semantics
+  kind-for-kind).
+
+**HTML backend (`arklight/backend/html/page_render.py`):**
+
+- `page.computed` rides along as its own `data-ark-computed` attribute
+  on the same state marker/body element `data-ark-state` already
+  uses, never folded into `data-ark-state` itself -- that attribute
+  seeds the client store's *mutable* values only. Build-time
+  `Bind(...)` text rendering merges `page.computed_initial` in for
+  this read-only pass, so a `Computed(...)` value displays correctly
+  even with JS disabled.
+
+**JS backend (new `arklight/backend/js/derivations/` package,
+`arklight/backend/js/runtime/state.py`, `arklight/backend/js/render.py`):**
+
+- New `derivations/` package mirroring `actions/`/`behaviors/`: one
+  `NAME`/`JS_FRAGMENT` sibling module per `Derive.*` kind (`sum.py`,
+  `multiply.py`, `join.py`, `count.py`, `format.py`, `compare.py`),
+  each a small `kind: function (state, names, args) { ... }` fragment
+  matching `_evaluate_derivation`'s build-time semantics kind-for-kind.
+- `createState(initial, computed)` gains a second, optional parameter
+  -- the same dependency-ordered `(name, spec)` pairs `IRPage.computed`
+  carries. A new `recomputeAll()` closure walks that list in the
+  already-sorted order, looks each entry's `kind` up in the
+  `derivations` object, and writes the result into `state` under the
+  `Computed(...)`'s own `name` -- readable through the same
+  `store.get(key)` every `Bind(...)`/`renderBindings` call already
+  uses. Runs once at construction and again at the end of every
+  `set`/`reset`, *before* that call's subscriber notification.
+  `initState()` reads the sibling `data-ark-computed` attribute the
+  same way it already reads `data-ark-state`.
+- `_collect_usage`/`_build_runtime_js` ship the `derivations` object,
+  and only the fragments a site's IR actually references, the same
+  "only ship what's used" discipline `ACTION_FRAGMENTS`/
+  `BEHAVIOR_FRAGMENTS` already follow. Always inside the existing `if
+  has_state:` branch -- every `Computed(...)` dependency chain bottoms
+  out at a real `State(...)`, enforced by Validation.
+
+**Tests:** new `tests/test_vdom_4.py` (29 tests) covering the API,
+Validation (cross-declaration checks, cycle detection, arity, unknown
+kind/op, the mutable-vs-bindable state distinction for
+`Action.*(...)` targeting), IR build (dependency ordering, chained
+`computed_initial` evaluation), the HTML backend (`data-ark-computed`
+emission, `data-ark-state` staying mutable-only, prefilled `Bind(...)`
+text), the JS backend (only-used-kinds shipping, recompute-before-
+notify ordering, `initState()` reading the new attribute), and a
+Node-subprocess check that the shipped `multiply` fragment's runtime
+recomputation agrees with the build-time-evaluated initial value.
+Two pre-existing `tests/test_refactor_0.py` assertions hardcoded
+`createState`'s old single-argument signature; updated to
+`createState(initial, computed)`. Full suite: 899 passed.
+
 ## [Unreleased] -- Android backend, Stage 4 (CI release build) + stage renumbering
 
 **What:** the GitHub Actions workflow Stage 2 added

@@ -25,6 +25,7 @@ table, see [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md).
 | vdom-1   | Reactive-core vdom staging, Stage 1 of 8: vendored snabbdom bare core swapped into `State`'s re-render pass | DONE |
 | vdom-2   | Reactive-core vdom staging, Stage 2 of 8: reactive class binding (`Bind.when(...)`/`bind_class=`) | DONE |
 | vdom-3   | Reactive-core vdom staging, Stage 3 of 8: event modifiers (`.with_modifiers(...)`/`.debounce(...)`/`.throttle(...)`) | DONE |
+| vdom-4   | Computed/derived state (`Computed`/`Derive.*`/`DERIVATION_REGISTRY`) -- docs/Backends/REFACTOR-INDEX.md row 12 | DONE |
 | v0.0431  | Emergency patch: build-time warning for unrouted `srcset`/`poster`/`action`/`formaction` | DONE |
 | v0.048   | CSS `@media` queries + `<head>`/`<header>` extension (Stage A of 2: `meta`/`links` DONE; Stage B of 2: `responsive_style` + `@media` compilation DONE) | DONE |
 | v0.054   | JS backend capability expansion (reactive core parity with Vue 3) -- renumbered from v0.044 now that v0.048 has shipped | PLANNED |
@@ -79,6 +80,74 @@ go-ahead before implementation starts on any of these:
   tier `docs/Far Future Concern/WINDOWS-PHONE-BACKEND.md`'s Windows
   Phone/UWP backend already sits at: a written, plausible design with
   no roadmap commitment behind it.
+
+## vdom-4 -- Computed/derived state (DONE)
+
+Closes out the row started in the prior session ("Continuing the
+combined refactor. Vdom-4 computed && derived stage started"), which
+landed the Python side only (`arklight.api.Computed`/`Derive.*`,
+`ast.nodes.DerivationRef`, `ir.schema.DERIVATION_REGISTRY`,
+`ir.validate`'s cross-declaration/cycle checks, `ir.build`'s
+dependency-ordered `IRPage.computed`/`computed_initial` extraction,
+and `backend.html.page_render`'s `data-ark-computed` marker). This
+session finishes the JS runtime half docs/Backends/REFACTOR-INDEX.md
+row 12 calls for:
+
+- **New `arklight/backend/js/derivations/` package**, mirroring
+  `actions/`/`behaviors/`: one `NAME`/`JS_FRAGMENT` sibling module per
+  `Derive.*` kind (`sum.py`, `multiply.py`, `join.py`, `count.py`,
+  `format.py`, `compare.py`), each a small `kind: function (state,
+  names, args) { ... }` fragment kind-for-kind matching
+  `arklight.ir.build._evaluate_derivation`'s build-time semantics, so
+  a page's server-rendered `Bind(...)` text never disagrees with what
+  the client recomputes after the first state change. Verified this
+  agreement directly (Node evaluation of the shipped `multiply`
+  fragment against the build-time-evaluated initial value) rather than
+  only asserting it by construction.
+- **`runtime/state.py`**: `createState(initial, computed)` gains a
+  second, optional parameter -- the same dependency-ordered `(name,
+  spec)` pairs `IRPage.computed` carries, JSON-round-tripped as plain
+  2-element arrays. A new `recomputeAll()` closure walks that list in
+  the order `arklight.ir.build._topological_order_computed` already
+  sorted at build time (the client never re-derives that ordering
+  itself), looks each entry's `kind` up in the `derivations` object,
+  and writes the result straight into `state` under the `Computed(...)`'s
+  own `name` -- so it's readable through the exact same `store.get(key)`
+  every `Bind(...)`/`renderBindings` call already uses, no separate
+  lookup path. Runs once at construction and again at the end of every
+  `set`/`reset`, *before* that call's subscriber notification, so a
+  subscriber never sees a stale computed value. `initState()` reads
+  the sibling `data-ark-computed` attribute the same way it already
+  reads `data-ark-state` and passes it through.
+- **`render.py`**: `_collect_usage` now also returns which derivation
+  kinds are referenced and whether any page declares `Computed(...)`
+  at all; a new `_derivations_object_js` (mirrors
+  `_actions_object_js`/`_behaviors_object_js` exactly) ships only the
+  fragments a site's IR actually uses, spliced in right after the
+  vendored snabbdom core -- always inside the existing `if has_state:`
+  branch, since every `Computed(...)` dependency chain bottoms out at
+  a real `State(...)` (enforced by Validation), so `has_computed`
+  never needs its own top-level branch.
+- **`tests/test_vdom_4.py`** (29 tests, per the project's one-file-per-
+  stage discipline): API, Validation (cross-declaration checks, cycle
+  detection, arity, unknown kind/op, the `Computed(...)` name being
+  bindable but never a valid `Action.*(...)` target), IR build
+  (dependency-ordered `computed`, chained `computed_initial`
+  evaluation), HTML backend (`data-ark-computed` emission,
+  `data-ark-state` staying mutable-only, prefilled `Bind(...)` text),
+  JS backend (only-used-kinds shipping, recompute-before-notify
+  ordering, `initState()` reading the new attribute), and one
+  Node-subprocess parity check against the build-time value.
+- Two pre-existing `tests/test_refactor_0.py` assertions hardcoded
+  `createState`'s old single-argument signature
+  (`"function createState(initial)"`); updated to the new
+  `createState(initial, computed)` shape rather than left broken.
+  Full suite: 899 passed, no other regressions.
+
+Not part of this stage (see `vdom-5`/`vdom-6`/`vdom-7`/`vdom-8` in
+docs/Backends/REFACTOR-INDEX.md, all still "Not started"): watch
+effects, two-way input binding, per-item list rendering/conditional
+show-hide, `localStorage` persistence.
 
 ## v0.048 -- Stage B: `responsive_style` + `@media` compilation (DONE)
 
@@ -494,11 +563,14 @@ vocabulary addenda for HTML). Where a feature sounds like both (e.g.
 renders; *how it looks* is still 100% CSS the author already
 controls.
 
-- [ ] **Computed/derived state** (`Computed(name, deps=(...),
+- [x] **Computed/derived state** (`Computed(name, deps=(...),
       derive=Derive.sum(...))` etc.) -- a closed `DERIVATION_REGISTRY`
       (`Derive.sum`, `Derive.join`, `Derive.count`, `Derive.format`,
       `Derive.compare`), same registry discipline as
-      `ACTION_REGISTRY`. Not implemented yet.
+      `ACTION_REGISTRY`. **Landed as `vdom-4`** (docs/Backends/
+      REFACTOR-INDEX.md row 12) -- see the dedicated narrative section
+      below and `tests/test_vdom_4.py`. The rest of this milestone's
+      sub-systems (watch effects onward) remain not implemented.
 - [ ] **Watch effects** (`Watch("state_key", then=Action.xxx(...))`
       declared on `Page(...)`) -- state-change-triggered side effects
       reusing the existing action dispatcher, just triggered by
