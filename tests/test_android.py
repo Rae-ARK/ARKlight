@@ -169,58 +169,81 @@ def test_scaffold_github_actions_workflow_smoke_test_uses_configured_package_id(
     assert "adb shell pidof com.example.cool" in contents
 
 
-def test_scaffold_github_actions_workflow_includes_release_build(tmp_path):
+def test_scaffold_github_actions_workflow_has_no_release_job(tmp_path):
+    # Release builds need a keystore this tool has no business
+    # provisioning -- deliberately not included; see the generated
+    # README's "Building a release APK" section instead.
     out_dir = build_dir(tmp_path)
     project_dir = tmp_path / "android-project"
 
     scaffold_project(out_dir, output_dir=project_dir)
 
     contents = (project_dir / ".github/workflows/android-build.yml").read_text()
-    assert "assemble-release:" in contents
+    assert "assemble-release" not in contents
+    assert "assembleRelease" not in contents
+    assert "RELEASE_KEYSTORE" not in contents
+
+
+def test_readme_documents_manual_release_build(tmp_path):
+    out_dir = build_dir(tmp_path)
+    project_dir = tmp_path / "android-project"
+
+    scaffold_project(out_dir, output_dir=project_dir)
+
+    contents = (project_dir / "README.md").read_text()
+    assert "Building a release APK" in contents
     assert "gradle assembleRelease" in contents
-    assert "app/build/outputs/apk/release/*.apk" in contents
 
 
-def test_scaffold_github_actions_workflow_release_build_is_independent_job(tmp_path):
-    # Unlike install-launch-smoke-test, the release build doesn't need
-    # the debug APK -- it should not declare a `needs:` dependency on
-    # assemble-debug.
+def test_scaffold_result_has_no_enclosing_git_root_when_project_dir_is_standalone(tmp_path):
     out_dir = build_dir(tmp_path)
     project_dir = tmp_path / "android-project"
 
-    scaffold_project(out_dir, output_dir=project_dir)
+    result = scaffold_project(out_dir, output_dir=project_dir)
 
-    contents = (project_dir / ".github/workflows/android-build.yml").read_text()
-    release_job = contents.split("assemble-release:", 1)[1]
-    assert "needs:" not in release_job
+    assert result.enclosing_git_root is None
 
 
-def test_scaffold_github_actions_workflow_release_build_slugifies_app_name(tmp_path):
+def test_scaffold_result_flags_enclosing_git_root(tmp_path):
+    # Scaffolding into a subdirectory of a repo the caller already has
+    # checked out -- `.github/workflows/` won't be discovered by GitHub
+    # unless it's moved up to the repo root, so this should be surfaced.
+    (tmp_path / ".git").mkdir()
+    out_dir = build_dir(tmp_path)
+    project_dir = tmp_path / "android"
+
+    result = scaffold_project(out_dir, output_dir=project_dir)
+
+    assert result.enclosing_git_root == tmp_path.resolve()
+
+
+def test_scaffold_result_no_warning_when_git_init_happens_after_scaffolding(tmp_path):
+    # The realistic "project_dir is its own repo root" flow: scaffold
+    # first (output_dir has to be empty/absent, so it can't already
+    # contain a `.git` at scaffold time -- see the non-empty-output_dir
+    # check above), `git init` after. Detection runs at scaffold time,
+    # before that `.git` exists, and should stay quiet either way since
+    # there's no *enclosing* repo above `project_dir` here.
     out_dir = build_dir(tmp_path)
     project_dir = tmp_path / "android-project"
-    write_config(tmp_path, '{"app_name": "My Cool App!"}')
 
-    scaffold_project(out_dir, output_dir=project_dir)
+    result = scaffold_project(out_dir, output_dir=project_dir)
 
-    contents = (project_dir / ".github/workflows/android-build.yml").read_text()
-    assert "name: My-Cool-App-release-apk" in contents
+    assert result.enclosing_git_root is None
 
 
-def test_scaffold_github_actions_workflow_release_build_uses_optional_signing_secrets(tmp_path):
+def test_cli_warns_when_project_dir_nested_in_existing_repo(tmp_path, capsys):
+    (tmp_path / ".git").mkdir()
     out_dir = build_dir(tmp_path)
-    project_dir = tmp_path / "android-project"
+    project_dir = tmp_path / "android"
 
-    scaffold_project(out_dir, output_dir=project_dir)
+    exit_code = main(["android", "scaffold", str(out_dir), "-o", str(project_dir)])
 
-    contents = (project_dir / ".github/workflows/android-build.yml").read_text()
-    # Signing is opt-in via repo secrets -- decoded to a workspace-local
-    # file, never hardcoded, and the job must still succeed (producing
-    # an unsigned APK) if these secrets aren't configured.
-    assert "secrets.RELEASE_KEYSTORE_BASE64" in contents
-    assert "secrets.RELEASE_KEYSTORE_PASSWORD" in contents
-    assert "secrets.RELEASE_KEY_ALIAS" in contents
-    assert "secrets.RELEASE_KEY_PASSWORD" in contents
-    assert "base64 -d" in contents
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "NOTE:" in out
+    assert str(project_dir / ".github/workflows/android-build.yml") in out
+    assert str(tmp_path.resolve() / ".github/workflows/android-build.yml") in out
 
 
 def test_app_build_gradle_falls_back_to_unsigned_when_keystore_path_blank(tmp_path):

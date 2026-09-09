@@ -451,10 +451,24 @@ def _cmd_android_scaffold(args: argparse.Namespace) -> int:
     )
     print()
     print("Includes a GitHub Actions workflow (.github/workflows/android-build.yml)")
-    print("that builds a debug APK, smoke-tests it (install + launch on an emulator),")
-    print("and builds a release APK, on push/PR -- no local JDK/Android SDK/emulator")
-    print("needed for any of that.")
+    print("that builds a debug APK and smoke-tests it (install + launch on an")
+    print("emulator) on push/PR -- no local JDK/Android SDK/emulator needed for")
+    print("that. No release-build job is included: an unsigned release APK isn't")
+    print("installable and a signed one needs a keystore only you should hold, so")
+    print("that step is left for you to wire up by hand -- see the generated")
+    print("README.md's \"Building a release APK\" section when you're ready for it.")
     print()
+    if result.enclosing_git_root is not None:
+        print(
+            f"NOTE: {result.project_dir}/ is nested inside the existing git repo "
+            f"at {result.enclosing_git_root}/ -- GitHub Actions only discovers "
+            f"workflows at a repo's root, so move"
+        )
+        print(f"  {result.project_dir}/.github/workflows/android-build.yml")
+        print("to")
+        print(f"  {result.enclosing_git_root}/.github/workflows/android-build.yml")
+        print("or the workflow above will never run.")
+        print()
     print("To build locally instead (needs a JDK -- see the generated project's own")
     print("README.md):")
     print(f"  cd {result.project_dir}")
@@ -768,10 +782,11 @@ def main(argv: list[str] | None = None) -> int:
         help="Generate an Android Studio / Gradle project (Application mode) from a "
         "build directory. Templating only -- no JDK/Android SDK required (Stage 1 "
         "of the design doc's CLI ladder). Includes a GitHub Actions workflow that "
-        "builds a debug APK, smoke-tests it (install + launch on an emulator), and "
-        "builds a release APK, all in CI with no local toolchain (Stages 2/3/4); "
-        "`arklight android build`, `--install`, and `--release`, which do the same "
-        "on this machine, are Stages 5/6/7 and not yet implemented.",
+        "builds a debug APK and smoke-tests it (install + launch on an emulator), "
+        "in CI with no local toolchain (Stages 2/3); no release-build job (needs a "
+        "keystore this tool won't provision for you -- see the generated project's "
+        "README). `arklight android build`, `--install`, and `--release`, which do "
+        "the same on this machine, are Stages 5/6/7 and not yet implemented.",
     )
     android_scaffold_parser.add_argument(
         "build_dir", help="An `arklight build` output directory (e.g. ARK)."
