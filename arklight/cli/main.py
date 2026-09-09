@@ -439,7 +439,9 @@ def _cmd_pwa(args: argparse.Namespace) -> int:
 
 def _cmd_android_scaffold(args: argparse.Namespace) -> int:
     try:
-        result = android.scaffold_project(args.build_dir, output_dir=args.output)
+        result = android.scaffold_project(
+            args.build_dir, output_dir=args.output, debug_keystore=args.debug_keystore
+        )
     except AndroidError as exc:
         print(f"ARKlight android scaffold failed: {exc}", file=sys.stderr)
         return 1
@@ -457,6 +459,23 @@ def _cmd_android_scaffold(args: argparse.Namespace) -> int:
     print("installable and a signed one needs a keystore only you should hold, so")
     print("that step is left for you to wire up by hand -- see the generated")
     print("README.md's \"Building a release APK\" section when you're ready for it.")
+    print()
+    if result.has_debug_keystore:
+        print("Debug builds are signed with your pinned app/debug.keystore, so an")
+        print("updated debug APK -- built on this machine, a different machine, or")
+        print("CI -- can be reinstalled over an existing test install on the same")
+        print("device without uninstalling first.")
+    else:
+        print("WARNING: no --debug-keystore given -- debug builds will sign with")
+        print("each machine's own auto-generated ~/.android/debug.keystore. That's")
+        print("fine on one machine, but a fresh CI runner generates its own debug")
+        print("key on every run too, so a debug APK from CI won't share a signature")
+        print("with one built elsewhere -- reinstalling it over an existing test")
+        print("install on the same device will fail until you uninstall first. If")
+        print("you'll be updating a test install from CI (or from more than one")
+        print("machine), generate a shared debug keystore and re-run this command")
+        print("with --debug-keystore <path> -- see the generated README.md's")
+        print("\"Debug signing\" section for the exact keytool command.")
     print()
     if result.enclosing_git_root is not None:
         print(
@@ -797,6 +816,17 @@ def main(argv: list[str] | None = None) -> int:
         required=True,
         help="Directory to create the Android Studio / Gradle project in. Must not "
         "already exist, or must be empty.",
+    )
+    android_scaffold_parser.add_argument(
+        "--debug-keystore",
+        help="Path to a debug keystore to pin as this project's debug signing key "
+        "(copied in as app/debug.keystore, must use the standard "
+        "androiddebugkey/android/android alias+passwords -- see "
+        "`keytool -genkeypair ...` in the generated README.md's \"Debug signing\" "
+        "section for the exact command). Without this, every machine (a fresh CI "
+        "runner included) auto-generates its own debug key, so debug APKs from "
+        "different builds won't share a signature and can't be installed as "
+        "updates over each other on the same test device.",
     )
     android_scaffold_parser.set_defaults(func=_cmd_android_scaffold)
 

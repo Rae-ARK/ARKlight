@@ -88,6 +88,7 @@ def project_files(
     edge_to_edge: bool,
     has_custom_icon: bool,
     has_splash: bool,
+    has_debug_keystore: bool = False,
 ) -> dict[str, str]:
     """
     Return `{relative_path: contents}` for every *generated text* file
@@ -95,9 +96,15 @@ def project_files(
     the baked-in site itself (`app/src/main/assets/`, copied verbatim
     from the `arklight build` output directory by `arklight.cli.
     android.scaffold_project`, since that content is opaque binary/
-    text this module has no business templating) and the optional raw
-    `icon`/`splash` source images (copied by the same caller, not
-    templated here).
+    text this module has no business templating), the optional raw
+    `icon`/`splash` source images, and the optional `--debug-keystore`
+    file (all copied by the same caller, not templated here).
+
+    `has_debug_keystore` controls whether `app/build.gradle.kts` wires
+    a `debug` signing config pointing at `app/debug.keystore` -- see
+    that function's own docstring for why you'd want one pinned rather
+    than letting each machine (a fresh CI runner included) generate
+    its own.
 
     `orientation` is already resolved to its Android manifest value
     (e.g. `"fullSensor"`, not the config file's `"sensor"`) -- see
@@ -111,7 +118,9 @@ def project_files(
         "build.gradle.kts": _root_build_gradle_kts(),
         "gradle.properties": _GRADLE_PROPERTIES,
         "app/proguard-rules.pro": _PROGUARD_RULES,
-        "app/build.gradle.kts": _app_build_gradle_kts(package_id, version_name, version_code, has_splash),
+        "app/build.gradle.kts": _app_build_gradle_kts(
+            package_id, version_name, version_code, has_splash, has_debug_keystore
+        ),
         "app/src/main/AndroidManifest.xml": _android_manifest_xml(orientation, has_splash),
         f"{java_dir}/MainActivity.kt": _main_activity_kt(package_id, edge_to_edge, has_splash),
         f"{java_dir}/ArkApplication.kt": _kt_with_package(_ARK_APPLICATION_KT, package_id),
@@ -124,7 +133,7 @@ def project_files(
         "app/src/main/res/values/themes.xml": _themes_xml(has_splash),
         "app/src/main/res/values-night/themes.xml": _themes_night_xml(has_splash),
         ".github/workflows/android-build.yml": _github_ci_workflow_yml(app_name, package_id),
-        "README.md": _readme_md(app_name, package_id),
+        "README.md": _readme_md(app_name, package_id, has_debug_keystore),
     }
 
     if has_custom_icon:
@@ -195,10 +204,27 @@ _PROGUARD_RULES = """\
 
 
 def _app_build_gradle_kts(
-    package_id: str, version_name: str, version_code: int, has_splash: bool
+    package_id: str, version_name: str, version_code: int, has_splash: bool, has_debug_keystore: bool
 ) -> str:
     splash_dep = (
         '    implementation("androidx.core:core-splashscreen:1.0.1")\n' if has_splash else ""
+    )
+    debug_signing_config = (
+        '        create("debug") {\n'
+        '            storeFile = file("debug.keystore")\n'
+        '            storePassword = "android"\n'
+        '            keyAlias = "androiddebugkey"\n'
+        '            keyPassword = "android"\n'
+        '        }\n'
+        if has_debug_keystore
+        else ""
+    )
+    debug_build_type = (
+        '        debug {\n'
+        '            signingConfig = signingConfigs.getByName("debug")\n'
+        '        }\n'
+        if has_debug_keystore
+        else ""
     )
     return f'''\
 plugins {{
@@ -218,19 +244,36 @@ android {{
         versionName = "{version_name}"
     }}
 
-    // Signing config (keystore path/passwords) is the project owner's
-    // own concern, passed through via env vars -- ARKlight does not
-    // manage keystores/credentials on anyone's behalf (see
-    // docs/Backends/ANDROID-BACKEND-IMPLEMENTATION.md, Stage 7).
-    // Locally, with these unset, `./gradlew assembleRelease` still
-    // works, it just produces an unsigned APK you'd sign yourself.
-    // `isNullOrBlank()` (not just a null check) matters here because
-    // Stage 4's CI job sets this from a GitHub Actions secret via an
-    // `env:` block -- when that secret isn't configured, the
-    // expression evaluating it resolves to an *empty string*, not an
-    // unset var, so a plain `!= null` check would still (wrongly) try
-    // `file("")` and fail the build instead of falling back to
-    // unsigned, same as the local no-env-vars-at-all case does.
+    // Signing configs. Release: keystore path/passwords are the
+    // project owner's own concern, passed through via env vars --
+    // ARKlight does not manage keystores/credentials on anyone's
+    // behalf (see docs/Backends/ANDROID-BACKEND-IMPLEMENTATION.md,
+    // Stage 7). Locally, with these unset, `./gradlew assembleRelease`
+    // still works, it just produces an unsigned APK you'd sign
+    // yourself. `isNullOrBlank()` (not just a null check) matters here
+    // because a CI job driving this the same way would set it from a
+    // GitHub Actions secret via an `env:` block -- when that secret
+    // isn't configured, the expression evaluating it resolves to an
+    // *empty string*, not an unset var, so a plain `!= null` check
+    // would still (wrongly) try `file("")` and fail the build instead
+    // of falling back to unsigned, same as the local no-env-vars-at-all
+    // case does.
+    //
+    // Debug: with no --debug-keystore given at scaffold time, this
+    // deliberately leaves Android Gradle Plugin's own implicit default
+    // alone -- it auto-generates and reuses ~/.android/debug.keystore
+    // (well-known androiddebugkey/android/android credentials) on
+    // whatever machine runs `assembleDebug`. Fine for one dev iterating
+    // on one machine, but a fresh CI runner has no such file either, so
+    // it generates its *own* debug key on every single run -- a debug
+    // APK built by CI won't share a signature with one built on your
+    // machine (or with one from a different CI run), so reinstalling
+    // one over the other on the same test device fails (`adb install
+    // -r` errors out; you'd have to uninstall first). Re-run `arklight
+    // android scaffold --debug-keystore <path>` to pin a shared debug
+    // key -- it's copied in as app/debug.keystore (checked into git is
+    // fine; debug keystores aren't meant to be secret) and every build,
+    // this machine or CI, signs with it instead. See README.md.
     val releaseStorePath = System.getenv("RELEASE_KEYSTORE_PATH")
     signingConfigs {{
         if (!releaseStorePath.isNullOrBlank()) {{
@@ -241,10 +284,10 @@ android {{
                 keyPassword = System.getenv("RELEASE_KEY_PASSWORD")
             }}
         }}
-    }}
+{debug_signing_config}    }}
 
     buildTypes {{
-        release {{
+{debug_build_type}        release {{
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -1242,7 +1285,45 @@ _CUSTOM_ADAPTIVE_ICON_XML = """\
 """
 
 
-def _readme_md(app_name: str, package_id: str) -> str:
+def _readme_md(app_name: str, package_id: str, has_debug_keystore: bool) -> str:
+    debug_signing_note = (
+        "This project has a pinned debug signing key (`app/debug.keystore`, "
+        "checked in) -- every build of it, on any machine or CI, produces a "
+        "debug APK with the same signature, so you can reinstall an updated "
+        "build over an existing test install on the same device without "
+        "uninstalling first."
+        if has_debug_keystore
+        else (
+            "This project has **no pinned debug signing key** -- debug builds "
+            "fall back to Android Gradle Plugin's own default, which "
+            "auto-generates `~/.android/debug.keystore` on whatever machine "
+            "runs the build. That's fine for iterating locally on one "
+            "machine, but a fresh CI runner has no such file either, so it "
+            "generates its own on every run -- a debug APK from CI won't "
+            "share a signature with one from your machine (or from a "
+            "different CI run), so reinstalling one over the other on the "
+            "same test device fails with a signature mismatch; you'd have "
+            "to uninstall first. To fix this, generate a shared debug "
+            "keystore once:\n\n"
+            "```\n"
+            "keytool -genkeypair -v -keystore debug.keystore -storepass android "
+            "-alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 "
+            "-validity 10000 -dname \"CN=Android Debug,O=Android,C=US\"\n"
+            "```\n\n"
+            "and re-run `arklight android scaffold --debug-keystore "
+            "path/to/debug.keystore ...`. Keep using the same "
+            "`debug.keystore` file across scaffolds (and check it into git --"
+            " debug keystores aren't meant to be secret, that's what makes "
+            "this safe) if you want CI-built and locally-built debug APKs to "
+            "interoperate."
+        )
+    )
+    debug_keystore_bullet = (
+        "- `app/debug.keystore` -- the pinned debug signing key (see "
+        '"Debug signing" above). Safe to check into git.\n'
+        if has_debug_keystore
+        else ""
+    )
     return f'''\
 # {app_name}
 
@@ -1260,6 +1341,10 @@ Android Studio, or build it from the command line once you have a JDK:
 (`arklight android build` -- Stage 5 of the design doc above -- runs
 that same command for you and handles a missing-JDK error gracefully;
 not yet implemented as of this scaffold's version.)
+
+## Debug signing
+
+{debug_signing_note}
 
 ## Building without a local JDK
 
@@ -1308,7 +1393,7 @@ want it back.
   as-is at scaffold time. Re-run `arklight android scaffold` (into a
   fresh `-o` directory, or after clearing this one) after any site
   change; nothing here watches your build directory for edits.
-- `app/src/main/java/{package_id.replace(".", "/")}/MainActivity.kt`
+{debug_keystore_bullet}- `app/src/main/java/{package_id.replace(".", "/")}/MainActivity.kt`
   -- the whole app: a `WebView` pointed at the assets above via
   `androidx.webkit.WebViewAssetLoader`, so `fetch()`/`localStorage`
   behave the same way they would if `arklight build`'s output were

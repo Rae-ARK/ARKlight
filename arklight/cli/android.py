@@ -126,6 +126,12 @@ class ScaffoldResult:
     # only discovers `.github/workflows/` at a repo's root, so when this
     # is set the generated workflow needs to move there by hand.
     enclosing_git_root: Path | None = None
+    # Whether a `--debug-keystore` was pinned into the project (copied
+    # to `app/debug.keystore`) -- see `scaffold_project`'s docstring.
+    # When False, the CLI warns: every machine (a fresh CI runner
+    # included) will auto-generate its own debug key, so debug APKs
+    # from different builds won't share a signature.
+    has_debug_keystore: bool = False
 
 
 def _find_enclosing_git_root(project_dir: Path) -> Path | None:
@@ -235,6 +241,7 @@ def scaffold_project(
     build_dir: str | Path,
     *,
     output_dir: str | Path,
+    debug_keystore: str | Path | None = None,
 ) -> ScaffoldResult:
     """
     Scaffold an Application-mode Android Studio / Gradle project at
@@ -245,9 +252,18 @@ def scaffold_project(
     conventionally lives in, one level up from a build output like
     `ARK/`).
 
+    `debug_keystore`, if given, is copied into the project as
+    `app/debug.keystore` and wired up as the `debug` build type's
+    signing key -- see the module docstring's "Debug signing" section
+    for why you'd want this: without it, every machine (including each
+    fresh CI runner) auto-generates its *own* debug key, so a debug APK
+    built on one won't share a signature with one built on another and
+    `adb install -r`/reinstalling over an existing test install fails.
+
     Raises AndroidError for a missing/malformed build directory, a
     non-empty `output_dir`, an invalid/malformed `"android"` config
-    section, or a missing/unsupported icon or splash image.
+    section, a missing/unsupported icon or splash image, or a missing
+    `debug_keystore` file.
     """
     build_dir = Path(build_dir)
     if not build_dir.is_dir():
@@ -303,6 +319,12 @@ def scaffold_project(
         else None
     )
 
+    debug_keystore_path: Path | None = None
+    if debug_keystore is not None:
+        debug_keystore_path = Path(debug_keystore)
+        if not debug_keystore_path.is_file():
+            raise AndroidError(f"--debug-keystore file not found: {debug_keystore_path}")
+
     files = runtime.project_files(
         app_name=app_name,
         package_id=package_id,
@@ -312,6 +334,7 @@ def scaffold_project(
         edge_to_edge=edge_to_edge,
         has_custom_icon=icon_path is not None,
         has_splash=splash_path is not None,
+        has_debug_keystore=debug_keystore_path is not None,
     )
 
     written: list[Path] = []
@@ -332,6 +355,11 @@ def scaffold_project(
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(splash_path, dest)
         written.append(dest)
+    if debug_keystore_path is not None:
+        dest = project_dir / "app/debug.keystore"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(debug_keystore_path, dest)
+        written.append(dest)
 
     assets_dest = project_dir / "app/src/main/assets"
     written.extend(_copy_tree(build_dir, assets_dest))
@@ -341,5 +369,6 @@ def scaffold_project(
         written_paths=sorted(written),
         app_name=app_name,
         package_id=package_id,
+        has_debug_keystore=debug_keystore_path is not None,
         enclosing_git_root=_find_enclosing_git_root(project_dir),
     )

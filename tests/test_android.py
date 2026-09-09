@@ -524,3 +524,125 @@ def test_cli_android_scaffold_requires_output_flag(tmp_path, monkeypatch):
     out_dir = build_dir(tmp_path)
     with pytest.raises(SystemExit):
         main(["android", "scaffold", str(out_dir)])
+
+
+def _write_debug_keystore(tmp_path: Path) -> Path:
+    # A real keystore isn't needed for these tests -- scaffold_project
+    # only ever copies the file byte-for-byte, it never opens it with
+    # `keytool` or Gradle -- so a placeholder file with the right name
+    # is enough to exercise the copy-in/template-wiring behavior.
+    path = tmp_path / "my-debug.keystore"
+    path.write_bytes(b"not a real keystore, just needs to exist")
+    return path
+
+
+def test_scaffold_without_debug_keystore_flag_has_no_debug_signing_config(tmp_path):
+    out_dir = build_dir(tmp_path)
+    project_dir = tmp_path / "android-project"
+
+    result = scaffold_project(out_dir, output_dir=project_dir)
+
+    assert result.has_debug_keystore is False
+    assert not (project_dir / "app/debug.keystore").exists()
+    contents = (project_dir / "app/build.gradle.kts").read_text()
+    assert 'create("debug")' not in contents
+    assert "signingConfig = signingConfigs.getByName(\"debug\")" not in contents
+
+
+def test_scaffold_with_debug_keystore_flag_copies_and_wires_it_up(tmp_path):
+    out_dir = build_dir(tmp_path)
+    project_dir = tmp_path / "android-project"
+    keystore = _write_debug_keystore(tmp_path)
+
+    result = scaffold_project(out_dir, output_dir=project_dir, debug_keystore=keystore)
+
+    assert result.has_debug_keystore is True
+    dest = project_dir / "app/debug.keystore"
+    assert dest.is_file()
+    assert dest.read_bytes() == keystore.read_bytes()
+
+    contents = (project_dir / "app/build.gradle.kts").read_text()
+    assert 'create("debug")' in contents
+    assert 'storeFile = file("debug.keystore")' in contents
+    assert 'storePassword = "android"' in contents
+    assert 'keyAlias = "androiddebugkey"' in contents
+    assert 'keyPassword = "android"' in contents
+    assert 'signingConfig = signingConfigs.getByName("debug")' in contents
+
+
+def test_scaffold_debug_keystore_missing_file_raises(tmp_path):
+    out_dir = build_dir(tmp_path)
+    project_dir = tmp_path / "android-project"
+
+    with pytest.raises(AndroidError, match="not found"):
+        scaffold_project(out_dir, output_dir=project_dir, debug_keystore=tmp_path / "nope.keystore")
+
+
+def test_readme_documents_debug_signing_warning_by_default(tmp_path):
+    out_dir = build_dir(tmp_path)
+    project_dir = tmp_path / "android-project"
+
+    scaffold_project(out_dir, output_dir=project_dir)
+
+    contents = (project_dir / "README.md").read_text()
+    assert "no pinned debug signing key" in contents
+    assert "keytool -genkeypair" in contents
+
+
+def test_readme_documents_debug_signing_when_pinned(tmp_path):
+    out_dir = build_dir(tmp_path)
+    project_dir = tmp_path / "android-project"
+    keystore = _write_debug_keystore(tmp_path)
+
+    scaffold_project(out_dir, output_dir=project_dir, debug_keystore=keystore)
+
+    contents = (project_dir / "README.md").read_text()
+    assert "pinned debug signing key" in contents
+    assert "app/debug.keystore" in contents
+
+
+def test_cli_warns_about_debug_keystore_by_default(tmp_path, capsys):
+    out_dir = build_dir(tmp_path)
+    project_dir = tmp_path / "android-project"
+
+    exit_code = main(["android", "scaffold", str(out_dir), "-o", str(project_dir)])
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "WARNING: no --debug-keystore given" in out
+
+
+def test_cli_no_debug_keystore_warning_when_flag_given(tmp_path, capsys):
+    out_dir = build_dir(tmp_path)
+    project_dir = tmp_path / "android-project"
+    keystore = _write_debug_keystore(tmp_path)
+
+    exit_code = main(
+        ["android", "scaffold", str(out_dir), "-o", str(project_dir), "--debug-keystore", str(keystore)]
+    )
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "WARNING: no --debug-keystore given" not in out
+    assert "Debug builds are signed with your pinned app/debug.keystore" in out
+
+
+def test_cli_debug_keystore_missing_file_reports_android_error(tmp_path, capsys):
+    out_dir = build_dir(tmp_path)
+    project_dir = tmp_path / "android-project"
+
+    exit_code = main(
+        [
+            "android",
+            "scaffold",
+            str(out_dir),
+            "-o",
+            str(project_dir),
+            "--debug-keystore",
+            str(tmp_path / "nope.keystore"),
+        ]
+    )
+
+    assert exit_code == 1
+    captured = capsys.readouterr()
+    assert "ARKlight android scaffold failed" in captured.err
