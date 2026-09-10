@@ -128,6 +128,45 @@ class DerivationRef:
     args: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class PredicateRef:
+    """
+    A reference to a closed-vocabulary predicate -- e.g.
+    `Predicate.truthy("flag")`. Used as a `Show(...)`'s first
+    (positional) argument (`vdom-7`, see docs/Backends/REFACTOR-INDEX.md
+    row 15).
+
+    Mirrors `DerivationRef`'s shape and reasoning: a small structured
+    object, not a string -- validated against
+    `arklight.ir.schema.PREDICATE_REGISTRY` at compile time (unknown
+    `kind`, wrong arity, or a `names` entry that isn't a `State(...)`/
+    `Computed(...)` declared on the owning page all fail the build) and
+    never a template/expression string evaluated at runtime.
+    """
+
+    kind: str
+    names: tuple[str, ...] = field(default_factory=tuple)
+    args: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ItemIndexRef:
+    """
+    A reference to the *current* `Repeat(...)` item's live position --
+    `Item.index()` (`arklight/api.py`). Only meaningful as an
+    `Action.*(...)` arg value inside a `Repeat(...)`'s `template=`
+    callable, e.g. `Action.remove(name, Item.index())` -- unlike a
+    plain literal index, this is resolved fresh on every render (see
+    `arklight/backend/js/runtime/repeat.py`), so it stays correct
+    across an `Action.remove(...)`-driven reorder rather than going
+    stale the way a baked-in literal index would. Carries no fields of
+    its own -- it's a pure marker, recognized by identity/type wherever
+    an `ActionRef.args` value is resolved (build-time substitution for
+    the HTML backend's per-item fallback rendering; a JSON sentinel for
+    the JS backend's client-side item construction).
+    """
+
+
 @dataclass
 class ARKNode:
     """A single node in the ARK AST."""

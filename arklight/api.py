@@ -18,7 +18,15 @@ import re
 from typing import Any, Callable
 
 from arklight import experimental
-from arklight.ast.nodes import ActionRef, ARKNode, ClassBindSpec, DerivationRef, node
+from arklight.ast.nodes import (
+    ActionRef,
+    ARKNode,
+    ClassBindSpec,
+    DerivationRef,
+    ItemIndexRef,
+    PredicateRef,
+    node,
+)
 from arklight.backend.css import selectors as css_selectors
 
 # v0.042: custom CSS class names must look like a real, single CSS class
@@ -542,6 +550,133 @@ def Watch(name: str, *, then: "ActionRef") -> ARKNode:
     )
 
 
+# ---------------------------------------------------------------------------
+# `vdom-7` (docs/Backends/REFACTOR-INDEX.md row 15): per-item list
+# rendering (`Repeat`) + conditional show/hide (`Show`).
+#
+# Both are real, renderable content (unlike `State(...)`/`Computed(...)`/
+# `Watch(...)`, which are page-scoped declarations extracted out of the
+# tree entirely) -- `Repeat(...)`/`Show(...)` appear exactly where their
+# rendered output should go, the same as `Container(...)`/`List(...)`.
+# See `docs/new js backend proposal/ARCHITECTURE-VDOM.md` SS6.2-6.3 for
+# the design this follows, and `arklight/backend/js/runtime/repeat.py`/
+# `show.py` for the client-side half.
+# ---------------------------------------------------------------------------
+
+
+class RepeatItem:
+    """
+    References to the *current* item inside a `Repeat(...)`'s
+    `template=` callable -- meaningful only there (Validation rejects
+    either one used anywhere else).
+
+        Repeat("todos", template=lambda: Container(
+            Text(RepeatItem.value()),
+            Button("x", on_click=Action.remove("todos", RepeatItem.index())),
+        ))
+    """
+
+    @staticmethod
+    def value() -> ARKNode:
+        """
+        The current item's own value, wherever a literal value/
+        `Bind(...)` is accepted, e.g. `Text(RepeatItem.value())`. Compiles to
+        a small marker element the shipped runtime substitutes with
+        that item's value -- never a template string evaluated at
+        runtime, same discipline `Bind(...)` already holds for
+        `State(...)`.
+        """
+        return ARKNode(type="ItemBind", props={}, children=[])
+
+    @staticmethod
+    def index() -> ItemIndexRef:
+        """
+        The current item's *live* position -- only valid as an
+        `Action.*(...)` arg, e.g. `Action.remove(name, RepeatItem.index())`.
+        Unlike a literal index, this is re-resolved on every render, so
+        a `Button(on_click=Action.remove(...))` inside a repeated item
+        keeps removing *that* item even after an earlier
+        `Action.remove(...)` shifted every later item's position.
+        """
+        return ItemIndexRef()
+
+
+def Repeat(name: str, *, template: Callable[[], ARKNode]) -> ARKNode:
+    """
+    Per-item list rendering: `Repeat("todos", template=lambda: ...)`
+    renders one copy of `template()`'s returned `ARKNode` per element
+    of the list-valued `State(...)`/`Computed(...)` named `name`,
+    re-rendered (added/removed/reordered, keyed by each item's own
+    value -- see `Repeat`'s docstring on the JS side for why not by
+    index) through the vendored snabbdom `patch()`
+    (`arklight/backend/js/vdom.py`) whenever `name` changes.
+
+        State("todos", ["Buy milk", "Walk the dog"])
+        Repeat("todos", template=lambda: Container(
+            Text(RepeatItem.value()),
+            Button("Remove", on_click=Action.remove("todos", RepeatItem.index())),
+        ))
+
+    `template` is called exactly once, at compile time, to build the
+    per-item markup -- it never receives the actual item values (those
+    only exist once the page runs, server-rendered per current item or
+    client-rendered per the JS runtime's own copy of `name`); reference
+    the current item via `RepeatItem.value()`/`RepeatItem.index()` inside it
+    instead. The returned template stays closed-vocabulary, built from
+    the same `NodeSpec`/schema nodes every other page-facing construct
+    uses -- never an arbitrary JS render function.
+
+    Deliberately scoped to a *single* dynamic value per item (whatever
+    `name`'s list elements themselves are, typically a string/number),
+    not per-field access into a list of records -- see
+    docs/Backends/REFACTOR-INDEX.md row 15 for what's left for a future
+    version.
+    """
+    return ARKNode(type="Repeat", props={"name": name}, children=[template()])
+
+
+class Predicate:
+    """
+    A closed vocabulary of predicates for `Show(..., ...)`'s first
+    argument. Each returns a small structured `PredicateRef` --
+    validated against `arklight.ir.schema.PREDICATE_REGISTRY` at
+    compile time -- never a string of JavaScript or Python.
+
+        Show(Predicate.truthy("is_open"), Text("Details go here"))
+        Show(Predicate.falsy("is_open"), Text("Click to expand"))
+    """
+
+    @staticmethod
+    def truthy(name: str) -> PredicateRef:
+        return PredicateRef(kind="truthy", names=(name,))
+
+    @staticmethod
+    def falsy(name: str) -> PredicateRef:
+        return PredicateRef(kind="falsy", names=(name,))
+
+
+def Show(predicate: PredicateRef, *children: Any) -> ARKNode:
+    """
+    Conditional rendering: mounts `children` in the page exactly when
+    `predicate` (a `Predicate.*(...)` reference) is true against the
+    page's current `State(...)`/`Computed(...)`, re-evaluated on every
+    state change.
+
+        State("is_open", False)
+        Show(Predicate.truthy("is_open"), Text("Now you see me"))
+
+    `children` renders server-side (with JS disabled, the page shows
+    exactly what `predicate` evaluates to against `State(...)`'s
+    *initial* values -- there's no client-only content) and is toggled
+    via the HTML `hidden` attribute client-side, a content-visibility
+    semantic, not a style declaration -- see
+    `arklight/backend/js/runtime/show.py`'s module docstring for why
+    this is `Show`'s actual mechanism rather than the vnode-swap
+    `docs/new js backend proposal/ARCHITECTURE-VDOM.md` SS6.3 proposes.
+    """
+    return ARKNode(type="Show", props={"predicate": predicate}, children=list(children))
+
+
 BUILTIN_COMPONENTS = {
     "Page": Page,
     "Heading": Heading,
@@ -552,6 +687,8 @@ BUILTIN_COMPONENTS = {
     "Image": Image,
     "List": List,
     "Item": Item,
+    "Repeat": Repeat,
+    "Show": Show,
     "Header": Header,
     "Footer": Footer,
     "Main": Main,
