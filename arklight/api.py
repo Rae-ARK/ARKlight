@@ -477,6 +477,46 @@ class Derive:
         return DerivationRef(kind="compare", names=(a, b), args={"op": op})
 
 
+# ---------------------------------------------------------------------------
+# `vdom-5` (docs/Backends/REFACTOR-INDEX.md row 13): watch effects.
+#
+# `Watch(...)` closes the "when X changes, also do Y" side-effect gap
+# `Computed(...)` deliberately leaves open (a `Computed(...)` only ever
+# *derives* a value -- it can't dispatch an `Action.*(...)` of its own).
+# See docs/Foundational/DESIGN-NOTES.md ("Watch effects") for the full
+# design. No new dispatch mechanism: a `Watch(...)`'s `then=` is the
+# exact same `ActionRef` `on_click=Action.*(...)` already uses, just
+# invoked from a state-change subscription instead of a click listener
+# -- see `arklight/backend/js/runtime/watch.py`.
+# ---------------------------------------------------------------------------
+
+
+def Watch(name: str, *, then: "ActionRef") -> ARKNode:
+    """
+    Declare a page-scoped side effect: whenever the `State(...)`/
+    `Computed(...)` named `name` changes value, run `then` -- an
+    `Action.*(...)` reference, exactly like an `on_click=` value.
+
+        State("celsius", 0)
+        State("fahrenheit", 32)
+        Watch("celsius", then=Action.set("fahrenheit", ...))
+
+    Must appear as a direct child of `Page(...)`, same as `State(...)`/
+    `Computed(...)` -- a `Watch(...)` is a declaration, not renderable
+    content, and is compiled into the Website IR rather than reaching
+    any backend as a component. `name` may be a `State(...)` or a
+    `Computed(...)` (anything `Bind(...)` could reference); `then`
+    must target a real `State(...)` on the same page, the same
+    restriction `Action.*(...)` already has when used as `on_click=` --
+    a `Computed(...)` has no independent value of its own to mutate.
+    """
+    return ARKNode(
+        type="Watch",
+        props={"name": name, "then": then},
+        children=[],
+    )
+
+
 BUILTIN_COMPONENTS = {
     "Page": Page,
     "Heading": Heading,
@@ -1576,6 +1616,7 @@ __all__ = [
     "Action",
     "ActionRef",
     "Computed",
+    "Watch",
     "Derive",
     "DerivationRef",
     "ARKNode",

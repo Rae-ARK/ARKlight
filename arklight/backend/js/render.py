@@ -250,6 +250,22 @@ No new dispatch mechanism and no new markup pass: a `Computed(...)`
 value lives in the exact same state object a `State(...)` value does,
 so `Bind(...)`/`bind_class=` read it through the unmodified
 `renderBindings`/`renderClassBindings` passes.
+
+`vdom-5` (see `docs/Backends/REFACTOR-INDEX.md` row 13) adds watch
+effects: `Watch(name, then=Action.*(...))` (`arklight.api.Watch`). A
+page that declares at least one `Watch(...)` gets `wireWatchers`
+(`arklight/backend/js/runtime/watch.py`) spliced in and called once
+from `initState()`, registering one more `store.subscribe` listener
+that re-dispatches the exact same `actions` object `on_click=
+Action.*(...)` already uses, just triggered by a state-change
+notification instead of a click. `_collect_usage` folds a `Watch(...)`
+'s `then.action` into the same `used_actions` set an `on_click=
+Action.*(...)` reference would, so `actions` ships with exactly the
+fragments a site's IR needs either way -- but a watch-only page (no
+clickable `Action.*(...)`/named behavior anywhere) ships `actions`
+without also shipping the click interceptor it would never use (see
+`needs_actions_object` vs. `needs_click_interceptor` in
+`_build_runtime_js`).
 """
 
 from __future__ import annotations
@@ -264,6 +280,7 @@ from arklight.backend.js.runtime import CLICK_INTERCEPTOR_JS as _CLICK_INTERCEPT
 from arklight.backend.js.runtime import NAV_HIGHLIGHT_JS as _NAV_HIGHLIGHT_JS
 from arklight.backend.js.runtime import NOTIFY_JS as _NOTIFY_JS
 from arklight.backend.js.runtime import STATE_CORE_JS as _STATE_CORE_JS
+from arklight.backend.js.runtime import WIRE_WATCHERS_JS as _WIRE_WATCHERS_JS
 from arklight.backend.js.vdom import SNABBDOM_CORE_JS
 from arklight.ir.build import IRNode, WebsiteIR
 
@@ -287,22 +304,30 @@ def _walk(node: IRNode):
             yield from _walk(child)
 
 
-def _collect_usage(ir: WebsiteIR) -> tuple[set[str], set[str], bool, set[str], bool]:
+def _collect_usage(ir: WebsiteIR) -> tuple[set[str], set[str], set[str], bool, set[str], bool, bool]:
     """
     Inspect the site's IR for what the runtime actually needs to ship:
-    which named behaviors are referenced, which actions are referenced,
+    which named behaviors are referenced, which actions are referenced
+    by an `on_click=Action.*(...)` specifically (`used_on_click_actions`
+    -- the click interceptor only ever needs to ship for *this* set,
+    see `_build_runtime_js`), the full set of actions referenced by
+    either `on_click=` or a `Watch(...)`'s `then=` (`used_actions`,
+    `vdom-5` -- see below; this is what `_actions_object_js` reads),
     whether any page declares state at all, which derivation kinds are
     referenced by a `Computed(...)` (`vdom-4`, docs/Backends/
-    REFACTOR-INDEX.md row 12), and whether any page declares a
-    `Computed(...)` at all.
+    REFACTOR-INDEX.md row 12), whether any page declares a
+    `Computed(...)` at all, and whether any page declares a
+    `Watch(...)` at all (`vdom-5`, docs/Backends/REFACTOR-INDEX.md row
+    13).
     """
     used_behaviors: set[str] = set()
-    used_actions: set[str] = set()
+    used_on_click_actions: set[str] = set()
     has_state = any(page.state for page in ir.pages)
     used_derivations: set[str] = {
         spec["kind"] for page in ir.pages for _name, spec in page.computed
     }
     has_computed = any(page.computed for page in ir.pages)
+    has_watch = any(page.watch for page in ir.pages)
 
     for page in ir.pages:
         for node in _walk(page.root):
@@ -310,9 +335,30 @@ def _collect_usage(ir: WebsiteIR) -> tuple[set[str], set[str], bool, set[str], b
             if isinstance(on_click, str):
                 used_behaviors.add(on_click)
             elif isinstance(on_click, ActionRef):
-                used_actions.add(on_click.action)
+                used_on_click_actions.add(on_click.action)
 
-    return used_behaviors, used_actions, has_state, used_derivations, has_computed
+    # vdom-5: a Watch(...)'s `then=` reuses the exact same
+    # ACTION_REGISTRY dispatcher an on_click=Action.*(...) does (see
+    # arklight/backend/js/runtime/watch.py), so its action needs the
+    # same "only ship what's used" fragment -- folded into the
+    # broader `used_actions` set `_actions_object_js` reads, kept
+    # separate from `used_on_click_actions` (which alone decides
+    # whether the *click interceptor* is needed -- a watch effect
+    # never involves a click).
+    used_watch_actions: set[str] = {
+        entry["then"]["action"] for page in ir.pages for entry in page.watch
+    }
+    used_actions = used_on_click_actions | used_watch_actions
+
+    return (
+        used_behaviors,
+        used_on_click_actions,
+        used_actions,
+        has_state,
+        used_derivations,
+        has_computed,
+        has_watch,
+    )
 
 
 def _behaviors_object_js(used_behaviors: set[str]) -> str:
@@ -387,14 +433,36 @@ def _derivations_object_js(used_derivations: set[str]) -> str:
 
 
 def _build_runtime_js(ir: WebsiteIR) -> str:
-    used_behaviors, used_actions, has_state, used_derivations, has_computed = _collect_usage(ir)
+    (
+        used_behaviors,
+        used_on_click_actions,
+        used_actions,
+        has_state,
+        used_derivations,
+        has_computed,
+        has_watch,
+    ) = _collect_usage(ir)
 
     # htmx-5 (docs/Backends/REFACTOR-INDEX.md row 10): the click
     # interceptor now dispatches both actions and behaviors, and needs
     # shipping whenever either is used -- independent of has_state
     # (a behavior-only page has no State(...) at all; see
-    # runtime/dispatch.py's module docstring).
-    needs_click_interceptor = bool(used_behaviors) or bool(used_actions)
+    # runtime/dispatch.py's module docstring). `vdom-5`: deliberately
+    # keyed off `used_on_click_actions`, not the broader `used_actions`
+    # -- a page with only `Watch(...)` effects and no `on_click=
+    # Action.*(...)`/named behavior anywhere needs the `actions`
+    # object (see `needs_actions_object` below) but never the click
+    # interceptor itself, since a watch effect never involves a click.
+    needs_click_interceptor = bool(used_behaviors) or bool(used_on_click_actions)
+
+    # vdom-5: `actions` is needed whenever the click interceptor is
+    # (unchanged) *or* whenever any page declares a `Watch(...)` --
+    # `wireWatchers` (`runtime/watch.py`) reads the same closed
+    # dispatch object by closure. Split out from
+    # `needs_click_interceptor` so a watch-only page (no clickable
+    # Action.*(...)/behavior anywhere) ships `actions` without also
+    # shipping the click interceptor it would never use.
+    needs_actions_object = needs_click_interceptor or has_watch
 
     # htmx-1 (docs/Backends/REFACTOR-INDEX.md row 4) originally shipped
     # vendored HTMX whenever a page used a named behavior or declared
@@ -472,11 +540,20 @@ def _build_runtime_js(ir: WebsiteIR) -> str:
         parts.append(_STATE_CORE_JS)
         parts.append("")
 
-    if needs_click_interceptor:
+    # vdom-5: `actions` ships whenever the click interceptor needs it
+    # (unchanged) or whenever any page declares a `Watch(...)` --
+    # `needs_actions_object` covers both; `behaviors`/the interceptor
+    # itself stay gated on `needs_click_interceptor` alone, since a
+    # watch effect never dispatches a named behavior or needs a click
+    # listener.
+    if needs_actions_object:
         parts.append(_actions_object_js(used_actions))
+    if needs_click_interceptor:
         parts.append(_behaviors_object_js(used_behaviors))
         parts.append(_CLICK_INTERCEPTOR_JS)
         parts.append("")
+    if has_watch:
+        parts.append(_WIRE_WATCHERS_JS)
 
     parts.append(_NAV_HIGHLIGHT_JS)
     parts.append("")

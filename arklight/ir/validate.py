@@ -78,6 +78,15 @@ Checks performed:
     `Bind(...)`/`bind_class=` may reference a `Computed(...)`'s `name`
     exactly like a `State(...)`'s; `Action.*(...)` may not -- a
     `Computed(...)` has no independent value of its own to mutate.
+14. `Watch(...)` (`vdom-5`, see docs/Backends/REFACTOR-INDEX.md row 13)
+    may only appear as a direct child of `Page(...)`, same as
+    `State(...)`/`Computed(...)`; its `name` must resolve to a
+    `State(...)`/`Computed(...)` declared on the same page (the same
+    bindable set `Bind(...)` checks against); its `then=` must be an
+    `Action.*(...)` reference whose `action`/`state`/`modifiers` are
+    valid the same way an `on_click=Action.*(...)` value already is --
+    reusing `_validate_action` -- so `then` may only target a real
+    `State(...)` on the page, never a `Computed(...)`.
 """
 
 from __future__ import annotations
@@ -448,6 +457,50 @@ def _validate_computed_declaration(node: ARKNode, *, path: str, parent_is_page: 
     _validate_derive_ref(node.props.get("derive"), path=path, deps=deps)
 
 
+def _validate_watch_declaration(
+    node: ARKNode,
+    *,
+    path: str,
+    parent_is_page: bool,
+    page_state: frozenset[str],
+    mutable_state: frozenset[str],
+) -> None:
+    """
+    `vdom-5`: structural + cross-reference checks for `Watch(...)`.
+    Mirrors `_validate_computed_declaration`'s "must be a direct child
+    of Page(...)" rule, then reuses `_validate_bind`'s bindable-name
+    check for `name` (a `Watch(...)` can observe anything `Bind(...)`
+    could render -- `State(...)` or `Computed(...)`) and
+    `_validate_action`'s existing checks for `then` (an
+    `Action.*(...)` reference is only ever valid against a real
+    `State(...)`, never a `Computed(...)` -- the same restriction
+    `on_click=Action.*(...)` already enforces).
+    """
+    if not parent_is_page:
+        raise ValidationError(
+            f"Watch(...) at {path} may only be declared as a direct child of "
+            f"Page(...) -- like State(...)/Computed(...), it belongs to the "
+            f"page, not to a nested component. Move it up to the top level "
+            f"of Page(...)."
+        )
+    name = node.props.get("name")
+    if not isinstance(name, str) or not name:
+        raise ValidationError(f"Watch(...) at {path} needs a non-empty string name.")
+    if name not in page_state:
+        known = ", ".join(sorted(page_state)) or "(none declared)"
+        raise ValidationError(
+            f"Watch({name!r}) at {path} watches state that isn't declared on "
+            f"this page. State/Computed declared on this page: {known}."
+        )
+    then = node.props.get("then")
+    if not isinstance(then, ActionRef):
+        raise ValidationError(
+            f"Watch({name!r}) at {path} has then={then!r}, which isn't an "
+            f"Action.*(...) reference."
+        )
+    _validate_action(then, path=path, mutable_state=mutable_state)
+
+
 def validate_node(
     node: ARKNode,
     *,
@@ -474,6 +527,16 @@ def validate_node(
 
     if node.type == "Computed":
         _validate_computed_declaration(node, path=path, parent_is_page=parent_is_page)
+        return
+
+    if node.type == "Watch":
+        _validate_watch_declaration(
+            node,
+            path=path,
+            parent_is_page=parent_is_page,
+            page_state=page_state,
+            mutable_state=mutable_state,
+        )
         return
 
     spec = SCHEMA.get(node.type)

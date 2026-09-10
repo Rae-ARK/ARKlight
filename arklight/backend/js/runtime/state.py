@@ -52,6 +52,22 @@ is a no-op and `derivations` (whose declaration is itself gated on
 `has_computed` in `_build_runtime_js`) is never dereferenced.
 `initState()` below reads the sibling `data-ark-computed` attribute
 the same way it already reads `data-ark-state`, and passes it through.
+
+`vdom-5` (docs/Backends/REFACTOR-INDEX.md row 13): `initState()` also
+reads a sibling `data-ark-watch` attribute (`IRPage.watch`, the same
+marker/`<body>`-attribute duality `data-ark-state`/`data-ark-computed`
+already use) and, once the store is constructed, hands it to
+`wireWatchers` (`arklight/backend/js/runtime/watch.py`) alongside the
+existing `renderBindings`/`renderClassBindings` subscriber -- one more
+kind of `store.subscribe` listener, per that module's docstring. The
+call is guarded with `typeof wireWatchers === "function"` rather than
+called unconditionally: `STATE_CORE_JS` (this fragment) ships on
+*every* stateful page, but `WIRE_WATCHERS_JS` only ships on a page
+that actually declares `Watch(...)` (see `arklight/backend/js/
+render.py`'s `_build_runtime_js`) -- an unconditional call would throw
+a `ReferenceError` on any stateful page with no watch effects at all,
+`typeof` is the standard safe way to probe for a maybe-undeclared
+identifier without that risk.
 """
 
 from __future__ import annotations
@@ -95,10 +111,15 @@ INIT_STATE_JS = """  function initState() {
     var rawComputed = marker
       ? marker.getAttribute("data-ark-computed")
       : document.body.getAttribute("data-ark-computed");
+    var rawWatch = marker
+      ? marker.getAttribute("data-ark-watch")
+      : document.body.getAttribute("data-ark-watch");
     try {
       var computed = rawComputed ? JSON.parse(rawComputed) : [];
+      var watch = rawWatch ? JSON.parse(rawWatch) : [];
       var store = createState(JSON.parse(raw), computed);
       store.subscribe(function () { renderBindings(store); renderClassBindings(store); });
+      if (typeof wireWatchers === "function") { wireWatchers(store, watch); }
       return store;
     } catch (err) {
       arkNotify("This page's saved state couldn't be loaded -- interactive features on this page may not work.");

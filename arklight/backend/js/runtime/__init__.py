@@ -54,6 +54,15 @@ page uses a named behavior *or* an action, independent of `has_state`,
 alongside `STATE_CORE_JS` (createState/bindings/initState) whenever
 `has_state` alone -- the two are shipped independently now, not always
 together.
+
+`vdom-5` (docs/Backends/REFACTOR-INDEX.md row 13) adds a sixth
+sibling, `watch.py` (`WIRE_WATCHERS_JS` / `wireWatchers`), for
+`Watch(name, then=Action.*(...))` effects. Unlike the other five
+pieces, it's not folded into `STATE_CORE_JS` -- it's only shipped on a
+page that actually declares `Watch(...)`, the same "only ship what's
+used" discipline `_actions_object_js`/`_behaviors_object_js`/
+`_derivations_object_js` already follow, rather than being part of
+the always-present reactive core every stateful page ships.
 """
 
 from __future__ import annotations
@@ -66,6 +75,7 @@ from arklight.backend.js.runtime.dispatch import CLICK_INTERCEPTOR_JS
 from arklight.backend.js.runtime.nav import NAV_HIGHLIGHT_JS
 from arklight.backend.js.runtime.notify import NOTIFY_JS
 from arklight.backend.js.runtime.state import CREATE_STATE_JS, INIT_STATE_JS
+from arklight.backend.js.runtime.watch import WIRE_WATCHERS_JS
 
 # Reactive-state pieces only -- the click interceptor is no longer
 # part of this bundle as of htmx-5 (see module docstring above).
@@ -81,4 +91,5 @@ __all__ = [
     "CLICK_INTERCEPTOR_JS",
     "NOTIFY_JS",
     "NAV_HIGHLIGHT_JS",
+    "WIRE_WATCHERS_JS",
 ]

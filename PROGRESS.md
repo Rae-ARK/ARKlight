@@ -26,6 +26,7 @@ table, see [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md).
 | vdom-2   | Reactive-core vdom staging, Stage 2 of 8: reactive class binding (`Bind.when(...)`/`bind_class=`) | DONE |
 | vdom-3   | Reactive-core vdom staging, Stage 3 of 8: event modifiers (`.with_modifiers(...)`/`.debounce(...)`/`.throttle(...)`) | DONE |
 | vdom-4   | Computed/derived state (`Computed`/`Derive.*`/`DERIVATION_REGISTRY`) -- docs/Backends/REFACTOR-INDEX.md row 12 | DONE |
+| vdom-5   | Watch effects (`Watch(...)`, reuses the action dispatcher) -- docs/Backends/REFACTOR-INDEX.md row 13 | DONE |
 | v0.0431  | Emergency patch: build-time warning for unrouted `srcset`/`poster`/`action`/`formaction` | DONE |
 | v0.048   | CSS `@media` queries + `<head>`/`<header>` extension (Stage A of 2: `meta`/`links` DONE; Stage B of 2: `responsive_style` + `@media` compilation DONE) | DONE |
 | v0.054   | JS backend capability expansion (reactive core parity with Vue 3) -- renumbered from v0.044 now that v0.048 has shipped | PLANNED |
@@ -59,15 +60,14 @@ go-ahead before implementation starts on any of these:
   `app_shell=True` navigation stage the packaging backends
   (Android/KaiOS/Desktop) all implicitly need, and names -- without
   scoping -- a later, explicitly opt-in server-backed state-streaming
-  milestone informed by an external reference prototype. 11 of 16
+  milestone informed by an external reference prototype. 13 of 16
   merged stages done as of this session (see
   `docs/Backends/REFACTOR-INDEX.md`'s table for the full, current
-  per-row status) -- most recently `htmx-5` (audit: removed
-  `hx-on:click` for named behaviors after finding it routed through
-  vendored HTMX's own eval-equivalent `Function`-from-string attribute
-  dispatch, which this project's own "no eval" invariant doesn't
-  permit; behaviors now dispatch through the same delegated `click`
-  listener `Action.*(...)` already used).
+  per-row status) -- most recently `vdom-5` (watch effects,
+  `Watch(name, then=Action.*(...))` -- reuses the same
+  `ACTION_REGISTRY` dispatcher `on_click=Action.*(...)` already uses,
+  invoked from a state-change subscription instead of a click
+  listener).
 - **KaiOS backend.** Design complete --
   `docs/Far Future Concern/KAIOS-BACKEND-IMPLEMENTATION.md` (plus the
   constraint-gathering doc in the same directory,
@@ -148,6 +148,112 @@ Not part of this stage (see `vdom-5`/`vdom-6`/`vdom-7`/`vdom-8` in
 docs/Backends/REFACTOR-INDEX.md, all still "Not started"): watch
 effects, two-way input binding, per-item list rendering/conditional
 show-hide, `localStorage` persistence.
+
+## vdom-5 -- Watch effects (DONE)
+
+Closes the "when X changes, also do Y" side-effect gap `Computed(...)`
+deliberately leaves open (a `Computed(...)` only ever *derives* a
+value -- it can't dispatch an `Action.*(...)` of its own). New API:
+
+```python
+State("celsius", 0)
+State("fahrenheit", 32)
+Watch("celsius", then=Action.set("fahrenheit", ...))
+```
+
+Same seven-additive-sub-systems shape docs/Foundational/DESIGN-NOTES.md
+lays out for this whole vdom-staging arc: a `Watch(...)` API function
+(`arklight/api.py`), no new registry this time (a `Watch(...)`'s
+`then=` is just an `ActionRef`, validated by the exact same
+`_validate_action`/`ACTION_REGISTRY` machinery `on_click=` already
+uses), and one new runtime fragment
+(`arklight/backend/js/runtime/watch.py`).
+
+- **`arklight/api.py`**: `Watch(name, *, then)` -- a page-scoped
+  declaration, same shape as `Computed(...)`: must be a direct child
+  of `Page(...)`, compiled into the IR rather than reaching any
+  backend as a component.
+- **`arklight/ir/validate.py`**: `_validate_watch_declaration` --
+  `parent_is_page` check (mirrors `_validate_computed_declaration`),
+  `name` checked against the page's bindable set the same way
+  `_validate_bind` checks a `Bind(...)`'s name (so a `Watch(...)` can
+  observe a `State(...)` *or* a `Computed(...)`), and `then` handed
+  straight to the existing `_validate_action` (so `then` can only ever
+  target a real `State(...)`, the same restriction `on_click=
+  Action.*(...)` already has -- a `Computed(...)` has nothing of its
+  own to mutate).
+- **`arklight/ir/build.py`**: new `IRPage.watch` field --
+  declaration-ordered (no dependency graph to sort, unlike `computed`)
+  list of `{"name": ..., "then": {...}}` dicts, `_extract_page_state`
+  pulling `Watch(...)` nodes out of a page's children the same way it
+  already pulls `State(...)`/`Computed(...)`, and a new
+  `_action_ref_to_spec` helper (`ActionRef` -> plain dict, the same
+  role `_derivation_ref_to_spec` plays for `DerivationRef`).
+- **`arklight/backend/html/page_render.py`**: a sibling
+  `data-ark-watch` JSON attribute, same marker/`<body>`-attribute
+  duality `data-ark-state`/`data-ark-computed` already use -- a page
+  can only ever have `page.watch` non-empty when `page.state` is too
+  (enforced transitively by Validation), so it's always safe on the
+  same element.
+- **`arklight/backend/js/runtime/watch.py`** (new): `wireWatchers(store,
+  specs)` -- snapshots each watched name's current value, then adds
+  one more `store.subscribe` listener alongside `renderBindings`/
+  `renderClassBindings` (wired from `initState()`, `runtime/state.py`,
+  guarded with `typeof wireWatchers === "function"` since the fragment
+  only ships on a page that actually declares `Watch(...)`). On each
+  notification, re-reads every watched name and, for any that
+  changed, updates the snapshot *before* dispatching that watch's
+  `then` action through the exact same `actions[...]` object
+  `wireClickInterceptor` already reads -- no new dispatch mechanism,
+  confirming this stage's own "verify against whatever htmx-3 leaves
+  that dispatcher looking like" note. Updating the snapshot before
+  dispatch keeps a self-referential `Watch(...)` (the "clamp a value
+  back into range" case) a small, bounded number of reentrant passes
+  rather than an infinite loop, even though `store.set` itself always
+  notifies regardless of whether the value actually changed -- see
+  `tests/test_vdom_5.py`'s Node-subprocess coverage for the exact
+  bound.
+- **`arklight/backend/js/render.py`**: `_collect_usage` now returns
+  `used_on_click_actions` separately from the broader `used_actions`
+  (which folds in every `Watch(...)`'s `then.action` too) -- `
+  needs_click_interceptor` stays keyed off the narrower set (a watch
+  effect never involves a click), while a new `needs_actions_object`
+  (`needs_click_interceptor or has_watch`) decides whether the
+  `actions` dispatch object itself ships, so a watch-only page (no
+  `on_click=`/named behavior anywhere) gets `actions` without an
+  unused click interceptor tagging along.
+- **`tests/test_vdom_5.py`** (24 tests, mirroring `test_vdom_4.py`'s
+  per-stage discipline): API, Validation (bindable-name/`then`-target
+  checks, unknown action, invalid modifier, `Computed(...)` rejected as
+  a `then` target), IR build (declaration order, plain-dict `ActionRef`
+  mirror, `Watch(...)` never reaching page children), HTML backend
+  (`data-ark-watch` emission + round-trip), JS backend (fragment only
+  ships when needed, `actions`-without-click-interceptor on a
+  watch-only page, dedup against an unrelated `on_click=` action,
+  guarded `wireWatchers` call site), and two Node-subprocess checks:
+  one confirming `wireWatchers` actually dispatches the watched action
+  on a real change, one confirming a self-referential watch settles in
+  a small, fixed number of reentrant passes rather than hanging. Full
+  suite: 931 passed (plus 2 pre-existing, unrelated
+  `test_version.py` failures from this sandbox's `arklight` package
+  not being `pip install`-ed -- not introduced by this stage), no
+  regressions.
+
+Not part of this stage (see `vdom-6`/`vdom-7`/`vdom-8` in
+docs/Backends/REFACTOR-INDEX.md, all still "Not started"): two-way
+input binding, per-item list rendering/conditional show-hide,
+`localStorage` persistence. Also deliberately out of scope, noted here
+so it isn't rediscovered later: `Watch(...)`'s `then=` accepts the
+same `.with_modifiers(...)`/`.debounce(...)`/`.throttle(...)` shape
+`on_click=Action.*(...)` does (Validation doesn't special-case it
+away), but `wireWatchers` never reads `spec.then.modifiers` -- those
+tokens exist to coalesce rapid *clicks* on one element, which has no
+equivalent for a state-change subscription that already only fires
+once per actual value change, so any modifiers present on a
+`Watch(...)`'s `then` are silently inert rather than rejected at
+Validation time. Worth a follow-up Validation check (reject
+modifiers on a `Watch(...)`'s `then` outright) if that silent-inert
+behavior ever surprises someone in practice.
 
 ## v0.048 -- Stage B: `responsive_style` + `@media` compilation (DONE)
 

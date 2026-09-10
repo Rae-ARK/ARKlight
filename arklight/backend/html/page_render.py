@@ -179,12 +179,30 @@ def _render_page(
         if page.computed:
             computed_json = escape(json.dumps(page.computed), quote=True)
             computed_attr = f' data-ark-computed="{computed_json}"'
+        # `vdom-5` (docs/Backends/REFACTOR-INDEX.md row 13): `page.watch`
+        # rides along as its own `data-ark-watch` attribute, same
+        # reasoning as `data-ark-computed` above -- it carries no
+        # value of its own to hydrate, just the (name, then) pairs the
+        # JS runtime's `wireWatchers` (`arklight/backend/js/runtime/
+        # watch.py`) wires up as extra `store.subscribe` callbacks
+        # once `initState()` has a store to hand it. A page can only
+        # ever have `page.watch` non-empty when `page.state` is too
+        # (`Watch(...)`'s `name` must resolve to a `State(...)`/
+        # `Computed(...)` declared on the page, and any `Computed(...)`
+        # chain itself bottoms out at a real `State(...)`, both
+        # enforced by Validation), so it's always safe to place all
+        # three attributes on the same marker.
+        watch_attr = ""
+        if page.watch:
+            watch_json = escape(json.dumps(page.watch), quote=True)
+            watch_attr = f' data-ark-watch="{watch_json}"'
         if app_shell:
             state_marker = (
-                f'<div id="ark-state" data-ark-state="{state_json}"{computed_attr} hidden></div>\n'
+                f'<div id="ark-state" data-ark-state="{state_json}"'
+                f"{computed_attr}{watch_attr} hidden></div>\n"
             )
         else:
-            body_attr_parts.append(f' data-ark-state="{state_json}"{computed_attr}')
+            body_attr_parts.append(f' data-ark-state="{state_json}"{computed_attr}{watch_attr}')
     if app_shell:
         body_attr_parts.append(' hx-boost="true"')
     body_attrs = "".join(body_attr_parts)

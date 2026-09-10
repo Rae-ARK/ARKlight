@@ -25,7 +25,7 @@ from typing import Any, Callable
 import re
 
 from arklight import experimental
-from arklight.ast.nodes import ARKNode, DerivationRef
+from arklight.ast.nodes import ActionRef, ARKNode, DerivationRef
 
 
 @dataclass
@@ -65,6 +65,20 @@ class IRPage:
     # `Computed(...)`.
     computed: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
     computed_initial: dict[str, Any] = field(default_factory=dict)
+    # `vdom-5` (docs/Backends/REFACTOR-INDEX.md row 13): page-scoped
+    # watch effects declared via `Watch(name, then=Action.*(...))`,
+    # extracted the same way `state`/`computed` above are. Each entry
+    # is `{"name": ..., "then": {"action": ..., "state": ...,
+    # "args": {...}, "modifiers": [...]}}` -- a plain-dict,
+    # JSON-serializable mirror of the `ActionRef` that produced it
+    # (same shape `_derivation_ref_to_spec` gives `Computed(...)`'s
+    # `derive=`), carried into the HTML backend's `data-ark-watch`
+    # hydration blob and read by the JS runtime's `wireWatchers`
+    # (`arklight/backend/js/runtime/watch.py`). Order is declaration
+    # order -- unlike `computed`, watch effects don't depend on each
+    # other, so there's no dependency graph to topologically sort.
+    # Empty for pages that declare no `Watch(...)`.
+    watch: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -229,6 +243,18 @@ def _derivation_ref_to_spec(derive: DerivationRef) -> dict[str, Any]:
     return {"kind": derive.kind, "names": list(derive.names), "args": dict(derive.args)}
 
 
+def _action_ref_to_spec(action: ActionRef) -> dict[str, Any]:
+    """Plain-dict, JSON-serializable mirror of an `ActionRef` -- same
+    role `_derivation_ref_to_spec` plays for `DerivationRef`, used by
+    `Watch(...)`'s `then=` (`vdom-5`, `IRPage.watch`)."""
+    return {
+        "action": action.action,
+        "state": action.state,
+        "args": dict(action.args),
+        "modifiers": list(action.modifiers),
+    }
+
+
 def _topological_order_computed(computed_defs: dict[str, dict[str, Any]]) -> list[str]:
     """
     Depth-first topological sort of the `Computed(...) -> Computed(...)`
@@ -330,21 +356,24 @@ def _evaluate_derivation(spec: dict[str, Any], *, get: Callable[[str], Any]) -> 
 
 def _extract_page_state(
     page: ARKNode,
-) -> tuple[dict[str, Any], list[tuple[str, dict[str, Any]]], dict[str, Any], list]:
+) -> tuple[dict[str, Any], list[tuple[str, dict[str, Any]]], dict[str, Any], list[dict[str, Any]], list]:
     """
     Split a validated Page node's children into (state, computed,
-    computed_initial, remaining children). `State(...)`/`Computed(...)`
-    nodes are declarations, not renderable content -- they must never
-    reach the HTML backend as a child.
+    computed_initial, watch, remaining children). `State(...)`/
+    `Computed(...)`/`Watch(...)` nodes are declarations, not renderable
+    content -- they must never reach the HTML backend as a child.
 
     `computed` is returned in dependency order (see
     `_topological_order_computed`); `computed_initial` is each
     `Computed(...)`'s build-time-evaluated initial value, in that same
     order, computed via `_evaluate_derivation` against `state` and
-    previously-evaluated entries.
+    previously-evaluated entries. `watch` (`vdom-5`) is returned in
+    declaration order -- see `IRPage.watch`'s docstring for why no
+    sort is needed here, unlike `computed`.
     """
     state: dict[str, Any] = {}
     computed_defs: dict[str, dict[str, Any]] = {}
+    watch: list[dict[str, Any]] = []
     remaining: list = []
     for child in page.children:
         if isinstance(child, ARKNode) and child.type == "State":
@@ -353,6 +382,13 @@ def _extract_page_state(
             spec = _derivation_ref_to_spec(child.props["derive"])
             spec["deps"] = list(child.props.get("deps", ()))
             computed_defs[child.props["name"]] = spec
+        elif isinstance(child, ARKNode) and child.type == "Watch":
+            watch.append(
+                {
+                    "name": child.props["name"],
+                    "then": _action_ref_to_spec(child.props["then"]),
+                }
+            )
         else:
             remaining.append(child)
 
@@ -368,7 +404,7 @@ def _extract_page_state(
         computed_initial[name] = _evaluate_derivation(computed_defs[name], get=_get)
 
     computed = [(name, computed_defs[name]) for name in order]
-    return state, computed, computed_initial, remaining
+    return state, computed, computed_initial, watch, remaining
 
 
 def build_website_ir(
@@ -434,7 +470,7 @@ def build_website_ir(
     collector = _ResponsiveStyleCollector()
     ir_pages = []
     for route, page in pages.items():
-        state, computed, computed_initial, remaining_children = _extract_page_state(page)
+        state, computed, computed_initial, watch, remaining_children = _extract_page_state(page)
         root_page = ARKNode(type=page.type, props=page.props, children=remaining_children)
         ir_pages.append(
             IRPage(
@@ -443,6 +479,7 @@ def build_website_ir(
                 state=state,
                 computed=computed,
                 computed_initial=computed_initial,
+                watch=watch,
             )
         )
     return WebsiteIR(

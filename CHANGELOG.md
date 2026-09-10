@@ -5,6 +5,65 @@ follows [Keep a Changelog](https://keepachangelog.com/); versions
 follow the milestone scheme from ARCHITECTURE.md rather than strict
 SemVer.
 
+## [Unreleased] -- `vdom-5`: watch effects (`Watch(...)`)
+
+**Scope:** `docs/Backends/REFACTOR-INDEX.md` row 13 /
+`docs/Foundational/DESIGN-NOTES.md` sub-system 2 ("Watch effects").
+Closes the "when X changes, also do Y" side-effect gap `Computed(...)`
+deliberately leaves open: `Watch(name, then=Action.*(...))`, a
+page-scoped effect that reuses the exact same `ACTION_REGISTRY`
+dispatcher `on_click=Action.*(...)` already uses -- no new dispatch
+mechanism, just invoked from a state-change subscription instead of a
+click listener.
+
+**API (`arklight/api.py`):**
+
+- `Watch(name, *, then)` -- a new declaration node, valid only as a
+  direct child of `Page(...)` (same as `State(...)`/`Computed(...)`).
+  `name` may reference a `State(...)` *or* a `Computed(...)` (anything
+  `Bind(...)` could render); `then` is an `Action.*(...)` reference
+  and, like `on_click=`, may only ever target a real `State(...)` --
+  a `Computed(...)` has no independent value of its own to mutate.
+
+**IR (`arklight/ir/validate.py`, `arklight/ir/build.py`):**
+
+- `_validate_watch_declaration` -- direct-child-of-`Page(...)` check,
+  `name` checked against the page's bindable set, `then` handed to
+  the existing `_validate_action` (no new action-shaped validation
+  needed -- `Watch(...)`'s `then=` is exactly the `on_click=` shape).
+- `IRPage.watch` -- a new declaration-ordered list of
+  `{"name": ..., "then": {...}}` dicts (plain, JSON-serializable
+  mirrors of the `ActionRef`, via a new `_action_ref_to_spec` helper),
+  extracted from a page's children by `_extract_page_state` the same
+  way `state`/`computed` already are.
+
+**HTML backend (`arklight/backend/html/page_render.py`):**
+
+- A sibling `data-ark-watch` JSON attribute on the same
+  `data-ark-state`/`data-ark-computed` marker.
+
+**JS backend (`arklight/backend/js/runtime/watch.py` (new),
+`arklight/backend/js/runtime/state.py`, `arklight/backend/js/render.py`):**
+
+- `wireWatchers(store, specs)` -- snapshots each watched name, adds
+  one more `store.subscribe` listener alongside `renderBindings`/
+  `renderClassBindings`, and on change dispatches the watched action
+  through the same `actions[...]` object the click interceptor reads.
+  Wired from `initState()`, guarded with `typeof wireWatchers ===
+  "function"` so a stateful page with no `Watch(...)` isn't broken by
+  a call to an unshipped function.
+- `_collect_usage`/`_build_runtime_js` fold a `Watch(...)`'s
+  `then.action` into the same `used_actions` fragment-selection set an
+  `on_click=` reference would, while keeping `needs_actions_object`
+  (ships `actions`) separate from `needs_click_interceptor` (ships the
+  click listener) -- a watch-only page ships `actions` without an
+  unused click interceptor.
+
+**Tests:** `tests/test_vdom_5.py` (24 tests) -- API, Validation, IR
+build, HTML backend, JS backend, and two Node-subprocess checks (real
+dispatch-on-change, and boundedness of a self-referential watch). Full
+suite: 931 passed, no regressions.
+
 ## [Unreleased] -- `vdom-4`: computed/derived state (`Computed`/`Derive.*`)
 
 **Scope:** `docs/Backends/REFACTOR-INDEX.md` row 12 / `docs/DESIGN-NOTES.md`
