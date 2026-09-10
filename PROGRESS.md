@@ -22,11 +22,13 @@ table, see [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md).
 | v0.036   | ARK Bundle spec v1 (`arklight pack`)                         | DONE    |
 | v0.037   | Sealed ARK Bundles (encrypted by default, `arklight unpack`) | DONE    |
 | v0.041   | CLI/pipeline/JS runtime hardening + stateful JS addenda I/II | DONE    |
+| v0.042   | Extra CSS features: custom classes (`Site.style(...)`), `arklight search <name>`, `arklight --help`/bare `arklight` | DONE |
 | vdom-1   | Reactive-core vdom staging, Stage 1 of 8: vendored snabbdom bare core swapped into `State`'s re-render pass | DONE |
 | vdom-2   | Reactive-core vdom staging, Stage 2 of 8: reactive class binding (`Bind.when(...)`/`bind_class=`) | DONE |
 | vdom-3   | Reactive-core vdom staging, Stage 3 of 8: event modifiers (`.with_modifiers(...)`/`.debounce(...)`/`.throttle(...)`) | DONE |
 | vdom-4   | Computed/derived state (`Computed`/`Derive.*`/`DERIVATION_REGISTRY`) -- docs/Backends/REFACTOR-INDEX.md row 12 | DONE |
 | vdom-5   | Watch effects (`Watch(...)`, reuses the action dispatcher) -- docs/Backends/REFACTOR-INDEX.md row 13 | DONE |
+| vdom-6   | Two-way input binding (`bind_value=Bind.model(...)` -> `data-ark-model`) -- docs/Backends/REFACTOR-INDEX.md row 14 | DONE |
 | v0.0431  | Emergency patch: build-time warning for unrouted `srcset`/`poster`/`action`/`formaction` | DONE |
 | v0.048   | CSS `@media` queries + `<head>`/`<header>` extension (Stage A of 2: `meta`/`links` DONE; Stage B of 2: `responsive_style` + `@media` compilation DONE) | DONE |
 | v0.054   | JS backend capability expansion (reactive core parity with Vue 3) -- renumbered from v0.044 now that v0.048 has shipped | PLANNED |
@@ -40,18 +42,6 @@ table, see [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md).
 Design-sketched in `docs/DESIGN-NOTES.md`, explicitly waiting on a
 go-ahead before implementation starts on any of these:
 
-- **Custom CSS class authoring.** Today `class_name=` only ever
-  selects from the fixed set of utility classes the CSS backend ships
-  (`.nav`, `.card`, `.stack`, ...) -- there's no way for a site author
-  to define a *new* class with its own rules; the whole stylesheet is
-  one constant (`arklight/backend/css/render.py`). Real per-node/
-  per-class CSS generation is a bigger design question than v0.048's
-  `@media`/`<head>` scope and isn't folded into it.
-- **`arklight --search <name>`** -- schema lookup for a component by
-  name (required props, children rules) against
-  `arklight.ir.schema.SCHEMA`, the same source of truth every compiler
-  stage already reads from. Read-only reflection, no new data format.
-- **`arklight --help`** -- standard CLI usage/help text.
 - **JS backend refactor (module split + HTMX-bus adoption + app-shell
   navigation), staged** -- see
   `docs/Backends/JS-BACKEND-REFACTOR-PLAN.md`. Reconciles the
@@ -60,14 +50,14 @@ go-ahead before implementation starts on any of these:
   `app_shell=True` navigation stage the packaging backends
   (Android/KaiOS/Desktop) all implicitly need, and names -- without
   scoping -- a later, explicitly opt-in server-backed state-streaming
-  milestone informed by an external reference prototype. 13 of 16
+  milestone informed by an external reference prototype. 14 of 16
   merged stages done as of this session (see
   `docs/Backends/REFACTOR-INDEX.md`'s table for the full, current
-  per-row status) -- most recently `vdom-5` (watch effects,
-  `Watch(name, then=Action.*(...))` -- reuses the same
-  `ACTION_REGISTRY` dispatcher `on_click=Action.*(...)` already uses,
-  invoked from a state-change subscription instead of a click
-  listener).
+  per-row status) -- most recently `vdom-6` (two-way input binding,
+  `bind_value=Bind.model("name")` -> `data-ark-model="name"` --
+  `renderModelBindings`/`wireModelBinding` mirror the existing
+  `bind_class`/`renderClassBindings` render-pass-plus-delegated-
+  listener split).
 - **KaiOS backend.** Design complete --
   `docs/Far Future Concern/KAIOS-BACKEND-IMPLEMENTATION.md` (plus the
   constraint-gathering doc in the same directory,
@@ -80,6 +70,61 @@ go-ahead before implementation starts on any of these:
   tier `docs/Far Future Concern/WINDOWS-PHONE-BACKEND.md`'s Windows
   Phone/UWP backend already sits at: a written, plausible design with
   no roadmap commitment behind it.
+
+## vdom-6 -- Two-way input binding (DONE)
+
+Closes docs/Backends/REFACTOR-INDEX.md row 14. `bind_value=` gives an
+`Input` a two-way binding to a `State(...)` name -- state writes into
+the element's `value` (same pre-fill/re-render pattern `bind_class=`
+already uses), and the element's own `input` events write back into
+state, so a bound field stays in sync in both directions without an
+explicit `on_click=`/`Action.*` wire-up for every keystroke.
+
+- **`arklight/api.py`** -- `Bind.model(name)` is a thin, explicit
+  spelling for "this is a two-way reference" (`bind_value=` also
+  accepts a plain string directly, same as `bind_class=`'s relationship
+  to `ClassBindSpec`). Only a `State(...)` name is a valid target --
+  mirrors `Action.*(...)`'s own restriction, since a `Computed(...)`
+  has no independent value of its own for user input to write back
+  into.
+- **`arklight/ir/validate.py`** -- `_validate_model_bind` enforces that
+  restriction: `bind_value` must be a non-empty string naming a
+  `State(...)` declared on the page, not a `Computed(...)` name.
+- **`arklight/backend/html/attrs.py`** -- pre-fills `value=` from the
+  page's initial state (same as `bind_class=`'s initial-render
+  pre-fill), unless an explicit `value=` prop is already given (that
+  wins), and compiles `bind_value=` to a `data-ark-model="name"`
+  attribute for the runtime to key off.
+- **`arklight/backend/js/runtime/model.py`** (new) --
+  `renderModelBindings(store)` is one more `store.subscribe` render
+  pass alongside `renderBindings`/`renderClassBindings`: writes
+  `store.get(key)` into the element's `.value` whenever state changes
+  from *any* source, comparing against the element's current `.value`
+  first so a user's own keystroke doesn't get its cursor position
+  reset. `wireModelBinding(getStore)` is one delegated `input` listener
+  on `document` (event delegation via `Element.closest()`, same
+  pattern `wireClickInterceptor` uses for `click`), taking a
+  zero-argument getter for the same "registered exactly once, must
+  survive an `app_shell` boosted navigation without a stale closure"
+  reason `wireClickInterceptor` documents.
+- **`arklight/backend/js/render.py`** -- `_collect_usage` now also
+  reports `has_model_binding`; both new fragments are only shipped on
+  a page that actually declares `bind_value=` somewhere, same
+  "only ship what's used" discipline `WIRE_WATCHERS_JS` already
+  follows.
+- Deliberately not routed through the vendored snabbdom core -- same
+  reasoning `renderClassBindings` already documents for `bind_class`:
+  `.value` is DOM element state, not a vnode's own rendered children,
+  so there's nothing for `patch()` to diff.
+- Test coverage: `tests/test_vdom_6.py` (new) -- API, Validation, HTML
+  backend, JS backend, and two Node-subprocess end-to-end checks that
+  the shipped `renderModelBindings`/`wireModelBinding` fragments
+  actually sync state -> value and value -> state.
+
+**Note:** the commit that landed this was mistitled "Vdom 5" (it's
+`vdom-6` throughout the code/docstrings and in
+`docs/Backends/REFACTOR-INDEX.md` row 14) -- flagging here so it isn't
+missed by anyone grepping history for "vdom-6".
 
 ## vdom-4 -- Computed/derived state (DONE)
 
@@ -830,6 +875,69 @@ are likeliest to fail), and a single malformed
 **Update:** this follow-up is now done -- see the "JS runtime
 error-handling hardening" milestone directly above.
 
+## v0.042 -- Extra CSS features: custom classes, `arklight search`, `arklight --help` (DONE)
+
+**Status: DONE**, shipped and bumped to `0.42.0`. This entry was
+missing from PROGRESS.md even though the code shipped and
+`CHANGELOG.md` already has the full writeup ("[0.042] -- Extra CSS
+features: custom classes, `arklight search`, `arklight --help`") --
+docs are being brought back in sync with the code here, same situation
+as the `v0.0035` entry below. Full design context in
+`docs/DESIGN-NOTES.md` ("v0.042: extra CSS features"). Goal was
+cutting boilerplate/nesting in the styling API and closing two
+long-open CLI discoverability gaps -- not new `@media`/`<head>`
+capability (that's `v0.048`).
+
+- [x] **`Site.style(name, rules)`** (`arklight/api.py`) -- registers a
+      real, named, reusable CSS class from a plain
+      `{css-property: value}` dict; `class_name="name"` anywhere in
+      the site then picks up the rules from the generated stylesheet
+      instead of repeating a `style={...}` dict on every node that
+      needs it. Validated at registration time (safe single class
+      identifier; non-empty rules dict). Re-registering the same name
+      overwrites it (last call wins).
+- [x] **`WebsiteIR.custom_styles`** (`arklight/ir/build.py`) threads
+      `Site.custom_styles` through `build_website_ir()`.
+- [x] **`CSSBackend`** (`arklight/backend/css/custom_styles.py`, new
+      module split out of `render.py`) renders `ir.custom_styles` as
+      `.name { prop: value; }` blocks, sorted for deterministic
+      output, appended after the fixed base stylesheet so custom
+      classes can override base rules by cascade order. Custom classes
+      and the fixed base utility classes (`.nav`, `.card`, `.stack`,
+      ...) share the same `class_name=` mechanism -- nothing new
+      needed on the HTML backend side.
+- [x] **`arklight search <name>`** (`arklight/search/`,
+      `arklight/cli/search.py`, `arklight/cli/main.py`) -- read-only
+      schema lookup against `arklight.ir.schema.SCHEMA`: required
+      props, whether children are allowed, and whether the component
+      is a `Bind(...)`-able target. Exact match (case-insensitive)
+      wins outright; otherwise falls back to typo-tolerant "did you
+      mean" suggestions. No external dependency, no new data format,
+      no compiler-pipeline changes. Does not currently search the base
+      stylesheet's utility class names, only component schema --
+      possible follow-up, not scoped for this pass.
+- [x] **`arklight --help` / bare `arklight`** (`arklight/cli/main.py`)
+      -- `--help` already worked via argparse's built-in flag;
+      running bare `arklight` (no subcommand) used to print argparse's
+      terser "error: the following arguments are required: command"
+      instead of full help. Subparsers are no longer `required=True`;
+      a bare `arklight` now prints full help and exits `0`.
+- [x] Fixed a real version-drift bug from the published PyPI release:
+      `pyproject.toml`'s version and `arklight.__version__` disagreed.
+      `arklight/__init__.py` no longer hardcodes a second copy --
+      `__version__` reads back from the installed package's own
+      metadata (`importlib.metadata.version("arklight")`), so
+      `pyproject.toml` is the single source of truth. Also moved off
+      the old two/three-digit milestone-number-as-decimal scheme to a
+      proper three-part `MAJOR.MINOR.PATCH` string (the old scheme was
+      a real PEP 440 hazard: `0.100` normalizes to `0.1`, which would
+      have sorted below `0.048`'s `0.48`).
+- Test coverage: `tests/test_api_style.py` (new),
+  `tests/test_css_backend.py` (extended),
+  `tests/test_pipeline_end_to_end.py` (extended), `tests/test_search.py`
+  (new), `tests/test_cli.py` (extended), `tests/test_version.py` (new,
+  locks `__version__` to installed package metadata).
+
 ## v0.0035 -- Stateful JS (DONE)
 
 **Status: DONE.** This entry was missing from PROGRESS.md/CHANGELOG.md
@@ -1279,7 +1387,16 @@ The stale note further down this file ("v0.0035 -- done; v0.004 --
 folder scaffolding only, logic not started") is superseded by this
 entry -- see the correction inline there.
 
-## v0.048 -- CSS `@media` queries + `<head>`/`<header>` extension (PLANNED)
+## v0.048 -- CSS `@media` queries + `<head>`/`<header>` extension (PLANNED) [STALE -- superseded]
+
+**Superseded:** this entry is stale. `v0.048` (both Stage A and Stage
+B) is DONE -- see "v0.048 -- Stage A: structured `<head>` extension"
+and "v0.048 -- Stage B: `responsive_style` + `@media` compilation"
+further up this file, and the Snapshot table at the top. The two
+"explicitly out of scope" items below have since shipped too, as
+`v0.042` (see that entry above) -- left in place, struck through
+inline, purely as a historical record of what this milestone's design
+phase looked like before implementation started.
 
 The other two pieces of the old "v0.004" heading, renumbered to their
 own milestone since they didn't land with the scaffolding above and
@@ -1288,24 +1405,23 @@ implementation has not started. Full writeup in
 [`docs/DESIGN-NOTES.md`](./docs/DESIGN-NOTES.md) ("v0.048: CSS media
 queries + `<head>` extension").
 
-- [ ] `responsive_style={...}` prop -> real `@media` blocks in the CSS
-  backend. Not implemented yet -- `arklight/backend/css/render.py`
-  still emits one fixed stylesheet with no `@media`/`@container`
-  blocks, and `Page`/components never get a `<head>` hook at all.
-- [ ] `Page(meta=..., links=...)` -- a structured, non-arbitrary
-  `<head>` extension point (no raw HTML injection). Not implemented
-  yet.
+- [x] `responsive_style={...}` prop -> real `@media` blocks in the CSS
+  backend. (Shipped -- see "v0.048 -- Stage B" above.)
+- [x] `Page(meta=..., links=...)` -- a structured, non-arbitrary
+  `<head>` extension point (no raw HTML injection). (Shipped -- see
+  "v0.048 -- Stage A" above.)
 - [ ] Anything else that touches the generated `<header>` element as
   part of this pass (the element, not the `<head>` extension above --
   see `docs/DESIGN-NOTES.md` for the distinction once design work
   starts).
 
 **Explicitly out of scope for v0.048**, tracked separately below under
-"Planned, not yet scheduled":
+"Planned, not yet scheduled" -- ~~since shipped as `v0.042`~~:
 
-- User-authored custom CSS classes/rules beyond the fixed
-  `class_name=` utility set.
-- `arklight --search <name>` component schema lookup.
+- ~~User-authored custom CSS classes/rules beyond the fixed
+  `class_name=` utility set.~~ Shipped as `Site.style(...)` in `v0.042`.
+- ~~`arklight --search <name>` component schema lookup.~~ Shipped in
+  `v0.042`.
 
 ## v0.010 -- Components (user-defined, reusable) (PLANNED)
 
@@ -1398,9 +1514,12 @@ Also documented, not implemented, in `docs/DESIGN-NOTES.md`: two CLI
 helpers, `arklight --help` and `arklight --search <name>`, for looking
 up a component's schema by name once the vocabulary is large enough
 that recall becomes the bottleneck. Still not implemented as of this
-restructure -- see "Planned, not yet scheduled" near the top of this
-file. Explicitly held for a separate go-ahead signal, independent of
-v0.0035/v0.004a/v0.048.
+restructure -- explicitly held for a separate go-ahead signal,
+independent of v0.0035/v0.004a/v0.048.
+
+**Update: both have since shipped, as `v0.042`** -- see the "v0.042 --
+Extra CSS features: custom classes, `arklight search`, `arklight
+--help`" entry above.
 
 ## v0.041 -- stateful JS vocabulary addendum II: list actions (DONE)
 

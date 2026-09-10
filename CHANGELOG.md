@@ -5,6 +5,67 @@ follows [Keep a Changelog](https://keepachangelog.com/); versions
 follow the milestone scheme from ARCHITECTURE.md rather than strict
 SemVer.
 
+## [Unreleased] -- `vdom-6`: two-way input binding (`bind_value=`)
+
+**Scope:** `docs/Backends/REFACTOR-INDEX.md` row 14. Adds two-way
+binding for form inputs: `bind_value=Bind.model("name")` keeps an
+`Input`'s `value` and a `State("name", ...)` entry in sync in both
+directions, instead of requiring a hand-wired `on_click=`/`Action.*`
+pair for every keystroke.
+
+**API (`arklight/api.py`):**
+
+- `Bind.model(name)` -- thin, explicit spelling for "this is a
+  two-way reference" (`bind_value=` also accepts a plain string
+  directly, same relationship `bind_class=`/`Bind.when(...)` already
+  has). Only a `State(...)` name is a valid target -- mirrors
+  `Action.*(...)`'s own restriction, since a `Computed(...)` has no
+  independent value of its own for user input to write back into.
+
+**IR (`arklight/ir/validate.py`):**
+
+- `_validate_model_bind` -- `bind_value` must be a non-empty string
+  naming a `State(...)` declared on the page; targeting an undeclared
+  name or a `Computed(...)` name raises.
+
+**HTML backend (`arklight/backend/html/attrs.py`):**
+
+- Pre-fills `value=` from the page's initial state, same pattern
+  `bind_class=` uses for its own initial-render pre-fill (an explicit
+  `value=` prop, if also given, wins). Compiles `bind_value=` to a
+  `data-ark-model="name"` attribute.
+
+**JS backend (`arklight/backend/js/runtime/model.py` (new),
+`arklight/backend/js/runtime/state.py`, `arklight/backend/js/render.py`):**
+
+- `renderModelBindings(store)` -- one more `store.subscribe` render
+  pass alongside `renderBindings`/`renderClassBindings`, writing
+  `store.get(key)` into the bound element's `.value` on any state
+  change, comparing against the element's current `.value` first so a
+  user's own keystroke doesn't get its cursor position reset.
+- `wireModelBinding(getStore)` -- one delegated `input` listener on
+  `document` (event delegation via `Element.closest()`, same pattern
+  `wireClickInterceptor` uses for `click`), writing the element's
+  `.value` into state on every keystroke. Takes a zero-argument getter,
+  registered exactly once, for the same "must survive an `app_shell`
+  boosted navigation without a stale closure" reason
+  `wireClickInterceptor` documents.
+- `_collect_usage`/`_build_runtime_js` gained a `has_model_binding`
+  flag -- both new fragments are only shipped on a page that actually
+  declares `bind_value=` somewhere, same "only ship what's used"
+  discipline `WIRE_WATCHERS_JS` already follows.
+- Deliberately not routed through the vendored snabbdom core -- same
+  reasoning `renderClassBindings` already documents for `bind_class`:
+  `.value` is DOM element state, not a vnode's own rendered children.
+
+Test coverage: `tests/test_vdom_6.py` (new) -- API, Validation, HTML
+backend, JS backend, and two Node-subprocess end-to-end checks that
+the shipped fragments actually sync state -> value and value -> state.
+
+**Note:** the commit that landed this was mistitled "Vdom 5" in its
+commit message -- it's `vdom-6` throughout the code, docstrings, and
+`docs/Backends/REFACTOR-INDEX.md` row 14.
+
 ## [Unreleased] -- `vdom-5`: watch effects (`Watch(...)`)
 
 **Scope:** `docs/Backends/REFACTOR-INDEX.md` row 13 /
