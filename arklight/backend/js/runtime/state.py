@@ -68,6 +68,12 @@ render.py`'s `_build_runtime_js`) -- an unconditional call would throw
 a `ReferenceError` on any stateful page with no watch effects at all,
 `typeof` is the standard safe way to probe for a maybe-undeclared
 identifier without that risk.
+
+`vdom-6` (docs/Backends/REFACTOR-INDEX.md row 14): the `store.subscribe`
+callback also calls `renderModelBindings(store)`
+(`arklight/backend/js/runtime/model.py`), same `typeof`-guarded,
+only-shipped-when-used pattern as `wireWatchers` just above -- a page
+with no `bind_value=` anywhere never declares that function.
 """
 
 from __future__ import annotations
@@ -118,7 +124,11 @@ INIT_STATE_JS = """  function initState() {
       var computed = rawComputed ? JSON.parse(rawComputed) : [];
       var watch = rawWatch ? JSON.parse(rawWatch) : [];
       var store = createState(JSON.parse(raw), computed);
-      store.subscribe(function () { renderBindings(store); renderClassBindings(store); });
+      store.subscribe(function () {
+        renderBindings(store);
+        renderClassBindings(store);
+        if (typeof renderModelBindings === "function") { renderModelBindings(store); }
+      });
       if (typeof wireWatchers === "function") { wireWatchers(store, watch); }
       return store;
     } catch (err) {

@@ -72,6 +72,10 @@ from arklight.backend.js.runtime.bindings import (
     RENDER_CLASS_BINDINGS_JS,
 )
 from arklight.backend.js.runtime.dispatch import CLICK_INTERCEPTOR_JS
+from arklight.backend.js.runtime.model import (
+    RENDER_MODEL_BINDINGS_JS,
+    WIRE_MODEL_BINDING_JS,
+)
 from arklight.backend.js.runtime.nav import NAV_HIGHLIGHT_JS
 from arklight.backend.js.runtime.notify import NOTIFY_JS
 from arklight.backend.js.runtime.state import CREATE_STATE_JS, INIT_STATE_JS
@@ -92,4 +96,6 @@ __all__ = [
     "NOTIFY_JS",
     "NAV_HIGHLIGHT_JS",
     "WIRE_WATCHERS_JS",
+    "RENDER_MODEL_BINDINGS_JS",
+    "WIRE_MODEL_BINDING_JS",
 ]

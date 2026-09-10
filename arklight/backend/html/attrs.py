@@ -248,6 +248,17 @@ def _attr_string(
                 classes.append(bind_class.class_name)
             props["class_name"] = " ".join(classes)
 
+    bind_value = props.get("bind_value")
+    if isinstance(bind_value, str) and bind_value and page_state is not None:
+        # vdom-6: pre-fill `value` from state the same way bind_class
+        # pre-fills `class_name` above, so the page reflects its
+        # initial state correctly with JS disabled -- the shipped
+        # runtime keeps it in sync (both directions) after that. An
+        # explicit `value=` prop, if also given, wins -- bind_value
+        # only fills the gap, it doesn't override.
+        if "value" not in props and bind_value in page_state:
+            props["value"] = page_state.get(bind_value)
+
     parts = []
     for key, value in props.items():
         if key == "level":
@@ -325,6 +336,14 @@ def _attr_string(
             # value (if any) was already folded into `class_name` above.
             parts.append(f' data-ark-bind-class="{escape(value.class_name, quote=True)}"')
             parts.append(f' data-ark-bind-class-state="{escape(value.state, quote=True)}"')
+            continue
+
+        if key == "bind_value" and isinstance(value, str) and value:
+            # vdom-6: the runtime reads this to know which state key
+            # to keep this element's `value` synced with, in both
+            # directions -- the initial value (if any) was already
+            # folded into `value` above.
+            parts.append(f' data-ark-model="{escape(value, quote=True)}"')
             continue
 
         if key in BEHAVIOR_PROP_ATTRS:

@@ -192,6 +192,34 @@ def _validate_class_bind(node: ARKNode, *, path: str, page_state: frozenset[str]
         )
 
 
+def _validate_model_bind(node: ARKNode, *, path: str, mutable_state: frozenset[str]) -> None:
+    """
+    `vdom-6`: `bind_value=` (typically `Bind.model("name")`, a plain
+    string) is a two-way binding -- the target must be a real
+    `State(...)` name declared on the page, same restriction
+    `_validate_action` already enforces for `Action.*(...)` targets,
+    since a `Computed(...)` has no independent value for user input to
+    write back into.
+    """
+    bind_value = node.props.get("bind_value")
+    if bind_value is None:
+        return
+    if not isinstance(bind_value, str) or not bind_value:
+        raise ValidationError(
+            f"{node.type!r} at {path} has bind_value={bind_value!r}, which must "
+            f"be a non-empty state name string (e.g. Bind.model(\"query\"))."
+        )
+    if bind_value not in mutable_state:
+        known = ", ".join(sorted(mutable_state)) or "(none declared)"
+        raise ValidationError(
+            f"bind_value at {path} (Bind.model({bind_value!r})) targets state "
+            f"{bind_value!r}, which isn't declared on this page as State(...) "
+            f"(a Computed(...) name can't be a bind_value target -- it has no "
+            f"independent value of its own to write back into). State declared "
+            f"on this page: {known}."
+        )
+
+
 def _validate_responsive_style(node: ARKNode, *, path: str) -> None:
     """
     v0.048 Stage B: `responsive_style={"(max-width: 600px)": {"display":
@@ -555,6 +583,7 @@ def validate_node(
 
     _validate_behavior_props(node, path=path, mutable_state=mutable_state)
     _validate_class_bind(node, path=path, page_state=page_state)
+    _validate_model_bind(node, path=path, mutable_state=mutable_state)
     _validate_responsive_style(node, path=path)
     _validate_shell_persistent(node, path=path)
     if node.type == "Page":

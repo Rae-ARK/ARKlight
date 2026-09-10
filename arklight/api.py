@@ -326,6 +326,31 @@ def _bind_when(state: str, class_name: str) -> ClassBindSpec:
 Bind.when = _bind_when
 
 
+def _bind_model(name: str) -> str:
+    """
+    Two-way input binding (`vdom-6`): `bind_value=Bind.model("query")`
+    keeps an `Input`'s `value` in sync with `State("query", ...)` in
+    both directions -- the element's initial `value` is pre-filled from
+    state (same as `bind_class`), and the shipped runtime writes the
+    user's keystrokes back into state on every `input` event. Unlike
+    `bind_class=`, this is just the state name itself (no second
+    value to pair it with), so `Bind.model(...)` is a thin, explicit
+    spelling for "this is a two-way reference," not a distinct spec
+    type -- `bind_value=` also accepts a plain string directly.
+
+        State("query", "")
+        Input(bind_value=Bind.model("query"))
+
+    Only a `State(...)` name is a valid target (mirrors `Action.*(...)`
+    's own restriction) -- a `Computed(...)` has no independent value
+    of its own for user input to write back into.
+    """
+    return name
+
+
+Bind.model = _bind_model
+
+
 class Action:
     """
     A closed vocabulary of state-mutating actions for `on_click=`,

@@ -279,7 +279,9 @@ from arklight.backend.js.htmx import HTMX_JS
 from arklight.backend.js.runtime import CLICK_INTERCEPTOR_JS as _CLICK_INTERCEPTOR_JS
 from arklight.backend.js.runtime import NAV_HIGHLIGHT_JS as _NAV_HIGHLIGHT_JS
 from arklight.backend.js.runtime import NOTIFY_JS as _NOTIFY_JS
+from arklight.backend.js.runtime import RENDER_MODEL_BINDINGS_JS as _RENDER_MODEL_BINDINGS_JS
 from arklight.backend.js.runtime import STATE_CORE_JS as _STATE_CORE_JS
+from arklight.backend.js.runtime import WIRE_MODEL_BINDING_JS as _WIRE_MODEL_BINDING_JS
 from arklight.backend.js.runtime import WIRE_WATCHERS_JS as _WIRE_WATCHERS_JS
 from arklight.backend.js.vdom import SNABBDOM_CORE_JS
 from arklight.ir.build import IRNode, WebsiteIR
@@ -304,7 +306,9 @@ def _walk(node: IRNode):
             yield from _walk(child)
 
 
-def _collect_usage(ir: WebsiteIR) -> tuple[set[str], set[str], set[str], bool, set[str], bool, bool]:
+def _collect_usage(
+    ir: WebsiteIR,
+) -> tuple[set[str], set[str], set[str], bool, set[str], bool, bool, bool]:
     """
     Inspect the site's IR for what the runtime actually needs to ship:
     which named behaviors are referenced, which actions are referenced
@@ -316,9 +320,10 @@ def _collect_usage(ir: WebsiteIR) -> tuple[set[str], set[str], set[str], bool, s
     whether any page declares state at all, which derivation kinds are
     referenced by a `Computed(...)` (`vdom-4`, docs/Backends/
     REFACTOR-INDEX.md row 12), whether any page declares a
-    `Computed(...)` at all, and whether any page declares a
-    `Watch(...)` at all (`vdom-5`, docs/Backends/REFACTOR-INDEX.md row
-    13).
+    `Computed(...)` at all, whether any page declares a `Watch(...)` at
+    all (`vdom-5`, docs/Backends/REFACTOR-INDEX.md row 13), and whether
+    any node anywhere uses `bind_value=` (`vdom-6`, docs/Backends/
+    REFACTOR-INDEX.md row 14).
     """
     used_behaviors: set[str] = set()
     used_on_click_actions: set[str] = set()
@@ -328,6 +333,7 @@ def _collect_usage(ir: WebsiteIR) -> tuple[set[str], set[str], set[str], bool, s
     }
     has_computed = any(page.computed for page in ir.pages)
     has_watch = any(page.watch for page in ir.pages)
+    has_model_binding = False
 
     for page in ir.pages:
         for node in _walk(page.root):
@@ -336,6 +342,8 @@ def _collect_usage(ir: WebsiteIR) -> tuple[set[str], set[str], set[str], bool, s
                 used_behaviors.add(on_click)
             elif isinstance(on_click, ActionRef):
                 used_on_click_actions.add(on_click.action)
+            if isinstance(node.props.get("bind_value"), str) and node.props.get("bind_value"):
+                has_model_binding = True
 
     # vdom-5: a Watch(...)'s `then=` reuses the exact same
     # ACTION_REGISTRY dispatcher an on_click=Action.*(...) does (see
@@ -358,6 +366,7 @@ def _collect_usage(ir: WebsiteIR) -> tuple[set[str], set[str], set[str], bool, s
         used_derivations,
         has_computed,
         has_watch,
+        has_model_binding,
     )
 
 
@@ -441,6 +450,7 @@ def _build_runtime_js(ir: WebsiteIR) -> str:
         used_derivations,
         has_computed,
         has_watch,
+        has_model_binding,
     ) = _collect_usage(ir)
 
     # htmx-5 (docs/Backends/REFACTOR-INDEX.md row 10): the click
@@ -539,6 +549,13 @@ def _build_runtime_js(ir: WebsiteIR) -> str:
             parts.append(_derivations_object_js(used_derivations))
         parts.append(_STATE_CORE_JS)
         parts.append("")
+        if has_model_binding:
+            # vdom-6: `renderModelBindings` is only ever meaningful on
+            # a stateful page (bind_value= is validated against
+            # State(...) names -- see arklight.ir.validate), and only
+            # shipped when at least one node actually uses it, same
+            # "only ship what's used" discipline as WIRE_WATCHERS_JS.
+            parts.append(_RENDER_MODEL_BINDINGS_JS)
 
     # vdom-5: `actions` ships whenever the click interceptor needs it
     # (unchanged) or whenever any page declares a `Watch(...)` --
@@ -554,6 +571,14 @@ def _build_runtime_js(ir: WebsiteIR) -> str:
         parts.append("")
     if has_watch:
         parts.append(_WIRE_WATCHERS_JS)
+
+    if has_model_binding:
+        # vdom-6: `wireModelBinding` is the input-side counterpart to
+        # `wireClickInterceptor` -- one delegated `input` listener,
+        # registered once (see the getter/ready_calls handling below
+        # for why), rather than a per-element wiring pass.
+        parts.append(_WIRE_MODEL_BINDING_JS)
+        parts.append("")
 
     parts.append(_NAV_HIGHLIGHT_JS)
     parts.append("")
@@ -572,14 +597,24 @@ def _build_runtime_js(ir: WebsiteIR) -> str:
     init_body = ["    highlightActiveNavLink();"]
     if has_state:
         init_body.append("    arkStore = initState();")
-        init_body.append(
-            "    if (arkStore) { renderBindings(arkStore); renderClassBindings(arkStore); }"
-        )
+        render_calls = "renderBindings(arkStore); renderClassBindings(arkStore);"
+        if has_model_binding:
+            render_calls += " renderModelBindings(arkStore);"
+        init_body.append(f"    if (arkStore) {{ {render_calls} }}")
 
     parts.append("  function arkInitPage() {")
     parts.extend(init_body)
     parts.append("  }")
     parts.append("")
+
+    # `getter` is shared by wireClickInterceptor and (vdom-6)
+    # wireModelBinding below -- both take a zero-argument getter
+    # rather than a fixed store value, for the same app_shell-boosted-
+    # navigation reason documented on runtime/dispatch.py's
+    # wireClickInterceptor: registered exactly once, must keep reading
+    # whatever arkStore most recently holds without re-registering a
+    # second, stale-closure listener on every boosted swap.
+    getter = "function () { return arkStore; }" if has_state else "function () { return null; }"
 
     ready_calls = ["    arkInitPage();"]
     if needs_click_interceptor:
@@ -597,8 +632,15 @@ def _build_runtime_js(ir: WebsiteIR) -> str:
         # handles (that branch is unreachable on such a page anyway:
         # no element carries data-ark-on-click="action:..." without
         # State(...) to act on).
-        getter = "function () { return arkStore; }" if has_state else "function () { return null; }"
         ready_calls.append(f"    wireClickInterceptor({getter});")
+    if has_model_binding:
+        # Same "register exactly once, getter closure" contract as
+        # wireClickInterceptor above -- has_model_binding implies
+        # has_state (bind_value= is only ever validated against a
+        # State(...) name), so this getter is never the always-null
+        # variant in practice, but shares the same expression either
+        # way for consistency.
+        ready_calls.append(f"    wireModelBinding({getter});")
 
     parts.append('  document.addEventListener("DOMContentLoaded", function () {')
     parts.extend(ready_calls)
